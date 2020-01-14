@@ -6,7 +6,7 @@ from astropy.table import Table
 from astropy.coordinates import SkyCoord
 from astropy import units as u
 import os
-basedir = os.path.join(os.path.dirname(os.path.realpath(os.path.dirname(__file__))),'data')
+basedir = os.path.join(os.path.realpath(os.path.dirname(__file__)),'data')
 
 optstd = ascii.read(os.path.join(basedir, 'opt.std.cat'), 
       fill_values=('INDEF',-99),

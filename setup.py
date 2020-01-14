@@ -6,15 +6,13 @@ setup(
       author='Chris Burns',
       author_email='cburns@carnegiescience.edu',
       packages=['CSPlib'],
-      scripts=['bin/make_optls_table.py','bin/make_nirls_table.py'],
-      include_package_data=True,
+      scripts=['bin/make_optls_table','bin/make_nirls_table'],
+      package_data={'CSPlib':['data/*']},
       description='CSP-related python code and scripts',
-      install_requires=[
+      requires=[
          'astropy',
          'pymysql',
          'numpy',
-         'scipy',
-         'matplotlib',
       ],
       )
 
