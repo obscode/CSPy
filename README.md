@@ -7,5 +7,4 @@ Currently in this repository:
 2. Photometry pipeline (soon)
 
 To install the python-based software, simply do:
-
-python setup.py install
+   python setup.py install
