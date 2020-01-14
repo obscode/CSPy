@@ -1,0 +1,44 @@
+#!/usr/bin/env python
+
+from astropy.io import ascii
+from astropy.table import Table
+import sys
+from CSPlib.database import getConnection
+
+db = getConnection()
+c = db.cursor()
+
+SN = sys.argv[1]
+
+N = c.execute('''select NAME_CSP from SNList where SN=%s''', SN)
+if N > 0:
+   SN2 = c.fetchone()[0]
+else:
+   SN2 = None
+
+cols = ['OBJ','RA*15','DE','magy','erry','magj','errj','magh','errh']
+dtype=tuple(['i4']+['f4']*8)
+
+c.execute('''select {} from NIRLS where SN=%s'''.format(','.join(cols)), 
+   SN)
+data = c.fetchall()
+if len(data) == 0:
+   if SN2 is not None:
+      c.execute('''select {} from NIRLS where SN=%s'''.format(','.join(cols)), 
+         SN2)
+      data = c.fetchall()
+      if len(data) == 0:
+         print("No data for %s found" % (SN))
+         sys.exit(1)
+
+tab = Table(rows=data, names=cols, masked=True, dtype=dtype)
+tab['RA*15'].info.format = "%.6f"
+tab['DE'].info.format = "%.6f"
+for col in cols[2:]:
+   tab[col].info.format = "%.3f"
+tab.write('%s_nir.tex' % (SN), format='latex', 
+      latexdict=dict(tabletype='deluxetable',
+         caption='NIR local sequence photometry for %s' % format(SN)),
+      fill_values=[(ascii.masked, r'\ldots')]
+      )
+
