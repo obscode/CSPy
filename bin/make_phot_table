@@ -1,0 +1,73 @@
+#!/usr/bin/env python
+
+from astropy.io import ascii
+from astropy.table import Table
+import sys
+from CSPlib import colorterms
+from CSPlib import database
+import argparse
+from numpy import isnan
+
+header = r'''\begin{deluxetable}{ccccccccc}
+   \tablecolumns{9}
+   \tablecaption{Natural system photometry for %s}
+   \label{tab:Phot}
+   \tablehead{
+      \colhead{MJD (days)} & \colhead{Filter} & \colhead{Mag} & 
+      \colhead{Phase (days)} } 
+   \startdata
+'''
+   
+footer = r'''\enddata
+\end{deluxetable}'''
+
+def floatToCol(v,ev, fmt='%.3f'):
+   if isnan(v): return "\\ldots     "
+   st = fmt % (v)
+   st = st+'('
+   st = st + (fmt % (ev)).split('.')[1]
+   st = st + ')'
+   return st
+
+parser = argparse.ArgumentParser(description="Make LaTeX table of SN photometry")
+parser.add_argument('SN', help='Name of the SN from the database')
+parser.add_argument('Tmax', help='Time of maximum in MJD')
+args = parser.parse_args()
+
+db = database.getConnection()
+c = db.cursor()
+
+SN = args.SN
+
+N = c.execute('''select NAME_CSP from SNList where SN=%s''', SN)
+if N > 0:
+   SN2 = c.fetchone()[0]
+else:
+   SN2 = None
+
+cols = ['MJD','filt','mag','err']
+dtype=tuple(['f4','S1', 'f4','f4'])
+
+c.execute('''select JD-2400000.5 as MJD, filt, mag, sqrt(err*err+fiterr*fiterr) as err from MAGSN where field=%s order by filt,MJD''', SN)
+data = c.fetchall()
+if len(data) == 0:
+   if SN2 is not None:
+      c.execute('''select JD-2400000.5 as MJD, filt, mag, sqrt(err*err+fiterr*fiterr) as err from MAGSN where field=%s order by filt,MJD''', SN2)
+      data = c.fetchall()
+      if len(data) == 0:
+         print("No data for %s found" % (SN))
+         sys.exit(1)
+
+tab = Table(rows=data, names=cols, masked=True, dtype=dtype)
+tab['phase'] = tab['MJD'] - float(args.Tmax)
+tab['mag'].info.format = "%.3f"
+tab['err'].info.format = "%.3f"
+
+with open('table_%s_phot.tex' % SN, 'w') as fout:
+   fout.write(header % SN)
+   for i in range(len(tab)):
+      line = "%.2f & %s & %6.3f & %6.3f & %6.3f" % \
+            (tab[i]['MJD'],tab[i]['filt'], tab[i]['mag'], tab[i]['err'], tab[i]['phase'])
+      line = line + '\\\\\n'
+      fout.write(line)
+   fout.write(footer)
