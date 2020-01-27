@@ -3,12 +3,48 @@
 from astropy.io import ascii
 from astropy.table import Table
 import sys
+from CSPlib import colorterms
 from CSPlib.database import getConnection
+
+import argparse
+from numpy import isnan
+
+header = r'''\begin{deluxetable}{cccccc}
+   \tablecaption{NIR local sequence photometry for %s}
+   \label{tab:LSNIRPhot}
+   \tablehead{
+      \colhead{ID} & \colhead{$\alpha$ (2000)} & \colhead{$\delta$ (2000)} & 
+      \colhead{$Y$} & \colhead{$J$} & \colhead{$H$} }
+   \startdata
+'''
+   
+footer = r'''\enddata
+\end{deluxetable}'''
+
+def floatToCol(v,ev, fmt='%.3f'):
+   if isnan(v): return "\\ldots     "
+   st = fmt % (v)
+   st = st+'('
+   st = st + (fmt % (ev)).split('.')[1]
+   st = st + ')'
+   return st
+
+parser = argparse.ArgumentParser(description="Make LaTeX table of local NIR sequencephotometry")
+parser.add_argument('SN', help='Name of the SN from the database')
+parser.add_argument('-standard', action='store_true',
+      help="If specified, convert to standard photometry")
+parser.add_argument('-tel', help='Name of telescope. Default: SWO',
+      default='SWO')
+parser.add_argument('-ins', help='Name of instrument. Default: RC',
+      default='RC')
+parser.add_argument('-latex', help="Output in LaTeX table format",
+      action='store_true')
+args = parser.parse_args()
 
 db = getConnection()
 c = db.cursor()
 
-SN = sys.argv[1]
+SN = args.SN
 
 N = c.execute('''select NAME_CSP from SNList where SN=%s''', SN)
 if N > 0:
@@ -32,13 +68,34 @@ if len(data) == 0:
          sys.exit(1)
 
 tab = Table(rows=data, names=cols, masked=True, dtype=dtype)
+tab['OBJ'].info.format = "%3d"
 tab['RA*15'].info.format = "%.6f"
 tab['DE'].info.format = "%.6f"
-for col in cols[2:]:
+for col in cols[3:]:
    tab[col].info.format = "%.3f"
-tab.write('%s_nir.tex' % (SN), format='latex', 
-      latexdict=dict(tabletype='deluxetable',
-         caption='NIR local sequence photometry for %s' % format(SN)),
-      fill_values=[(ascii.masked, r'\ldots')]
-      )
+
+if args.standard:
+   Y,J,H = colorterms.NIRnat2stand(tab['magy'],tab['magj'],tab['magh'],
+         tel=args.tel, ins=args.ins)
+   tab['magy'][:] = Y
+   tab['magj'][:] = J
+   tab['magh'][:] = H
+
+if args.latex:
+   with open('%s_nir.tex' % SN, 'w') as fout:
+      fout.write(header % SN)
+      for i in range(len(tab)):
+         line = "%3d & %10.6f & %10.6f " % \
+               (tab[i]['OBJ'],tab[i]['RA*15'], tab[i]['DE'])
+         for filt in ['y','j','h']:
+            if tab['mag'+filt].mask[i]:
+               line = line + "& \\ldots     "
+               continue
+            line = line + "& " + floatToCol(tab[i]['mag'+filt],tab[i]['err'+filt])
+         line = line + '\\\\\n'
+         fout.write(line)
+      fout.write(footer)
+else:
+   tab.write("%s_nir.dat" % SN, format='ascii.fixed_width', delimiter=' ',
+         fill_values=[(ascii.masked, 'nan')])
 
