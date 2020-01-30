@@ -1,0 +1,20 @@
+#!/usr/bin/env python
+import sys,string
+import argparse
+from astropy.io import fits
+
+parser = argparse.ArgumentParser(description=\
+      "Pring out value of header keyword.")
+parser.add_argument('key', help="Header keyword to print")
+parser.add_argument('files', help="FITS files to examien", nargs='*')
+
+args = parser.parse_args()
+
+files = args.files
+key = args.key
+for f in files:
+   data,header = fits.getdata(f, header=True)
+   if key in header:
+      print(f,header[key])
+   else:
+      print(f, "N/A")
