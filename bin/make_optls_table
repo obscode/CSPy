@@ -11,8 +11,7 @@ from numpy import isnan
 
 header = r'''\begin{deluxetable}{ccccccccc}
    \tablecolumns{9}
-   \tablecaption{Optical local sequence photometry for %s}
-   \label{tab:LSPhot}
+   \tablecaption{Optical local sequence photometry for %s\label{tab:LSPhot}}
    \tablehead{
       \colhead{ID} & \colhead{$\alpha$ (2000)} & \colhead{$\delta$ (2000)} & 
       \colhead{$B$} & \colhead{$V$} & \colhead{$u^\prime$} & \colhead{$g^\prime$} & 
@@ -41,7 +40,17 @@ parser.add_argument('-ins', help='Name of instrument. Default: DC',
       default='DC')
 parser.add_argument('-latex', help="Output in LaTeX table format",
       action='store_true')
+parser.add_argument('-o', help="Name of output file. Default: name+_optls.tex",
+      default=None)
 args = parser.parse_args()
+
+if args.o is None:
+   if args.latex:
+      outfile = args.SN + "_optls.tex"
+   else:
+      outfile = args.SN + "_optls.dat"
+else:
+   outfile = args.o
 
 db = getConnection()
 c = db.cursor()
@@ -89,7 +98,7 @@ if args.standard:
    tab['magV'][:] = V
 
 if args.latex:
-   with open('%s_opt.tex' % SN, 'w') as fout:
+   with open(outfile, 'w') as fout:
       fout.write(header % SN)
       for i in range(len(tab)):
          line = "%3d & %10.6f & %10.6f " % \
@@ -103,6 +112,6 @@ if args.latex:
          fout.write(line)
       fout.write(footer)
 else:
-   tab.write("%s_opt.dat" % SN, format='ascii.fixed_width', delimiter=' ',
+   tab.write(outfile, format='ascii.fixed_width', delimiter=' ',
          fill_values=[(ascii.masked, 'nan')])
 
