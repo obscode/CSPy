@@ -1,0 +1,66 @@
+#!/usr/bin/env python
+
+from astropy.io import fits
+from astropy.time import Time
+from astropy import units as u
+import sys,os
+import argparse
+from glob import glob
+from math import floor
+
+parser = argparse.ArgumentParser(description=\
+         "Update the FITS headers with more information needed by pipeline.")
+parser.add_argument('--tel', default='SWO', 
+         help="Telescope code, default=SWO")
+parser.add_argument('--ins', default='NC', 
+         help='Instrument code", default=NC')
+parser.add_argument('filepat', default='ccd*.fits', 
+         help="File pattern to process. default=ccd*.fits")
+args = parser.parse_args()
+
+obstypes = {'sflat':'sflat',
+            'Flat':'sflat',
+            'Object':'astro',
+            'Bias':'zero'}
+
+files = glob(args.filepat)
+for f in files:
+   print(f)
+   fts = fits.open(f)
+   h = fts[0].header
+
+   RA = h['RA-D']
+   DE = h['DEC-D']
+   EQ = h['EQUINOX']
+   etype = h['EXPTYPE']
+   etime = h['EXPTIME'] 
+   UTstart = h['UT-TIME']
+   UTend = h['UT-END']
+   Date = h['UT-DATE']
+
+   t0 = Time("{}T{}".format(Date,UTstart), format='isot', scale='utc',
+             location=('-70.69800d','-29.08300d'))
+   tmid = t0 + etime/2*u.s
+   tsid = tmid.sidereal_time('apparent')
+   tsidh = int(floor(tsid.hour))
+   tsidm = int(floor((tsid.hour-tsidh)*60))
+   tsids = (tsid.hour-tsidh-tsidm/60)*3600
+
+   if etype not in obstypes:
+      print("Warning!  EXPTYPE {} not recognized, setting OBSTYPE=EXPTYPE".format(etype))
+      otype = etype
+   else:
+      otype = obstypes[etype]
+
+   h['OBSTYPE'] = (otype, 'Type of image')
+   h['JD'] = (tmid.jd, 'JD at mid exposure. CSP keyword')
+   h['INSTRUM'] = ('NC', "tel/ins. CSP Keyword")
+   h['NEWRA'] = (h['RA'], "Right Ascension. CSP Keyword")
+   h['NEWDEC'] = (h['DEC'], "Declination. CSP Keyword")
+   h['NEWEXPT'] = (etime, "Exposure time. CSP Keyword")
+   h['NEWST'] = ("{:d}:{:d}:{:.2f}".format(tsidh,tsidm,tsids),
+                 "Sidereal time at mid exposure. CSP keywrod")
+   h['UTMID'] = ("{:d}:{:d}:{:.1f}".format(tmid.datetime.hour,
+          tmid.datetime.minute, tmid.datetime.second), 
+          "UT time at mid exposure. CSP Keyword")
+   fts.writeto(f, overwrite=True)
