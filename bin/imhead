@@ -14,6 +14,6 @@ data,header = fits.getdata(f, header=True)
 h = str(header).strip()
 
 nrows = len(h)//80
-for i in range(nrows-1):
+for i in range(nrows):
    print(h[i*80:(i+1)*80])
 print(h[nrows*80:])

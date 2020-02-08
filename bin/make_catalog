@@ -1,0 +1,59 @@
+#!/usr/bin/env python
+
+import argparse
+from CSPlib import catalog
+import aplpy
+
+parser = argparse.ArgumentParser(
+   description='Generate a catalog of local sequence stars')
+parser.add_argument('files', help='FITS files in which to identify LS stars',
+      nargs='+')
+parser.add_argument('-minsep', help='Minimum separation in arc-sec.',
+      default=10, type=float)
+parser.add_argument('-minmag', help='Minimum magnitude (maximum brightness)',
+      default=-10, type=float)
+parser.add_argument('-maxmag', help='Maximum magnitude (minimum brightness)',
+      default=100, type=float)
+parser.add_argument('-minstar', help='minimum value for CLASS_STAR',
+      default=-1, type=float)
+parser.add_argument('-Nmax', help='maximum number of stars to include',
+      default=None, type=int)
+parser.add_argument('-field', help='name of field (default: OBJECT key)',
+      default=None)
+parser.add_argument('-ra', help='RA (in degrees) for the field (SN) object',
+      default=None, type=float)
+parser.add_argument('-dec', help='DEC (in degrees) for the field (SN) object',
+      default=None, type=float)
+parser.add_argument('-output', help='Output catalog name. Default: base+.cat',
+      default=None)
+parser.add_argument('-plotfile', help='Output plot name. Default: base+.pdf',
+      default=None)
+parser.add_argument('-verbose', help='Print out useful (maybe) info',
+      default=False, action='store_true')
+parser.add_argument
+args = parser.parse_args()
+
+for fil in args.files:
+   if args.output is None:
+      outfile = '.'.join(fil.split('.')[:-1])+".cat"
+   else:
+      outfile in args.output
+
+   cat,_,_ = catalog.make_ls_catalog(fil, minsep=args.minsep, 
+         minmag=args.minmag, maxmag=args.maxmag, outfile=outfile, 
+         minstar=args.minstar, Nmax=args.Nmax, RAd=args.ra, DECd=args.dec, 
+         verbose=args.verbose)
+   fig = aplpy.FITSFigure(fil)
+   fig.show_grayscale()
+   fig.show_markers(cat['RA'][1:], cat['DEC'][1:], s=25)
+   fig.show_markers(cat['RA'][0:1], cat['DEC'][0:1], s=25, edgecolor='yellow')
+   fig.add_label(cat['RA'][0]+5/3600, cat['DEC'][0]+5/2600, 'SN', ha='left',
+         color='yellow')
+   for i in range(1, len(cat)):
+      fig.add_label(cat['RA'][i]+10/3600, cat['DEC'][i]+10/3600, str(i), 
+            ha='right', color='white')
+   if args.plotfile is None:
+      plotfile = '.'.join(fil.split('.')[:-1])+".pdf"
+   else:
+      plotfile = args.plotfile
+   fig.savefig(plotfile)
