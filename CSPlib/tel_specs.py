@@ -6,9 +6,12 @@ data = {
             'scale':0.435,
             'gain':1.040,
             'rnoise':3.4,
-            }
-         }
-      }
+            'overscan':{
+               1:[2070,2166],
+            },
+         },
+      },
+   }
 
 def getTelIns(tel, ins):
    if tel not in data:
