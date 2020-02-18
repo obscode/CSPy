@@ -3,6 +3,13 @@ simple CCD frames (one PrimaryHDU in and HDUList)'''
 
 from astropy.io import fits
 
+def qdump(filename, data, header=None):
+   if header is None:
+      header = fits.PrimaryHDU(data)
+      header.writeto(filename)
+   else:
+      fits.writeto(filename, data, header, overwrite=True)
+
 def copyFits(inp):
    '''Copy the FITS header and data and return the copy.'''
    newhdr = inp[0].header.copy()

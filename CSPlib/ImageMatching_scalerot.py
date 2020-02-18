@@ -18,7 +18,7 @@
 '''
 import time,os
 #from FITS import *
-from .qdump import qdump
+from .fitsutils import qdump
 #from Multipack import *
 #from VTKHelperFunctions import *
 from .ReadSex import *
@@ -27,7 +27,8 @@ from .ReadSex import *
 from astropy.io import fits as FITS
 import numpy.fft as fft
 from numpy import int8
-from numpy import savetxt,loadtxt
+from numpy import savetxt,loadtxt,newaxis,sqrt,power,arange,ravel
+from .GaussianBG import GaussianBG
 #import convolve
 debug = 1
 try:
@@ -38,7 +39,7 @@ except:
    Picker = None
    FITSviewer = None
    plt = None
-from pygplot import columns
+#from pygplot import columns
 try:
    from astropy import wcs
 except:
@@ -49,7 +50,7 @@ try:
 except:
    fit_psf = None
 
-NA = NewAxis
+NA = newaxis
 def QuickShift(i,x,y):
     '''Shift an image, i, by amount x and y.  Note 'x' is in the sense of the
     2nd index (image coordinates)'''
@@ -70,8 +71,8 @@ def headerVal(val, hdr, convert=float):
    if type(val) is type(""):
       retval = hdr.getval(val)
       if retval == "N/A":
-         raise ValueError, \
-           "You gave me a %s header keyword, but I can't find it in the header" % (val)
+         raise ValueError(\
+          "You gave me a %s header keyword, but I can't find it in the header" % (val))
    else:
       retval = val
    if convert is not None:
@@ -104,21 +105,21 @@ class Point:
          if type(y) is type(""):
             if y[-1] == 'd':
                if self.units == "p":
-                  raise ValueError, "Can't mix units for X and Y"
+                  raise ValueError("Can't mix units for X and Y")
                self.y = float(y[:-1])
                self.units = 'd'
             else:
                if self.units == 'd':
-                  raise ValueError, "Can't mix units for X and Y"
+                  raise ValueError("Can't mix units for X and Y")
                self.y = float(y)
                self.units = 'p'
          else:
             if self.units == 'd':
-               raise ValueError, "Can't mix units for X and Y"
+               raise ValueError("Can't mix units for X and Y")
             self.y = float(y)
             self.units = 'p'
       if self.x is None and self.y is None:
-         raise ValueError, "Error, one of x or y must be specified"
+         raise ValueError("Error, one of x or y must be specified")
       self.image = image
 
    def topixel(self):
@@ -126,7 +127,7 @@ class Point:
          return (self.x, self.y)
       else:
          if self.image is None or self.image.wcs is None:
-            raise AttributeError, "Must have A WCS before I can transform to pixels"
+            raise AttributeError("Must have A WCS before I can transform to pixels")
          if self.x is None:
             x = self.image.naxis1/2
          else:
@@ -145,7 +146,7 @@ class Point:
          return (self.x, self.y)
       else:
          if self.image is None or self.image.wcs is None:
-            raise AttributeError, "Must have A WCS before I can transform to Ra/DEC"
+            raise AttributeError("Must have A WCS before I can transform to Ra/DEC")
          if self.x is None:
             x = self.image.wcs.wcs.crval[0]
          else:
@@ -191,7 +192,7 @@ class Mask:
          p0 = Point(x0,y0,self.image)
          p1 = Point(x1,y1,self.image)
       except:
-         raise ValueError, "Problem with mask %s" % (str(x0,y0,x1,y1))
+         raise ValueError("Problem with mask %s" % (str(x0,y0,x1,y1)))
       self.llcs.append(p0)
       self.urcs.append(p1)
       if sense.lower() == 'inside':
@@ -209,7 +210,7 @@ class Mask:
       for i in range(len(self.llcs)):
          i0,j0 = self.llcs[i].topixel()
          i1,j1 = self.urcs[i].topixel()
-         print i0,j0,i1,j1
+         print(i0,j0,i1,j1)
          if i0 > i1:  i0,i1 = i1,i0
          if j0 > j1:  j0,j1 = j1,j0
          if self.sides[i] == 1:
@@ -349,9 +350,10 @@ class Observation:
     def log(self, message):
        '''Quick function to print log information to the screen and also keep a copy
        in a specified log file.'''
-       print message
+       print(message)
        if self.log_stream is not None:
-          print >> self.log_stream, message
+          #print >> self.log_stream, message
+          self.log_stream.write(message+'\n')
 
 
     def __repr__(self):
@@ -381,19 +383,19 @@ class Observation:
        self.sexcom += ["-STARNNW_NAME "+self.sexdir+"default.nnw"]
        self.sexcom += ["-SATUR_LEVEL "+str(self.saturate)]
        self.sexcom += ["-VERBOSE_TYPE QUIET"]
-       self.sexcom = join(self.sexcom)
-       if self.verb > 1:
-          verbex(self.sexcom)
-       else:
-          os.system(self.sexcom)
+       self.sexcom = ' '.join(self.sexcom)
+       #if self.verb > 1:
+       #   verbex(self.sexcom)
+       #else:
+       os.system(self.sexcom)
 
     def readcat(self):
        '''Read the SExtractor output.'''
        if self.do_sex:  self.sex()
        self.sexdata = readsex(self.catalog)[0]
-       print self.segmap
+       print(self.segmap)
        f = FITS.open(self.segmap)
-       print len(f)
+       print(len(f))
        self.seg = f[self.hdu].data
        f.close()
 
@@ -468,15 +470,15 @@ class Observation:
        # Now we match objets to objects. There are several ways to do this...
        if use_db:
           if os.path.isfile(self.db) and os.path.isfile(self.master.db):
-             x0,y0 = columns(self.db)
-             x1,y1 = columns(self.master.db)
+             x0,y0 = loadtxt(self.db, unpack=True)
+             x1,y1 = loadtxt(self.master.db, unpack=True)
           else:
              self.log('Error:  to use -db, the database files must exist')
              sys.exit(1)
           Niter = 1
        elif interactive:
           if Picker is None:
-             raise RuntimeError, "Sorry, to work interactively, you need matplotlib."
+             raise RuntimeError("Sorry, to work interactively, you need matplotlib.")
           picker = Picker.FITSpicker(self.image, self.master.image)
                 #self.scale, self.master.scale)
           plt.show()
@@ -486,13 +488,13 @@ class Observation:
           # User has provided a list of stars to use. We need WCS to get proper
           # coordinates
           if self.wcs is None or self.master.wcs is None:
-             raise RuntimeError, "In order to use a star list, you need WCS information"+\
-                                 " in both frames"
+             raise RuntimeError("In order to use a star list, you need WCS information"
+                                 " in both frames")
           if fit_psf is None:
-             raise RuntimeError, "In order to use a star list, you need the fit_psf "+\
-                                 "module."
+             raise RuntimeError("In order to use a star list, you need the fit_psf "
+                                 "module.")
           x0,x1,y0,y1 = [],[],[],[]
-          print self.starlist
+          #print self.starlist
           for xi,yi in self.starlist:
              [[i0,j0]] = self.wcs.wcs_world2pix([[xi,yi]],1)
              [[i1,j1]] = self.master.wcs.wcs_world2pix([[xi,yi]],1)
@@ -685,11 +687,13 @@ class Observation:
        if not use_db:
           f = open(self.db, 'w')
           for i in range(len(x0)):
-             print >>f, x0[i],y0[i]
+             #print >>f, x0[i],y0[i]
+             f.write("{} {}\n".format(x0[i],y0[i]))
           f.close()
           f = open(self.master.db, 'w')
           for i in range(len(x0)):
-             print >>f, x1[i],y1[i]
+             #print >>f, x1[i],y1[i]
+             f.write("{} {}\n".format(x1[i],y1[i]))
           f.close()
 
        self.sol = sol
@@ -811,11 +815,10 @@ class Observation:
               mseg = VTKMultiply(mseg, self.master.mask.get_mask())
            self.mseg = VTKImageTransform(mseg,self.tx,self.ty,numret=1,
                                          cubic=0,interp=1,constant=-1)
-           print "here I aM ************************"
            qump('mseg.fits', self.mseg, self.image)
 
     def estimate_bg(self, Niter=5):
-       '''Estimate the background level.'''
+        '''Estimate the background level.'''
         for uk in range(Niter):
            if uk:
               ukeep = 1.0*between(self.data, bg-4*r, bg+2*r)
@@ -828,8 +831,8 @@ class Observation:
            d = VTKSubtract(udata, bg)
            r = 1.49*median(abs(d))
            if self.verbose > 0:
-              print "Using %d: BG=%.3f with sigma=%.3f" % (len(udata),bg,r)
-         return bg,r
+              print("Using %d: BG=%.3f with sigma=%.3f" % (len(udata),bg,r))
+        return bg,r
 
     def mkweight(self):
         '''This function works out the weight of the image, based on the noise
@@ -860,7 +863,7 @@ class Observation:
         self.bg,r = self.estimate_bg()
         self.tbg,r2 = self.master.estimate_bg()
         #qdump(self.bimage,self.data-bg,self.image)
-        print "Cutting below 5-sigma: %.3f" % (self.bg-5*r)
+        print("Cutting below 5-sigma: %.3f" % (self.bg-5*r))
         self.log( "Image:" )
         self.log( "Using BG=%.3f with sigma=%.3f" % (self.bg,r))
         self.log( "Cutting below 5-sigma: %.3f" % (self.bg-5*r))
@@ -1169,16 +1172,16 @@ class Observation:
        data[dy:my, dx:mx] = matching[:,:]
 
        Fdata = fft.rfft2(data)
-       print '.'*8,
+       sys.stdout.write('.'*8)
        sys.stdout.flush()
        del data
        Fkernel = fft.rfft2(kernel)
-       print '.'*8,
+       sys.stdout.write('.'*8)
        sys.stdout.flush()
        multiply(Fdata, Fkernel, Fdata)
        del Fkernel
        convolved = fft.irfft2(Fdata, s=kernel.shape)
-       print '.'*8,
+       sys.stdout.write('.'*8)
        sys.stdout.flush()
        convolved = convolved[kshape[0]-1:shape[0]+kshape[0]-1,kshape[1]-1:shape[1]+kshape[1]-1]
        return(convolved) 

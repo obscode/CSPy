@@ -66,7 +66,7 @@ def NumToVTKImage(numarray,name=None):
    vtktype = numpy_support.get_vtk_array_type(numarray.dtype)
    ii.AllocateScalars(vtktype, 1)
    pd = ii.GetPointData()
-   arr = numpy_support.numpy_to_vtk(np.ndarray.flatten(numarray, 'F'))
+   arr = numpy_support.numpy_to_vtk(np.ndarray.flatten(numarray, 'C'))
    pd.SetScalars(arr)
    return ii
 
@@ -308,4 +308,159 @@ def VTKImageTransform(x,dx,dy,numret=False,reverse=False,origsize=None,
       if numret: ri = VTKImageToNum(o)
       else: ri = o
       return ri
+
+def VTKConvolve(im,numret=0,k=5,clip=1,x=1,y=1,wrap=0,mirror=1,constant=None,
+                kernel=None):
+      if type(im) == np.ndarray: i = NumToVTKImage(im)
+      else: i = im
+      d = i.GetDimensions()
+      e = i.GetExtent()
+      dtest = np.sort(d)
+      if sum(dtest[:2]) == 2: onedim=1
+      else: onedim = 0
+      if (d[0] == 1): oned = 1
+      elif (d[1] == 1): oned = 2
+      else: oned = 0
+      if x and not y: oned = 2
+      if y and not x: oned = 1
+      if onedim: oned = 1
+      if constant is not None:
+          ip = vtk.vtkImageConstantPad()
+          if d[0] > 1: x0,x1=-k,d[0]+k-1
+          else: x0,x1=0,0
+          if d[1] > 1: y0,y1=-k,d[1]+k-1
+          else: y0,y1=0,0
+          ip.SetOutputWholeExtent(x0,x1,y0,y1,0,0)
+          ip.SetConstant(constant)
+          ip.SetInputData(i)
+          i = ip.GetOutput()
+          ip.Update()
+      elif mirror:
+          ip = vtk.vtkImageMirrorPad()
+          if d[0] > 1: x0,x1=-k,d[0]+k-1
+          else: x0,x1=0,0
+          if d[1] > 1: y0,y1=-k,d[1]+k-1
+          else: y0,y1=0,0
+          ip.SetOutputWholeExtent(x0,x1,y0,y1,0,0)
+          ip.SetInputData(i)
+          i = ip.GetOutput()
+          ip.Update()
+      elif wrap:
+          ip = vtk.vtkImageWrapPad()
+          if d[0] > 1: x0,x1=-k,d[0]+k-1
+          else: x0,x1=0,0
+          if d[1] > 1: y0,y1=-k,d[1]+k-1
+          else: y0,y1=0,0
+          ip.SetOutputWholeExtent(x0,x1,y0,y1,0,0)
+          ip.SetInputData(i)
+          i = ip.GetOutput()
+          ip.Update()
+      c = vtk.vtkImageConvolve()
+      if kernel is None:
+          if k == 3: k1 = np.asarray([0.25,0.5,0.25])
+          elif k == 5: k1 = np.asarray([0.0625,0.25,0.375,0.25,0.0625])
+          if onedim: ke = np.ones((k,k),np.float64) * k1
+          elif not oned: ke = k1[::,np.newaxis]*k1[np.newaxis,::]
+          elif oned == 1: ke = np.zeros((k,k),np.float64); ke[::,2] = k1
+          elif oned == 2: ke = np.zeros((k,k),np.float64); ke[2] = k1
+          ke = np.ravel(ke)
+          ke = ke / np.sum(ke)
+          if onedim: ke = len(k1)*ke
+      else:
+          k = kernel.shape[0]
+          ke = np.ravel(kernel)
+      if k == 3: c.SetKernel3x3(ke)
+      if k == 5: c.SetKernel5x5(ke)
+      if k == 7: c.SetKernel7x7(ke)
+      c.SetInputData(i)
+      o = c.GetOutput()
+      c.Update()
+      if clip:
+         ic = vtk.vtkImageClip()
+         notx = -(not x) * 0
+         noty = -(not y) * 0
+         ic.SetOutputWholeExtent(notx,d[0]-1+notx,noty,d[1]-1+noty,0,0)
+         ic.SetInputData(o)
+         ic.ClipDataOn()
+         o = ic.GetOutput()
+         ic.Update()
+      if numret: return VTKImageToNum(o)
+      else: return o
+
+def VTKGauss(x,sigma=5,numret=1,radius=3,sigmax=None,sigmay=None):
+      if type(x) == np.ndarray: i = NumToVTKImage(x)
+      else: i = x
+      if sigmax is None: sigmax=sigma
+      if sigmay is None: sigmay=sigma
+      d = vtk.vtkImageGaussianSmooth()
+      d.SetStandardDeviations(sigmax,sigmay,0)
+      d.SetRadiusFactors(radius,radius,1)
+      d.SetInputData(i)
+      o = d.GetOutput()
+      d.Update()
+      if numret: return VTKImageToNum(o)
+      else: return o
+
+def VTKDilate(x,k=5,l=None,numret=0):
+      if type(x) == np.ndarray: i = NumToVTKImage(x)
+      else: i = x
+      if l is None: l = k
+      d = vtk.vtkImageContinuousDilate3D()
+      d.SetKernelSize(k,l,1)
+      d.SetInputData(i)
+      o = d.GetOutput()
+      d.Update()
+      if numret: return VTKImageToNum(o)
+      else: return o
+
+def VTKAbs(x1):
+      if type(x1) == np.ndarray: i1 = NumToVTKImage(x1)
+      else: i1 = x1
+      m = vtk.vtkImageMathematics()
+      m.SetOperationToAbsoluteValue()
+      m.AddInputData(i1)
+      o = m.GetOutput()
+      m.Update()
+      return VTKImageToNum(o)
+
+
+def VTKSqrt(x0,rep=0.0):
+      bad = np.less(x0,0)
+      x1 = VTKAbs(x0)
+      if type(x1) == np.ndarray: i1 = NumToVTKImage(x1)
+      else: i1 = x1
+      m = vtk.vtkImageMathematics()
+      m.SetOperationToSquareRoot()
+      m.AddInputData(i1)
+      o = m.GetOutput()
+      m.Update()
+      b = VTKImageToNum(o)
+      return where(bad,rep,b)
+
+def VTKInvert(x1,rep=0.0):
+      if type(x1) == np.ndarray: i1 = NumToVTKImage(x1)
+      else: i1 = x1
+      m = vtk.vtkImageMathematics()
+      m.SetOperationToInvert()
+      m.AddInputData(i1)
+      m.SetConstantC(rep)
+      m.DivideByZeroToCOn()
+      o = m.GetOutput()
+      m.Update()
+      return VTKImageToNum(o)
+
+
+def VTKIslandRemoval(x,isval,repval,area,numret=0):
+      if type(x) == np.ndarray: i = NumToVTKImage(x)
+      else: i = x
+      d = vtk.vtkImageIslandRemoval2D()
+      d.SetIslandValue(isval)
+      d.SetReplaceValue(repval)
+      d.SetAreaThreshold(area)
+      d.SquareNeighborhoodOn()
+      d.SetInputData(i)
+      o = d.GetOutput()
+      d.Update()
+      if numret: return VTKImageToNum(o)
+      else: return o
 
