@@ -20,15 +20,17 @@ import time,os
 #from FITS import *
 from .fitsutils import qdump
 #from Multipack import *
-#from VTKHelperFunctions import *
+from .VTKHelperFunctions import *
 from .ReadSex import *
 #from masks import *
 #from basics import *
 from astropy.io import fits as FITS
 import numpy.fft as fft
-from numpy import int8
-from numpy import savetxt,loadtxt,newaxis,sqrt,power,arange,ravel
+import numpy as np
 from .GaussianBG import GaussianBG
+from .basis import abasis,mbasis,svdfit
+from .npextras import bwt, divz, between
+from .fitsutils import qdump
 #import convolve
 debug = 1
 try:
@@ -50,7 +52,7 @@ try:
 except:
    fit_psf = None
 
-NA = newaxis
+NA = np.newaxis
 def QuickShift(i,x,y):
     '''Shift an image, i, by amount x and y.  Note 'x' is in the sense of the
     2nd index (image coordinates)'''
@@ -63,7 +65,7 @@ def ndf(nord):
    if nord == -1:
       Ncoeff = 2
    else:
-      Ncoeff = len(ravel(abasis(nord, array([0]), array([0]))))
+      Ncoeff = len(np.ravel(abasis(nord, np.array([0]), np.array([0]))))
    return Ncoeff
 
 def headerVal(val, hdr, convert=float):
@@ -205,8 +207,8 @@ class Mask:
       ox = getattr(self.image, 'ox', None)
       oy = getattr(self.image, 'oy', None)
       if ox is None or oy is None:
-         oy,ox = indices((self.image.naxis2,self.image.naxis1),Float32)
-      mask = ones((self.image.naxis2,self.image.naxis1), Float32)
+         oy,ox = np.indices((self.image.naxis2,self.image.naxis1),float32)
+      mask = np.ones((self.image.naxis2,self.image.naxis1), float32)
       for i in range(len(self.llcs)):
          i0,j0 = self.llcs[i].topixel()
          i1,j1 = self.urcs[i].topixel()
@@ -215,21 +217,21 @@ class Mask:
          if j0 > j1:  j0,j1 = j1,j0
          if self.sides[i] == 1:
             if i0 and i1:
-               mask = VTKMultiply(mask, between(ox,i0,i1).astype(Float32))
+               mask = VTKMultiply(mask, between(ox,i0,i1).astype(float32))
             if j0 and j1:
-               mask = VTKMultiply(mask, between(oy,j0,j1).astype(Float32))
+               mask = VTKMultiply(mask, between(oy,j0,j1).astype(float32))
          else:
-            outsidex = VTKOr(less(ox,i0).astype(Float32),
-                             greater(ox,i1).astype(Float32))
-            outsidey = VTKOr(less(oy,j0).astype(Float32),
-                             greater(oy,j1).astype(Float32))
+            outsidex = VTKOr(np.less(ox,i0).astype(float32),
+                             np.greater(ox,i1).astype(float32))
+            outsidey = VTKOr(np.less(oy,j0).astype(float32),
+                             np.greater(oy,j1).astype(float32))
             mask = VTKMultiply(mask, VTKOr(outsidex,outsidey))
       return mask
 
    def flag_pixels(self, x, y):
       ''' Given x,y points, determined if they are masked (False) or not masked
       (True).'''
-      gids = ones(x.shape, bool)
+      gids = np.ones(x.shape, bool)
       for i in range(len(self.llcs)):
          i0,j0 = self.llcs[i].topixel()
          i1,j1 = self.urcs[i].topixel()
@@ -241,8 +243,8 @@ class Mask:
             if j0 and j1:
                gids = gids*between(y, j0, j1)
          else:
-            gids1 = less(x, i0) + greater(x, i1)
-            gids2 = less(y, j0) + greater(y, j1)
+            gids1 = np.less(x, i0) + np.greater(x, i1)
+            gids2 = np.less(y, j0) + np.greater(y, j1)
             gids = gids*(gids1+gids2)
       return gids
 
@@ -411,12 +413,12 @@ class Observation:
        if "MAG_BEST" in self.sexdata: m = self.sexdata["MAG_BEST"]
        elif "MAG_AUTO" in self.sexdata: m = self.sexdata["MAG_AUTO"]
        q = self.sexdata["FLAGS"]
-       q = array([int(qq) for qq in q])
-       cids = less_equal(q,4)
+       q = np.array([int(qq) for qq in q])
+       cids = np.less_equal(q,4)
        if not self.crowd:
-          uncrowd = equal(bitwise_and(q,1), 0)
+          uncrowd = np.equal(np.bitwise_and(q,1), 0)
           cids = cids*uncrowd
-       x,y,m,q = compress(cids,[x,y,m,q],1)
+       x,y,m,q = np.compress(cids,[x,y,m,q],1)
        x = x - 1
        y = y - 1
        # If the FITS header had masks in the header, then we mask that out too
@@ -425,29 +427,29 @@ class Observation:
        ids = self.mask.flag_pixels(x,y)
           # for ma in self.im_masks:
           #    self.log("Applying mask [x1:x2,y1:y2]=[%d:%d,%d:%d]" % tuple(ma))
-          #    condx = less(x, ma[0]) + greater(x, ma[1])
-          #    condy = less(y, ma[2]) + greater(y, ma[3])
-          #    ids = nonzero(condx + condy)
-       #x,y,m,q = take([x,y,m,q],ids,1)
+          #    condx = np.less(x, ma[0]) + np.greater(x, ma[1])
+          #    condy = np.less(y, ma[2]) + np.greater(y, ma[3])
+          #    ids = np.nonzero(condx + condy)
+       #x,y,m,q = np.take([x,y,m,q],ids,1)
        x = x[ids];  y = y[ids];  m = m[ids];  q = q[ids]
        if self.min_sep is not None:
-          dx = x[NewAxis,::] - x[::,NewAxis]
-          dy = y[NewAxis,::] - y[::,NewAxis]
-          ds = sqrt(power(dx,2) + power(dy,2))
+          dx = x[NA,::] - x[::,NA]
+          dy = y[NA,::] - y[::,NA]
+          ds = np.sqrt(np.power(dx,2) + np.power(dy,2))
           # number of neighbors within min_sep of each point
-          num_nn = sum(less(ds, self.min_sep/self.scale), axis=1) - 1
-          ids = nonzero(equal(num_nn, 0))
-          x,y,m,q = take([x,y,m,q], ids, 1)
+          num_nn = np.sum(np.less(ds, self.min_sep/self.scale), axis=1) - 1
+          ids = np.nonzero(np.equal(num_nn, 0))
+          x,y,m,q = np.take([x,y,m,q], ids, 1)
 
-       a = self.pa*pi/180
-       #r = self.ra*pi/180
-       #d = self.dec*pi/180
-       o = argsort(m)[:self.nmax]
-       x,y,m = take([x,y,m],o,1)
-       dx = x[NewAxis,::] - x[::,NewAxis]
-       dy = y[NewAxis,::] - y[::,NewAxis]
-       ds = sqrt(power(dx,2) + power(dy,2))
-       da = arctan2(dy,dx)*180/pi
+       a = self.pa*np.pi/180
+       #r = self.ra*np.pi/180
+       #d = self.dec*np.pi/180
+       o = np.argsort(m)[:self.nmax]
+       x,y,m = np.take([x,y,m],o,1)
+       dx = x[NA,::] - x[::,NA]
+       dy = y[NA,::] - y[::,NA]
+       ds = np.sqrt(np.power(dx,2) + np.power(dy,2))
+       da = np.arctan2(dy,dx)*180/np.pi
        self.x = x
        self.y = y
        self.m = m
@@ -470,8 +472,8 @@ class Observation:
        # Now we match objets to objects. There are several ways to do this...
        if use_db:
           if os.path.isfile(self.db) and os.path.isfile(self.master.db):
-             x0,y0 = loadtxt(self.db, unpack=True)
-             x1,y1 = loadtxt(self.master.db, unpack=True)
+             x0,y0 = np.loadtxt(self.db, unpack=True)
+             x1,y1 = np.loadtxt(self.master.db, unpack=True)
           else:
              self.log('Error:  to use -db, the database files must exist')
              sys.exit(1)
@@ -507,30 +509,30 @@ class Observation:
              pars = fit_psf.fit_psf(self.master.data, i1, j1, 1.0/self.scale, 2.0)
              x0.append(i0); y0.append(j0)
              x1.append(i1); y1.append(j1)
-          x0,x1,y0,y1 = map(array, [x0,x1,y0,y1])
+          x0,x1,y0,y1 = map(np.array, [x0,x1,y0,y1])
 
           Niter = 1
        else:
           if self.wcs is not None and self.master.wcs is not None:
              # Woo-hoo!  We've got a WCS.  This will make matching much
              #  easier.
-             uv0 = self.wcs.wcs_pix2world(transpose([self.x,self.y]),1)
+             uv0 = self.wcs.wcs_pix2world(np.transpose([self.x,self.y]),1)
              uv1 = self.master.wcs.wcs_pix2world(
-                   transpose([self.master.x,self.master.y]),1)
-             savetxt('uv0', uv0)
-             savetxt('uv1', uv1)
+                   np.transpose([self.master.x,self.master.y]),1)
+             np.savetxt('uv0', uv0)
+             np.savetxt('uv1', uv1)
              # dists[i,j] gives the absolute distance from object i in the image to 
              #object j in master
-             dists = sqrt(power(uv0[:,0,NA] - uv1[NA,:,0],2) + power(uv0[:,1,NA] - uv1[NA,:,1],2))
+             dists = np.sqrt(np.power(uv0[:,0,NA] - uv1[NA,:,0],2) + np.power(uv0[:,1,NA] - uv1[NA,:,1],2))
              dists = dists*3600/self.scale
-             gids = less(dists, perr)
-             if sum(greater(sum(gids, axis=1),0)) < 3:
+             gids = np.less(dists, perr)
+             if np.sum(np.greater(np.sum(gids, axis=1),0)) < 3:
                 self.log("Found fewer than 3 matches, try increasing match tolerance (-s)")
                 return -1
-             #uids0 = nonzero(equal(sum(gids, axis=1),1))
-             uids0 = greater(sum(gids, axis=1),0)
-             #uids1 = array([nonzero(gids[i,:])[0] for i in uids0])
-             uids1 = argmin(dists, axis=1)[uids0]
+             #uids0 = np.nonzero(equal(np.sum(gids, axis=1),1))
+             uids0 = np.greater(np.sum(gids, axis=1),0)
+             #uids1 = array([np.nonzero(gids[i,:])[0] for i in uids0])
+             uids1 = np.argmin(dists, axis=1)[uids0]
              x0 = self.x[uids0];  y0 = self.y[uids0]
              x1 = self.master.x[uids1];  y1 = self.master.y[uids1]
           else:
@@ -539,42 +541,42 @@ class Observation:
              best_a = 0
              for aoffset in angles:
                 da = self.da[::,::,NA,NA] - self.master.da[NA,NA,::,::] + aoffset
-                da = where(less(da, -180.0), da+180.0, da)
-                da = where(greater(da, 180.0), da-180.0, da)
+                da = np.where(np.less(da, -180.0), da+180.0, da)
+                da = np.where(np.greater(da, 180.0), da-180.0, da)
                 ds = self.ds[::,::,NA,NA] - self.master.ds[NA,NA,::,::]
-                use = less(abs(ds),perr)*less(abs(da),aerr)
-                suse = add.reduce(add.reduce(use,3),1)
-                if max(ravel(suse)) < 4:  continue
-                guse = greater(suse,max(ravel(suse))/2)
-                self.log("angle %.2f gives %d matches" % (aoffset, sum(ravel(guse))))
-                if sum(ravel(guse)) > best_N:
+                use = np.less(abs(ds),perr)*np.less(abs(da),aerr)
+                suse = np.add.reduce(np.add.reduce(use,3),1)
+                if max(np.ravel(suse)) < 4:  continue
+                guse = np.greater(suse,max(np.ravel(suse))/2)
+                self.log("angle %.2f gives %d matches" % (aoffset, np.sum(np.ravel(guse))))
+                if np.sum(np.ravel(guse)) > best_N:
                    best_a = aoffset
-                   best_N = sum(ravel(guse))
+                   best_N = np.sum(np.ravel(guse))
              da = self.da[::,::,NA,NA] - self.master.da[NA,NA,::,::] + best_a
              ds = self.ds[::,::,NA,NA] - self.master.ds[NA,NA,::,::]
-             use = less(abs(ds),perr)*less(abs(da),aerr)
-             suse = add.reduce(add.reduce(use,3),1)
+             use = np.less(abs(ds),perr)*np.less(abs(da),aerr)
+             suse = np.add.reduce(np.add.reduce(use,3),1)
              if self.verb > 1:
                 for suse1 in suse: self.log(suse1)
-             guse = greater(suse,max(ravel(suse))/2)
+             guse = np.greater(suse,max(np.ravel(suse))/2)
              if self.verb:
-                self.log('found %d matches' % sum(ravel(guse)))
+                self.log('found %d matches' % np.sum(np.ravel(guse)))
                 if best_a != 0:
                    self.log('best angular offset = %.2f' % best_a)
-             i = [j for j in range(self.x.shape[0]) if sum(guse[j])]
-             m = [argmax(guse[j]) for j in range(self.x.shape[0]) if sum(guse[j])]
-             x0,y0 = take([self.x,self.y],i,1)
-             x1,y1 = take([self.master.x,self.master.y],m,1)
+             i = [j for j in range(self.x.shape[0]) if np.sum(guse[j])]
+             m = [np.argmax(guse[j]) for j in range(self.x.shape[0]) if np.sum(guse[j])]
+             x0,y0 = np.take([self.x,self.y],i,1)
+             x1,y1 = np.take([self.master.x,self.master.y],m,1)
              rscale = self.master.scale/self.scale
-             best_a = best_a*pi/180.0
-             xt1 = rscale*(cos(best_a)*x1 + sin(best_a)*y1)
-             yt1 = rscale*(-sin(best_a)*x1 + cos(best_a)*y1)
+             best_a = best_a*np.pi/180.0
+             xt1 = rscale*(np.cos(best_a)*x1 + np.sin(best_a)*y1)
+             yt1 = rscale*(-np.sin(best_a)*x1 + np.cos(best_a)*y1)
              xshift,xscat = bwt(x0-xt1)
              xscat = max([1.0,xscat])
              yshift,yscat = bwt(y0-yt1)
              yscat = max([1.0,yscat])
-             keep = less(abs(x0-xt1-xshift),3*xscat)*less(abs(y0-yt1-yshift),3*yscat)
-             x0,y0,x1,y1 = compress( keep, [x0,y0,x1,y1], 1)
+             keep = np.less(abs(x0-xt1-xshift),3*xscat)*np.less(abs(y0-yt1-yshift),3*yscat)
+             x0,y0,x1,y1 = np.compress( keep, [x0,y0,x1,y1], 1)
           Niter = 3
 
 
@@ -593,7 +595,7 @@ class Observation:
           self.log("Using order %d transformation" % (nord))
 
 
-       wt = ones(x0.shape,Float32)
+       wt = np.ones(x0.shape,float32)
 
        if self.verb > 1 and FITSviewer is not None:
           fig = FITSviewer.FITSviewer(self.master.image)
@@ -603,38 +605,38 @@ class Observation:
        # now we iterate on the solution and throw out bad points
        for iter in range(Niter):
           if iter:
-             allx0 = array(self.sexdata["X_IMAGE"])
-             ally0 = array(self.sexdata["Y_IMAGE"])
+             allx0 = np.array(self.sexdata["X_IMAGE"])
+             ally0 = np.array(self.sexdata["Y_IMAGE"])
              if "MAG_BEST" in self.sexdata: 
-                allm0 = array(self.sexdata["MAG_BEST"])
+                allm0 = np.array(self.sexdata["MAG_BEST"])
              elif "MAG_AUTO" in self.sexdata: 
-                allm0 = array(self.sexdata["MAG_AUTO"])
-             allq0 = array(self.sexdata["FLAGS"])
-             allx1 = array(self.master.sexdata["X_IMAGE"])
-             ally1 = array(self.master.sexdata["Y_IMAGE"])
+                allm0 = np.array(self.sexdata["MAG_AUTO"])
+             allq0 = np.array(self.sexdata["FLAGS"])
+             allx1 = np.array(self.master.sexdata["X_IMAGE"])
+             ally1 = np.array(self.master.sexdata["Y_IMAGE"])
              if "MAG_BEST" in self.sexdata:
-                allm1 = array(self.master.sexdata["MAG_BEST"])
+                allm1 = np.array(self.master.sexdata["MAG_BEST"])
              elif "MAG_AUTO" in self.sexdata: 
-                allm1 = array(self.master.sexdata["MAG_AUTO"])
-             allq1 = array(self.master.sexdata["FLAGS"])
+                allm1 = np.array(self.master.sexdata["MAG_AUTO"])
+             allq1 = np.array(self.master.sexdata["FLAGS"])
              if nord == -1:
                 ix = allx0 + xshift
                 iy = ally0 + yshift
              else:
                 basis = abasis(nord,allx0,ally0,rot=[0,1][nord==0])
-                ixy = add.reduce(sol[NewAxis,::]*basis,1)
-                ix,iy = ixy[:len(ravel(allx0))], ixy[len(ravel(allx0)):]
+                ixy = np.add.reduce(sol[NA,::]*basis,1)
+                ix,iy = ixy[:len(np.ravel(allx0))], ixy[len(np.ravel(allx0)):]
              if self.verb > 1 and FITSviewer is not None:
                 fig.label_objs(allx1, ally1, radius=8, color=['black','blue','green'][iter])
                 fig.label_objs(ix, iy, radius=8, color=['black','blue','green'][iter])
                 plt.draw()
              delx = ix[::,NA] - allx1[NA,::]
              dely = iy[::,NA] - ally1[NA,::]
-             dels = sqrt(power(delx,2) + power(dely,2))
-             delq = less_equal(allq0,4)[::,NA]*less_equal(allq1,4)[NA,::]
-             dels = where(delq,dels,9999)
+             dels = np.sqrt(np.power(delx,2) + np.power(dely,2))
+             delq = np.less_equal(allq0,4)[::,NA]*np.less_equal(allq1,4)[NA,::]
+             dels = np.where(delq,dels,9999)
              ui0 = [j for j in range(delx.shape[0]) if min(dels[j]) < perr]
-             ui1 = [argmin(dels[j]) for j in range(delx.shape[0]) \
+             ui1 = [np.argmin(dels[j]) for j in range(delx.shape[0]) \
                    if min(dels[j]) < perr]
              if len(ui0) == 0:
                 self.log("Error:  Residuals of coordinate tranformation are all greater")
@@ -642,23 +644,23 @@ class Observation:
                 if self.verb > 1:
                    fig.save('match.eps')
                 return -1
-             x0,y0,m0 = take([allx0,ally0,allm0],ui0,1)
-             x1,y1,m1 = take([allx1,ally1,allm1],ui1,1)
-             f0 = power(10,-0.4*(m0-min(m0)))
-             f1 = power(10,-0.4*(m1-min(m1)))
-             wt = sqrt(f0+f1) * 0.0 + 1
+             x0,y0,m0 = np.take([allx0,ally0,allm0],ui0,1)
+             x1,y1,m1 = np.take([allx1,ally1,allm1],ui1,1)
+             f0 = np.power(10,-0.4*(m0-min(m0)))
+             f1 = np.power(10,-0.4*(m1-min(m1)))
+             wt = np.sqrt(f0+f1) * 0.0 + 1
           if nord == -1:
-             xshift = sum(wt*(x1-x0))/sum(wt)
-             yshift = sum(wt*(y1-y0))/sum(wt)
-             sol = array([xshift,yshift,1.0,0.0])
+             xshift = np.sum(wt*(x1-x0))/np.sum(wt)
+             yshift = np.sum(wt*(y1-y0))/np.sum(wt)
+             sol = np.array([xshift,yshift,1.0,0.0])
              ix = x0 + xshift
              iy = y0 + yshift
           else:
-             wt = concatenate([wt,wt])
+             wt = np.concatenate([wt,wt])
              basis = abasis(nord,x0,y0,rot=[0,1][nord==0])
-             sol = svdfit(basis*wt[::,NA],concatenate([x1,y1])*wt)
-             ixy = add.reduce(sol[NewAxis,::]*basis,1)
-             ix,iy = ixy[:len(ravel(x0))], ixy[len(ravel(x0)):]
+             sol = svdfit(basis*wt[::,NA],np.concatenate([x1,y1])*wt)
+             ixy = np.add.reduce(sol[NA,::]*basis,1)
+             ix,iy = ixy[:len(np.ravel(x0))], ixy[len(np.ravel(x0)):]
 
           if self.verb > 1 and FITSviewer is not None and not iter:
              fig.label_objs(ix, iy, radius=8, color='black')
@@ -668,15 +670,15 @@ class Observation:
           if nord==-1:
              self.log("  xshift: %.3f   yshift:  %.3f" % tuple(sol[0:2]))
           elif nord == 0:
-             theta = arctan2(sol[3],sol[2])
-             scale = sol[2]/cos(theta)
+             theta = np.arctan2(sol[3],sol[2])
+             scale = sol[2]/np.cos(theta)
              self.log(" xshift: %.3f yshift: %.3f scale: %.3f rot:  %.3f" %\
-                   (sol[0],sol[1],scale,theta*180.0/pi))
+                   (sol[0],sol[1],scale,theta*180.0/np.pi))
           else:
-             self.log( sol)
+             self.log( str(sol))
           delx = ix-x1
           dely = iy-y1
-          dels = sqrt(power(delx,2) + power(dely,2))
+          dels = np.sqrt(np.power(delx,2) + np.power(dely,2))
           scx = bwt(delx)[1]
           scy = bwt(dely)[1]
           self.log( "Biweight estimate for scatter in coordinate trans. (x,y) = (%.5f,%.5f)" % (scx,scy))
@@ -719,7 +721,7 @@ class Observation:
            else:
               self.wcs = None
            if bs:
-              self.data = self.data - GaussianBG(ravel(self.data).astype(float32),101)
+              self.data = self.data - GaussianBG(np.ravel(self.data).astype(np.float32),101)
            self.naxis1,self.naxis2 = f[self.hdu].header['NAXIS1'],f[self.hdu].header['NAXIS2']
            f.close()
            if self.master: 
@@ -746,18 +748,18 @@ class Observation:
 
     def mktemplate(self,registered,usewcs=False,sol=None,mimage=None):
         '''Transform the template (master) to the coordinates of the image.'''
-        self.oy,self.ox = indices((self.naxis2,self.naxis1),Float32)
+        self.oy,self.ox = np.indices((self.naxis2,self.naxis1),float32)
 
         # first, reject master segmented objects before we transform
         if self.reject:
            # reject full objects if requested
-           sat_pixels_m = greater(self.master.data, self.master.saturate)
-           sat_ids_m = nonzero(ravel(sat_pixels_m))
-           sat_objects_m = ravel(self.master.seg)[sat_ids_m]
+           sat_pixels_m = np.greater(self.master.data, self.master.saturate)
+           sat_ids_m = np.nonzero(np.ravel(sat_pixels_m))
+           sat_objects_m = np.ravel(self.master.seg)[sat_ids_m]
            # Now a bit of trickery to find non-repeating set of object numbers:
            objects_m = list(set(sat_objects_m))
            for obj in objects_m:
-              self.master.seg[equal(self.master.seg,obj)] = 0
+              self.master.seg[np.equal(self.master.seg,obj)] = 0
 
         if registered:
            self.timage = self.master.data
@@ -769,14 +771,14 @@ class Observation:
               self.textras = [xmap for xmap in self.master.extras]
            else:
               self.textras = None
-           self.mseg = greater(self.master.seg, 0.0).astype(Float32)
+           self.mseg = np.greater(self.master.seg, 0.0).astype(float32)
         else:
            if not mimage: mimage = self.master.data
            if usewcs and self.wcs is not None and self.master.wcs is not None:
               # Here we don't bother with our own coordinate solution,
               #  we use the WCS in each image to do the coordinate
               #  transformation
-              uv0 = self.wcs.toworld(transpose([self.ox,self.oy]))
+              uv0 = self.wcs.toworld(np.transpose([self.ox,self.oy]))
               ixy = self.master.wcs.topixel(uv0).T
               ix = ixy[0];  iy = ixy[1]
               self.tx = ix - self.ox
@@ -792,12 +794,12 @@ class Observation:
                                            cubic=0,interp=1,constant=0)
            if self.master.sigimage is not None:
               self.log( "Transforming sigma map...")
-              bpm = less(self.master.sigma,0)*1.0
+              bpm = np.less(self.master.sigma,0)*1.0
               self.tsigma = VTKImageTransform(self.master.sigma, self.tx, 
                     self.ty, numret=1, cubic=0, interp=1, constant=-1)
               tbpm = VTKImageTransform(bpm, self.tx, 
                     self.ty, numret=1, cubic=0, interp=1, constant=-1)
-              self.tsigma = where(tbpm > 0.1, -1, self.tsigma)
+              self.tsigma = np.where(tbpm > 0.1, -1, self.tsigma)
            else:
               self.tsigma = None
 
@@ -810,28 +812,28 @@ class Observation:
            else:
               self.textras = None
 
-           mseg = greater(self.master.seg, 0.0).astype(Float32)
+           mseg = np.greater(self.master.seg, 0.0).astype(float32)
            if self.master.mask:
               mseg = VTKMultiply(mseg, self.master.mask.get_mask())
            self.mseg = VTKImageTransform(mseg,self.tx,self.ty,numret=1,
                                          cubic=0,interp=1,constant=-1)
-           qump('mseg.fits', self.mseg, self.image)
+           qdump('mseg.fits', self.mseg, self.image)
 
     def estimate_bg(self, Niter=5):
         '''Estimate the background level.'''
         for uk in range(Niter):
            if uk:
               ukeep = 1.0*between(self.data, bg-4*r, bg+2*r)
-              ukeep = 1.0*equal(VTKConvolve(ukeep, k=5, numret=1),1.0)
-              udata = compress(ukeep.ravel(), self.data.ravel())
+              ukeep = 1.0*np.equal(VTKConvolve(ukeep, k=5, numret=1),1.0)
+              udata = np.compress(ukeep.ravel(), self.data.ravel())
            else:
               udata = self.data.ravel()
            
            bg = GaussianBG(udata,99)
-           d = VTKSubtract(udata, bg)
-           r = 1.49*median(abs(d))
-           if self.verbose > 0:
-              print("Using %d: BG=%.3f with sigma=%.3f" % (len(udata),bg,r))
+           #d = VTKSubtract(udata, bg)
+           d = udata - bg
+           r = 1.49*np.median(abs(d))
+           self.log("Using %d: BG=%.3f with sigma=%.3f" % (len(udata),bg,r))
         return bg,r
 
     def mkweight(self):
@@ -846,9 +848,9 @@ class Observation:
 
         if self.reject:
            # First, we figure out which objects have saturated pixels in them:
-           sat_pixels = greater(self.data, self.saturate)
-           sat_ids = nonzero(ravel(sat_pixels))
-           sat_objects = ravel(self.seg)[sat_ids]
+           sat_pixels = np.greater(self.data, self.saturate)
+           sat_ids = np.nonzero(np.ravel(sat_pixels))
+           sat_objects = np.ravel(self.seg)[sat_ids]
            # Now a bit of trickery to find non-repeating set of object numbers:
            objects = list(set(sat_objects))
 
@@ -856,8 +858,8 @@ class Observation:
            for obj in objects:
               self.seg[self.seg == obj] = 0
 
-        seg = greater(self.seg,0.0).astype(Float32)
-        mseg = greater(self.mseg,0.0).astype(Float32)
+        seg = np.greater(self.seg,0.0).astype(float32)
+        mseg = np.greater(self.mseg,0.0).astype(float32)
 
         gwid = max([2,1*self.pwid])
         self.bg,r = self.estimate_bg()
@@ -872,23 +874,23 @@ class Observation:
         self.log( "Cutting below 5-sigma: %.3f" % (self.tbg-5*r2))
         # Lower-cut. Reject data less than lcut
 
-        zids = equal(self.data, 0.0).astype(float32)
+        zids = np.equal(self.data, 0.0).astype(np.float32)
         zids = VTKGauss(zids, gwid, numret=1)
-        # note by using less(zids, 0.02), we're effectively doing a fuzzy 'not'
-        wt = VTKMultiply(seg, VTKMultiply(mseg, less(zids, 0.02)))
+        # note by using np.less(zids, 0.02), we're effectively doing a fuzzy 'not'
+        wt = VTKMultiply(seg, VTKMultiply(mseg, np.less(zids, 0.02)))
 
-        lowids = less(self.data, self.bg-5*r).astype(float32)
-        lowids = VTKGAuss(lowids, gwid, numret=1)
-        swt = less(lowids, 0.02).astype(float32)
-        qdump('swt.fits', swt, self.image)
-        lowids = less(self.timage, self.tbg-5*r2).astype(float32)
+        lowids = np.less(self.data, self.bg-5*r).astype(np.float32)
         lowids = VTKGauss(lowids, gwid, numret=1)
-        twt = less(lowids, 0.02).astype(float32)
+        swt = np.less(lowids, 0.02).astype(np.float32)
+        qdump('swt.fits', swt, self.image)
+        lowids = np.less(self.timage, self.tbg-5*r2).astype(np.float32)
+        lowids = VTKGauss(lowids, gwid, numret=1)
+        twt = np.less(lowids, 0.02).astype(np.float32)
         qdump('twt.fits', twt, self.image)
-        wt = VTKMultiply(greater(VTKGauss(wt,gwid,numret=1),
-                                 0.02).astype(float32),swt*twt)
-        insidex = between(self.ox,2*gwid,self.naxis1-2*gwid).astype(float32)
-        insidey = between(self.oy,2*gwid,self.naxis2-2*gwid).astype(float32)
+        wt = VTKMultiply(np.greater(VTKGauss(wt,gwid,numret=1),
+                                 0.02).astype(np.float32),swt*twt)
+        insidex = between(self.ox,2*gwid,self.naxis1-2*gwid).astype(np.float32)
+        insidey = between(self.oy,2*gwid,self.naxis2-2*gwid).astype(np.float32)
         wt = VTKMultiply(wt,VTKAnd(insidex, insidey))
 
         # If the FITS header had masks in the header, then we mask that out too
@@ -899,9 +901,9 @@ class Observation:
         if self.snpos is not None:
            self.log("Applying super nova mask at x=%f, y=%f" % (self.snpos.topixel()))
            snx,sny = self.snpos.topixel()
-           dists = power(self.ox-snx, 2) + power(self.oy-sny, 2)
-           cond = greater(dists, (self.snmaskr/self.scale)**2)
-           wt = VTKMultiply(wt, cond.astype(Float32))
+           dists = np.power(self.ox-snx, 2) + np.power(self.oy-sny, 2)
+           cond = np.greater(dists, (self.snmaskr/self.scale)**2)
+           wt = VTKMultiply(wt, cond.astype(float32))
 
         swt = VTKGreaterEqual(self.data,self.saturate)
         twt = VTKGreaterEqual(self.timage,self.master.saturate)
@@ -918,34 +920,34 @@ class Observation:
         wt = VTKMultiply(wt, self.invnoise)
         if self.pwid > -1: 
            wt = VTKIslandRemoval(wt,1.0,0.0,max([3,self.pwid])**2,numret=1)
-        self.wt = wt.astype(float32)
+        self.wt = wt.astype(np.float32)
 
 
     def mkmatch(self,preserve,quick_convolve=0):
         '''Here's where the kernel is solved.  Need to work on comments here.
         Right now, it's pretty black-box.'''
-        wtflat = ravel(self.wt)
+        wtflat = np.ravel(self.wt)
 
         # Try to get counts on same scale
         self.timage = self.timage * (self.exptime/self.master.exptime)
-        self.log( "Using %d pixels." % (sum(1.0*greater(wtflat,0))))
+        self.log( "Using %d pixels." % (np.sum(1.0*np.greater(wtflat,0))))
         if self.pwid == -1:
-           flux = sum(wtflat*ravel(self.data))/sum(wtflat*ravel(self.timage))
+           flux = np.sum(wtflat*np.ravel(self.data))/np.sum(wtflat*np.ravel(self.timage))
            self.log( "Flux ratio = %.4f" % (flux))
            self.match = flux*self.timage
            if self.sigimage is not None and self.master.sigimage is not None:
-              self.csigma = sqrt(power(self.sigma,2) + power(self.tsigma, 2))
+              self.csigma = np.sqrt(np.power(self.sigma,2) + np.power(self.tsigma, 2))
         else:
            # Full width of the kernel, make it odd
            pful = int(2*self.pwid+1)
            owid = self.pwid + 1.0
            # These are indices of a box containing the kernel
-           pbox = arange(-self.pwid,self.pwid+0.5,1.0).astype(Int32)
+           pbox = np.arange(-self.pwid,self.pwid+0.5,1.0).astype(Int32)
            # These are the indices in the pbox that correspond to being
            # inside a circular aperture.
-           self.ii = array([i for i in pbox for j in pbox \
+           self.ii = np.array([i for i in pbox for j in pbox \
                             if (i*i+j*j)<=owid**2 or 0])
-           self.jj = array([j for i in pbox for j in pbox \
+           self.jj = np.array([j for i in pbox for j in pbox \
                             if (i*i+j*j)<=owid**2 or 0])
            ll = len(self.ii)
            self.log( "Constructing bases.")
@@ -955,48 +957,48 @@ class Observation:
            it0 = time.time()
            basis_sigma = None
            if self.rev:
-              f0 = compress(wtflat,wtflat*ravel(self.timage))
-              n0 = compress(wtflat,ravel(self.invnoise))
+              f0 = np.compress(wtflat,wtflat*np.ravel(self.timage))
+              n0 = np.compress(wtflat,np.ravel(self.invnoise))
               basisimage = self.data
               if self.sigimage is not None:
                  # make a variance map 
-                 basis_sigma = power(self.sigma, 2)
+                 basis_sigma = np.power(self.sigma, 2)
            else:
-              f0 = compress(wtflat,wtflat*ravel(self.data))
-              n0 = compress(wtflat,ravel(self.invnoise))
+              f0 = np.compress(wtflat,wtflat*np.ravel(self.data))
+              n0 = np.compress(wtflat,np.ravel(self.invnoise))
               basisimage = self.timage
               if self.master.sigimage is not None:
-                 basis_sigma = power(self.tsigma, 2)
+                 basis_sigma = np.power(self.tsigma, 2)
            step = ll/79 + 1  # for performance meter
-           cwt = compress(wtflat,wtflat)
+           cwt = np.compress(wtflat,wtflat)
            # i,j indeces of masked image
-           coy,cox = compress(wtflat, [ravel(self.oy), ravel(self.ox)]).astype(Int32)
-           flatimage = ravel(basisimage)
+           coy,cox = np.compress(wtflat, [np.ravel(self.oy), np.ravel(self.ox)]).astype(Int32)
+           flatimage = np.ravel(basisimage)
            basis = []
            for k in range(ll):
-              basis.append(cwt*take(flatimage,(coy+self.jj[k])*self.naxis1 + \
+              basis.append(cwt*np.take(flatimage,(coy+self.jj[k])*self.naxis1 + \
                     (cox+self.ii[k])))
               if k % step == 0:
                  sys.stdout.write(".")
                  sys.stdout.flush()
 
-           if self.skyoff: basis = concatenate([basis,[ones(f0.shape,Float64)]])
+           if self.skyoff: basis = np.concatenate([basis,[np.ones(f0.shape,Float64)]])
            basis = asarray(basis)
            if self.spatial:
                self.oxl = (self.ox-self.naxis1/2.0)/(self.naxis1/2.0)
-               woxl = compress(wtflat,ravel(self.oxl))
+               woxl = np.compress(wtflat,np.ravel(self.oxl))
                self.oyl = (self.oy-self.naxis2/2.0)/(self.naxis2/2.0)
-               woyl = compress(wtflat,ravel(self.oyl))
+               woyl = np.compress(wtflat,np.ravel(self.oyl))
                xbasis = [b*woxl for b in basis[:-1]]
                ybasis = [b*woyl for b in basis[:-1]]
-               basis = concatenate([basis,xbasis,ybasis])
+               basis = np.concatenate([basis,xbasis,ybasis])
            it1 = time.time()
            self.log( "Bases constructed in %.4fs." % (it1-it0))
            self.log( "Decomposition.")
            it0 = time.time()
            self.log( "Size of basis matrix:")
            self.log(basis.shape)
-           du,dv,dw = singular_value_decomposition(transpose(basis))
+           du,dv,dw = singular_value_decomposition(np.transpose(basis))
            it1 = time.time()
            self.log( "Decomposition in %.4fs." % (it1-it0))
            bases = []
@@ -1005,11 +1007,11 @@ class Observation:
                for k in range(ll):
                    py = self.jj[k]+self.pwid
                    px = self.ii[k]+self.pwid
-                   pr = sqrt(self.jj[k]**2 + self.ii[k]**2)
+                   pr = np.sqrt(self.jj[k]**2 + self.ii[k]**2)
                    psf2[py,px] = sol1a[k]
                bases.append(psf2)
            bases = asarray(bases)
-           npsx = int(sqrt(bases.shape[0]))+1
+           npsx = int(np.sqrt(bases.shape[0]))+1
            npsy = bases.shape[0]/npsx + 1
            imbases = zeros( (npsy*(bases.shape[1]+5), npsx*(bases.shape[2]+5)),
                            Float64)
@@ -1026,7 +1028,7 @@ class Observation:
            imbases = imbases[::-1]
            qdump(self.imbases,imbases,self.image)
            if self.verb > 1: self.log( dv)
-           sol1 = transpose(dw)
+           sol1 = np.transpose(dw)
            if self.mcut and self.mcut < len(dv):
                self.log( "Ratio of first eigenvalue with last ten:")
                rdv = dv[0]/dv
@@ -1034,14 +1036,14 @@ class Observation:
                qdump(self.rdv,rdv)
                dv[self.mcut:] = 0 * dv[self.mcut:]
                sol2 = divz(1,dv[:self.mcut])
-               sol3 = dot(transpose(du[::,:self.mcut]),f0)
+               sol3 = dot(np.transpose(du[::,:self.mcut]),f0)
                self.psf1 = dot(sol1[::,:self.mcut], (sol2*sol3))
-               fitted = add.reduce(self.psf1[::,NewAxis]*basis,0)
+               fitted = np.add.reduce(self.psf1[::,NA]*basis,0)
                resid = fitted - f0
                vc = dv[0]/dv[self.mcut-1]
                umean = mean(resid)
-               urms = sqrt(mean(power(resid,2)))
-               uchi2 = sum(power(resid*n0,2))
+               urms = np.sqrt(mean(np.power(resid,2)))
+               uchi2 = np.sum(np.power(resid*n0,2))
                uchi2u = uchi2 / (len(resid)-self.mcut)
                self.log( "(CUT,MEAN,RMS,CHI2,RCHI2) = (%9.1f,%12.6f,%12.6f,%12.6f,%12.6f)" % (vc,umean,urms,uchi2,uchi2u))
            else:
@@ -1056,7 +1058,7 @@ class Observation:
                   if cv:
                       if self.vcut == 0:
                          qdump("cdv.fits",rdv - cdv)
-                         tck = splrep(arange(len(dv)),rdv-cdv,k=1,s=0)
+                         tck = splrep(np.arange(len(dv)),rdv-cdv,k=1,s=0)
                          vloc = sproot(tck,mest=len(dv))
                          vloc = int(vloc[0])
                          self.vcut = 10*rdv[vloc]
@@ -1064,17 +1066,17 @@ class Observation:
                       self.log( "Cutting at %1f." % (self.vcut))
                   for jvc in range(len(rdv)):
                       vc = rdv[jvc]
-                      udv = 1.0*greater_equal(dv,max(dv)/vc)
-                      jcut = int(sum(udv))
-                      if cv: self.log( "Using %d out of %d." % (sum(udv),len(udv)))
+                      udv = 1.0*np.greater_equal(dv,max(dv)/vc)
+                      jcut = int(np.sum(udv))
+                      if cv: self.log( "Using %d out of %d." % (np.sum(udv),len(udv)))
                       sol2 = divz(1,dv[:jcut])
-                      sol3 = dot(transpose(du[::,:jcut]),f0)
+                      sol3 = dot(np.transpose(du[::,:jcut]),f0)
                       self.psf1 = dot(sol1[::,:jcut], (sol2*sol3))
-                      fitted = add.reduce(self.psf1[::,NewAxis]*basis,0)
+                      fitted = np.add.reduce(self.psf1[::,NA]*basis,0)
                       resid = fitted - f0
                       umean = mean(resid)
-                      urms = sqrt(mean(power(resid,2)))
-                      uchi2 = sum(power(divz(resid,n0),2))
+                      urms = np.sqrt(mean(np.power(resid,2)))
+                      uchi2 = np.sum(np.power(divz(resid,n0),2))
                       uchi2u = uchi2 / (len(resid)-self.mcut)
                       if not cv: cdv[jvc] = urms
                       self.log( "(CUT,MEAN,RMS,CHI2,RCHI2) = (%9.1f,%12.6f,%12.6f,%12.6f,%12.6f)" % (vc,umean,urms,uchi2,uchi2u))
@@ -1082,13 +1084,13 @@ class Observation:
            if self.skyoff: 
               self.log( "Sky= %f" % (self.psf1[ll]))
            # Save the flux ratio for later if reversing.
-           self.fluxrat = sum(self.psf1[:ll])
+           self.fluxrat = np.sum(self.psf1[:ll])
            qdump("psf1.fits",self.psf1)
            self.log( "Flux ratio=%f" %(self.fluxrat))
            if preserve:
               self.log( "Preserving flux?")
               self.psf1[:ll] = self.psf1[:ll] / self.fluxrat
-              fluxrat = sum(self.psf1[:ll])
+              fluxrat = np.sum(self.psf1[:ll])
               self.log( "Flux ratio=%f"%fluxrat)
            if self.verb > 1:
              self.psf2 = zeros((pful,pful),Float64)
@@ -1099,13 +1101,13 @@ class Observation:
              for k in range(ll):
                  py = self.jj[k]+self.pwid
                  px = self.ii[k]+self.pwid
-                 pr = sqrt(self.jj[k]**2 + self.ii[k]**2)
+                 pr = np.sqrt(self.jj[k]**2 + self.ii[k]**2)
                  self.psf2[py,px] = self.psf1[k]
                  prs.append(pr)
                  pxs.append(self.ii[k])
                  pys.append(self.jj[k])
                  pfs.append( self.psf2[py,px])
-             prsf = transpose([pxs,pys,prs,pfs])
+             prsf = np.transpose([pxs,pys,prs,pfs])
              psffile = open("psf.dat","w")
              [psffile.write("%f %f %f %f\n" % tuple(p)) for p in prsf]
              psffile.close()
@@ -1128,7 +1130,7 @@ class Observation:
            dgridx, dgridy = int(self.naxis1/32), int(self.naxis2/32)
            gridin = logical_not(fmod(self.ox+dgridx,dgridx*2.0)) * \
                     logical_not(fmod(self.oy+dgridy,dgridy*2.0))
-           gridin = gridin.astype(int8)
+           gridin = gridin.astype(np.int8)
            sys.stdout.write("Constructing matched image.\n")
            it0 = time.time()
            if quick_convolve:
@@ -1147,7 +1149,7 @@ class Observation:
            it1 = time.time()
            self.log( "done.\nConstructed matched image in %.4fs." % (it1-it0))
            if basis_sigma is not None:
-              self.csigma = sqrt(self.csigma)
+              self.csigma = np.sqrt(self.csigma)
 
 
     def quick_convolve(self, matching, grid=0):
@@ -1155,14 +1157,14 @@ class Observation:
 
        shape = matching.shape
        kshape = (2*self.pwid+1,2*self.pwid+1)
-       ksmall = zeros(kshape, Float32)
+       ksmall = zeros(kshape, float32)
        ii = self.ii + self.pwid
        jj = self.jj + self.pwid
        for k in range(len(self.ii)):  ksmall[jj[k],ii[k]] = self.psf1[k]
 
        ksmall = ksmall[::-1,::-1]
 
-       kernel = zeros((kshape[0]+shape[0], kshape[1]+shape[1]), Float32)
+       kernel = zeros((kshape[0]+shape[0], kshape[1]+shape[1]), float32)
        kernel[:kshape[0], :kshape[1]] = ksmall[:,:]
        data = kernel*0.0
        dy = (data.shape[0] - matching.shape[0])//2
@@ -1242,7 +1244,7 @@ class Observation:
         #self.mask.dump_mask(self.image.replace('.fits','_imask.fits'))
 
         if starlist is not None:
-           self.starlist = loadtxt(starlist)
+           self.starlist = np.loadtxt(starlist)
         else:
            self.starlist = None
         if not registered:
@@ -1257,11 +1259,11 @@ class Observation:
         self.mkweight()
         qdump(self.rectemp,self.timage*(self.exptime/self.master.exptime)- \
               self.bg,self.master.image)
-        qdump("tempmask.fits", self.timage*greater(self.wt, 0), self.image)
+        qdump("tempmask.fits", self.timage*np.greater(self.wt, 0), self.image)
         if self.tsigma is not None:
            qdump(self.recsigma,self.tsigma*(self.exptime/self.master.exptime),
               self.master.image)
-        qdump(self.masked,greater(self.wt,0)*(self.data-self.bg),self.image)
+        qdump(self.masked,np.greater(self.wt,0)*(self.data-self.bg),self.image)
         #if subt: qdump(self.difference,self.data-self.timage* \
         #      (self.exptime/self.master.exptime),self.image)
 
@@ -1273,11 +1275,11 @@ class Observation:
               qdump(self.template,(self.match-self.bg),self.master.image)
            if self.pwid > -1: qdump(self.psfgrid,self.grid)
         if subt:
-           ids = indices(self.match.shape)
+           ids = np.indices(self.match.shape)
            if self.rev: 
               if diff_size is not None and snx is not None and sny is not None:
-                 dists = sqrt(power(ids[1]-snx,2) + power(ids[0]-sny,2))
-                 diff = self.match - where(less(dists,diff_size/self.scale),
+                 dists = np.sqrt(np.power(ids[1]-snx,2) + np.power(ids[0]-sny,2))
+                 diff = self.match - np.where(np.less(dists,diff_size/self.scale),
                        self.image/self.fluxrat, 0)
               else:
                  diff = (self.match-self.timage/self.fluxrat)
@@ -1296,13 +1298,13 @@ class Observation:
               qdump(self.template, (self.timage - self.bg), self.master.image)
               if self.sigimage is not None and self.master.sigimage is not None:
                  # Make the noise map of the difference image
-                 var = power(self.csigma, 2) + power(self.master.sigma, 2)
-                 qdump(self.difference.replace('.fits','_sigma.fits'), sqrt(var), 
+                 var = np.power(self.csigma, 2) + np.power(self.master.sigma, 2)
+                 qdump(self.difference.replace('.fits','_sigma.fits'), np.sqrt(var), 
                        self.image)
            else: 
               if diff_size is not None and snx is not None and sny is not None:
-                 dists = sqrt(power(ids[1]-snx,2) + power(ids[0]-sny,2))
-                 diff = self.data - where(less(dists,diff_size/self.scale),
+                 dists = np.sqrt(np.power(ids[1]-snx,2) + np.power(ids[0]-sny,2))
+                 diff = self.data - np.where(np.less(dists,diff_size/self.scale),
                        self.match, 0)
               else:
                  diff = (self.data-self.match)
@@ -1318,8 +1320,8 @@ class Observation:
               qdump(self.template,(self.match-self.bg),self.master.image)
               if self.sigimage is not None and self.master.sigimage is not None:
                  # Make the noise map of the difference image
-                 var = power(self.csigma, 2) + power(self.sigma, 2)
-                 qdump(self.difference.replace('.fits','_sigma.fits'), sqrt(var), 
-                       self.image)
+                 var = np.power(self.csigma, 2) + np.power(self.sigma, 2)
+                 qdump(self.difference.replace('.fits','_sigma.fits'), 
+                       np.sqrt(var), self.image)
         return 0
 

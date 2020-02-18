@@ -8,6 +8,9 @@ def qdump(filename, data, header=None):
       header = fits.PrimaryHDU(data)
       header.writeto(filename)
    else:
+      if type(header) is str:
+         hfts = fits.open(header)
+         header = hfts[0].header
       fits.writeto(filename, data, header, overwrite=True)
 
 def copyFits(inp):

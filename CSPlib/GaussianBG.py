@@ -1,9 +1,6 @@
 from numpy import *
 from scipy.optimize import leastsq
-
-def between(x, l, h, inc=0):
-   if inc: return greater_equal(x,l)*less_equal(x,h)
-   else: return greater(x,l)*less(x,h)
+from .npextras import between, getsqrt, divz, extrema, getexp
 
 def getpct(x,q,axis=0):
    '''Return the percentile of an array'''
@@ -17,42 +14,6 @@ def getpct(x,q,axis=0):
    elif len(x): return sum(x)/(1.0*len(x))
    else: return 0.0
 
-def getsqrt(x,rep=0):
-    y = less_equal(x,0)
-    y2 = isfinite(x)
-    y = logical_and(y,y2)
-    z = multiply(x,logical_not(y))
-    return sqrt(z)+rep*y
-
-def extrema(x):
-   return asarray([minimum.reduce(x), maximum.reduce(x)])
-
-def divz(x,y=1,repl=0.0,out=None):
-   if len(shape(y)) or len(shape(x)):
-      if len(shape(y)): bad = equal(y,0.0)
-      else: bad = ones(x.shape)*(y==0.0)
-      not_bad = ~bad
-      numer = (x*not_bad)
-      denom = (y+bad)
-      a = (repl*bad)
-      if out: a = a.astype(out)
-      b = (numer/denom)
-      if out: b = b.astype(out)
-      c = (a + b)
-      if out: c = c.astype(out)
-      return c
-   else:
-      if y == 0: return repl
-      else: return x/y
-
-def getexp(x,flo=-1000,fhi=1000):
-    x2 = x.astype(longfloat)
-    y = greater(x2,flo)*less(x2,fhi)
-    y2 = isfinite(x2)
-    y = logical_and(y,y2)
-    g = exp(y*x2)*y
-    g = where(isnan(g),0.0,g).astype(x.dtype)
-    return g
 
 def fitgaussian(p,x,y,f=0,v=0,wt=None):
    c,s = p

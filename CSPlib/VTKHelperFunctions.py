@@ -24,7 +24,7 @@ def NumToVTKArray(arr, name=None):
    dims = arr.shape
    vtkarray.SetVoidArray(arr.ravel(),np.multiply.reduce(dims),1)
    if len(dims) > 1: vtkarray.SetNumberOfComponents(dims[0])
-   else: vtkarray.SetNumberOfValuesfComponents(1)
+   else: vtkarray.SetNumberOfComponents(1)
    vtkarray.SetNumberOfValues(np.multiply.reduce(dims))
    if name: vtkarray.SetName(name)
    return vtkarray
@@ -36,28 +36,15 @@ def VTKArrayToVTKImage(v,nc=-1,wid=-1,hei=-1):
    ii.SetDimensions(shape2[1], shape2[0], 1)
    ii.AllocateScalars(v.GetDataType(), 1)
 
-   #if nc>0: ii.SetNumberOfScalarComponents(nc, meta)
-   #else: ii.SetNumberOfScalarComponents(1, meta)
-   #ii.GetPointData().AllocateArrays(1)
    ii.GetPointData().SetScalars(v)
    if wid>0 and hei>0:
-      #ii.SetUpdateExtentToWholeExtent()
       ii.SetExtent(0,wid-1,0,hei-1,0,0)
-   #else:
-   #   shape2 = [v.GetNumberOfComponents(), v.GetNumberOfTuples()]
-   #   #ii.SetUpdateExtentToWholeExtent()
-   #   ii.SetExtent(0,shape2[1]-1,0,shape2[0]-1,0,0)
-   #if nc>0: ii.SetNumberOfScalarComponents(nc)
-   #else: ii.SetNumberOfScalarComponents(1, vtk.vtkInformation())
-   #if nc>0: ii.GetPointData().GetScalars().SetNumberOfComponents(nc,
-   #      vtk.vtkInformation())
-   #else: ii.GetPointData().GetScalars().SetNumberOfComponents(1)
-   #ii.Update()
-   #ii.UpdateData()
-   #ii.UpdateInformation()
    return ii
 
 def NumToVTKImage(numarray,name=None):
+   dims = numarray.shape
+   if len(dims) ==1:
+      return NumToVTKArray(numarray, name)
    ii = vtk.vtkImageData()
    ii.SetDimensions(numarray.shape[0], numarray.shape[1], 0)
    ii.SetSpacing(1,1,1)
