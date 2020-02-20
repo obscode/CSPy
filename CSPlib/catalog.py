@@ -55,7 +55,12 @@ def make_ls_catalog(fil, minsep=10, minmag=None, maxmag=None, outfile=None,
       print("Querying PanSTARRS source catalog...")
    j,i = fts[0].data.shape[0]/2,fts[0].data.shape[1]/2
    RA,DEC = wcs.all_pix2world(i,j,0)
-   radius = max(i,j)*sqrt(2)*fts[0].header['SCALE']/3600
+   if 'SCALE' in fts[0].header:
+      radius = max(i,j)*sqrt(2)*fts[0].header['SCALE']/3600
+   elif 'CDELT1' in fts[0].header:
+      radius = max(i,j)*sqrt(2)*fts[0].header['CDELT1']
+   else:
+      raise ValueError("No scale found, please set it")
    tab = getPS.getStarCat(float(RA), float(DEC), radius)
    if verbose:
       print("Done!  Retrieved {} PS sources".format(len(tab)))
