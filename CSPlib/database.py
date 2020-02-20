@@ -4,13 +4,26 @@ from astropy.table import Table
 import pymysql
 import os
 
+dbs = {'SBS': {
+         'host':'sql.obs.carnegiescience.edu',
+         'user':'CSP',
+         'db':'CSP'},
+       'LCO': {
+          'host':'csp2.lco.cl',
+          'user':'cspuser',
+          'db':'Phot'},
+       }
+              
+
 if 'CSPpasswd' in os.environ:
    passwd = os.environ['CSPpasswd']
 else:
    passwd = None
 
-def getConnection():
-   global passwd
+def getConnection(db='SBS'):
+   global passwd, dbs
+   if db not in dbs:
+      raise ValueError("db must be either SBS or LCO")
    if passwd is None:
       resp = getpass.getpass(
             prompt="SQL passwd for CSP@sql.obs.carnegiescience.edu:")
