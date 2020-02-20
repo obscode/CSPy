@@ -7,6 +7,7 @@ from astropy.io import fits
 from .tel_specs import getTelIns
 from . import fitsutils
 import re
+from .irafstuff import imcombine
 
 slice_pat = re.compile(r'\[([0-9]+):([0-9]+),([0-9]+):([0-9]+)\]')
 
@@ -44,6 +45,34 @@ def getBackupCalibration(typ='Zero', chip=1, filt=None, tel='SWO',
       raise IOError("Error, no calibration file found. Check DATADIR")
 
    return fts
+
+def makeBiasFrame(blist, outfile='BIAS.fits', tel='SWO', ins='NC'):
+   '''Given a set of BIAS frames, combine into a single frame using
+   imcombine.'''
+   specs = getTelIns(tel,ins)
+
+   res = imcombine(blist, combine='average', reject='avsigclip', 
+         lsigma=3, hsigma=3, nkeep=1)
+   xl,xh,yl,yh = specs['datasec']
+   A = res[0].data[yl:yh+1,xl:xh+1]
+   if 1 in specs['overscan']:
+      lov,hov = specs['overscan'][1]
+      O = res[0].data[yl:yh+1, lov:hov+1]
+      OV = np.mean(O, axis=1)
+      OV2 = np.concatenate([[OV[0]],0.5*OV[1:-1]+0.25*OV[:-2]+0.25*OV[2:],
+         [OV[-1]]])
+      A = A - OV2[:,np.newaxis]
+   elif 2 in specs['overscan']:
+      lov,hov = specs['overscan'][2]
+      O = res[0].data[lov:hov+1, xl:xh+1]
+      OV = np.mean(O, axis=0)
+      OV2 = np.concatenate([[OV[0]],0.5*OV[1:-1]+0.25*OV[:-2]+0.25*OV[2:],
+         [OV[-1]]])
+      A = A - OV2[np.newaxis,:]
+
+   phdu = fits.PrimaryHDU(A.astype(np.float32), header=res[0].header)
+   fits.HDUList([phdu]).writeto(outfile, overwrite=True)
+
 
 def bias_correct(fts, overscan=True, frame=None, outfile=None, tel='SWO',
       ins='NC', verbose=False):
@@ -155,10 +184,13 @@ def LinearityCorrect(fts, copy=False, tel='SWO',ins='NC', chip='@OPAMP'):
          raise ValueError('chip {} not found in tel_specs for {}{}'.format(
             chip,tel,ins))
       lincors = lincors[chip]
-   locals().update(lincors)
+   alpha = lincors['alpha']
+   c1 = lincors['c1']
+   c2 = lincors['c2']
+   c3 = lincors['c3']
 
    spix = fts[0].data/32000.0
-   fcor = alpha*(1.0 + c2*spix + c3*power(spix,2))
+   fcor = alpha*(1.0 + c2*spix + c3*np.power(spix,2))
    fts[0].data = fts[0].data*fcor
 
    fts[0].header['COMMENT'] = "Linearity correction applied with:"
