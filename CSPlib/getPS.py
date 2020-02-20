@@ -6,6 +6,9 @@ from astropy.io import ascii
 from astropy.io import fits
 import requests
 
+# Scale of PS images
+PSscale = 0.25/3600   # in degrees/pixel
+
 
 def getImages(ra, dec, size=240, filters='gri', verbose=False):
    '''Query the PS data server to get a list of images for the given 
@@ -53,7 +56,21 @@ def geturl(ra, dec, size=240, filters='gri',
    return url
 
 def getFITS(ra, dec, size, filters):
+   '''Retrieve the FITS files from PanSTARRS server, centered on ra,dec
+   and with given size.
+
+   Args:
+      ra (float):  RA in degrees
+      dec (float):  DEC in degrees
+      size (float):  size of FOV in degrees
+      filters (str):  filters to get:  e.g gri
+
+   Returns:
+      list of FITS instances
+   '''
+   size = int(size/PSscale)
    urls = geturl(ra, dec, size, filters)
+   print(urls)
    fts = [fits.open(url) for url in urls]
    return fts 
 
