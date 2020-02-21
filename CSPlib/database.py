@@ -10,7 +10,7 @@ dbs = {'SBS': {
          'db':'CSP'},
        'LCO': {
           'host':'csp2.lco.cl',
-          'user':'cspuser',
+          'user':'cburns',
           'db':'Phot'},
        }
               
@@ -29,10 +29,9 @@ def getConnection(db='SBS'):
             prompt="SQL passwd for CSP@sql.obs.carnegiescience.edu:")
    else:
       resp = passwd
-   db = pymysql.connect(host='sql.obs.carnegiescience.edu',
-      user='CSP', passwd=resp, db='CSP')
+   d = pymysql.connect(passwd=resp, **dbs[db])
    passwd = resp
-   return db
+   return d
 
 def getPhotometricNights(SN):
    '''Given a SN name, search the database for nights that were photometric.
