@@ -219,3 +219,18 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
          reject, combine)
    return fits.HDUList([phdu])
 
+#def imstatistics(images, fields=None, lower=None, upper=None, nclip=0, 
+#      lsigma=3.0, usigma=3.0, binwidth=0.1):
+#   '''Do image statistics and return a table of results.'''
+#   ftslist = getInputList(images)
+#   Nim = len(ftslist)
+#
+#   funcs = {'
+#
+#   if fields is None:
+#      fields = ['image','npix','mean','midpt','mode','stddev','skew','kurtosis',
+#                'min','max']
+#   arr = []
+#   for fts in ftslist:
+#      for field in fields:
+#

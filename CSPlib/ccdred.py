@@ -3,6 +3,7 @@
 import os
 from os.path import realpath,join,dirname,isfile,isdir
 import numpy as np
+from scipy.stats import mode
 from astropy.io import fits
 from .tel_specs import getTelIns
 from . import fitsutils
@@ -77,7 +78,7 @@ def makeBiasFrame(blist, outfile=None, tel='SWO', ins='NC'):
    return fts
 
 
-def bias_correct(fts, overscan=True, frame=None, outfile=None, tel='SWO',
+def biasCorrect(fts, overscan=True, frame=None, outfile=None, tel='SWO',
       ins='NC', verbose=False):
    '''Apply a bias correction from the overscan and bias frame if supplied.
 
@@ -235,3 +236,78 @@ def ShutterCorrect(fts, frame=None, copy=False, tel='SWO',ins='NC',
    fts[0].header['COMMENT'] = "Shutter correction using EXPT={}".format(exptime)
 
    return fts
+
+
+def makeFlatFrame(flist, outfile=None, tel='SWO', ins='NC'):
+   '''Given a set of sky flat frames, combine into a single frame using
+   imcombine. It is assumed the flats have already been corrected for
+   BIAS, dark, etc.
+   
+   Args:
+      flist(str,list):  Input images to make the flat. They can be specified
+                        as a list of filenames, list of FITS objecst, a
+                        glob patter, or file with list beginning with '@'
+      outfile(str):  If specified, output the flat to this file
+      tel:  Telescope code (e.g., SWO)
+      ins:  Instrument code (e.g. NC)
+      
+   Returns:
+      FITS instance containing the flat
+   '''
+   specs = getTelIns(tel,ins)
+
+   res = imcombine(flist, combine='median', reject='sigclip', 
+         lsigma=3, hsigma=3, nkeep=1)
+
+   # Determine the mode of the pixels
+   if 'statssec' in specs:
+      y0,y1,x0,x1 = slice_pat.search(specs['statssec']).groups()
+      x0 = int(x0)-1
+      y0 = int(y0)-1
+      x1 = int(x1)
+      y1 = int(y1)
+      subdata = res[0].data[y0:y1,x0:x1]
+   else:
+      subdata = res[0].data
+
+   mod,cnt = mode(subdata.ravel()) 
+   mod = mod[0]
+   
+   # Re-scale flat by the mode
+   res[0].data = res[0].data/mod
+
+   res.writeto(outfile, overwrite=True)
+   return res
+
+def flatCorrect(image, flat, outfile=None, replace=1.0):
+   '''Flat field correct list of images.
+
+   Args:
+      image (str or FITS):  filename of FITS instance to correct
+      flat (fits, or file):  Flat field. Either a FITS instance, or filename
+      outfile (str):  If specified, output the corrected image to outfile
+      replace (float):       In case of division by zero, replacement value
+
+   Returns:
+      FITS instance of the corrected field.
+   '''
+   
+   if isinstance(image, str):
+      image = fits.open(image)
+   newhdr = image[0].header.copy()
+
+   if isinstance(flat, str):
+      flatfts = fits.open(flat)
+      newhdr['COMMENT'] = "Flat field corrected using {}".format(flat)
+   else:
+      flatfts = flat
+
+   corr = np.where(np.equal(flat[0].data, 0.0), replace, 
+         image[0].data/flat[0].data)
+
+   newhdu = fits.PrimaryHDU(data=corr, header=newhdr)
+   newhdu.scale('float32')
+   newfts = fits.HDUList([newhdu])
+   if outfile is not None:
+      newfts.writeto(outfile, overwrite=True)
+   return newfts
