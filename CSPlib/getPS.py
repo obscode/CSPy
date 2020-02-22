@@ -4,58 +4,65 @@ import numpy as np
 from astropy.table import Table
 from astropy.io import ascii
 from astropy.io import fits
+from astropy.wcs import WCS
 import requests
+try:
+   import reproject
+except:
+   reproject = None
 
 # Scale of PS images
 PSscale = 0.25/3600   # in degrees/pixel
 
 
-def getImages(ra, dec, size=240, filters='gri', verbose=False):
+def getImages(ra, dec, size=240, filt='g', verbose=False):
    '''Query the PS data server to get a list of images for the given 
-      coordinates
+      coordinates, size and filter. We check the corners to see if
+      we need to have more than one filename.
 
       Args:
          ra,dec (float):  RA/DEC in decimal degrees
          size (int):  Size of cutout in pixels
-         filters (str): str-list of filters
+         filt (str): the filter you want
+         verbose(bool): give extra info
 
       Returns:
-         table of images
+         list of filenames
    '''
    base = "https://ps1images.stsci.edu/cgi-bin/ps1filenames.py"
-   url = "{}?ra={}&dec={}&size={}&format=fits&filters={}"
-   url = url.format(base, ra, dec, size, filters)
-   if verbose: print("About to query: " + url)
-   table = Table.read(url, format='ascii')
-   return table
+   templ = "{}?ra={}&dec={}&size={}&format=fits&filters={}"
+   baseurl = templ.format(base, ra, dec, size, filt)
+   if verbose: print("About to query: " + baseurl)
+   table = Table.read(baseurl, format='ascii')
+   filenames = [table[0]['filename']]
+   for i in [-1,1]:
+      for j in [-1,1]:
+         url = templ.format(base, ra+i*size/2*PSscale, dec+j*size/2*PSscale,
+               size,filt)
+         table = Table.read(url, format='ascii')
+         if table[0]['filename'] not in filenames:
+            filenames.append(table[0]['filename'])
+   return filenames
 
 
-def geturl(ra, dec, size=240, filters='gri',
-      format='fits'):
+def geturls(ra, dec, size=240, filt='g'):
    '''Get the proper URL for PS images.
 
    Args:
       ra,dec(float):  coordinates in decimal degrees
       size (int):  size of image in pixels
-      filters(str): which filters
+      filt(str): which filter
 
    Returns:
       list of URLs.'''
 
-   table = getImages(ra, dec, size, filters)
+   flist = getImages(ra, dec, size, filt)
    base = "https://ps1images.stsci.edu/cgi-bin/fitscut.cgi"
-   url = "{}?ra={}&dec={}&size={}&format=fits"
-   url = url.format(base, ra, dec, size)
-   flist = ["yzirg".find(x) for x in table['filter']]
-   table = table[np.argsort(flist)]
+   templ = "{}?ra={}&dec={}&size={}&format=fits&red={}"
+   urls = [templ.format(base, ra, dec, size, f) for f in flist]
+   return urls
 
-   urlbase = url + "&red="
-   url = []
-   for fil in table['filename']:
-      url.append(urlbase+fil)
-   return url
-
-def getFITS(ra, dec, size, filters):
+def getFITS(ra, dec, size, filters, mosaic=False):
    '''Retrieve the FITS files from PanSTARRS server, centered on ra,dec
    and with given size.
 
@@ -64,15 +71,38 @@ def getFITS(ra, dec, size, filters):
       dec (float):  DEC in degrees
       size (float):  size of FOV in degrees
       filters (str):  filters to get:  e.g gri
+      mosaic(bool): If more than one PS images is needed to tile the field,
+                    do we mosaic them? Requires reproject module if True
 
    Returns:
       list of FITS instances
    '''
-   size = int(size/PSscale)
-   urls = geturl(ra, dec, size, filters)
-   print(urls)
-   fts = [fits.open(url) for url in urls]
-   return fts 
+   isize = int(size/PSscale)
+   # If the size is big enough, we can hit the limits of PS fields, in which
+   # case we get data back with a bunch of NaNs. So we need to check if we
+   # need multiple queries.
+   if mosaic and reproject is None:
+      raise ValueError("To use mosaic, you need to install reproject")
+   filters = list(filters)
+   ret = []
+   for filt in filters:
+      print(ra,dec,isize,filt)
+      urls = geturls(ra, dec, isize, filt)
+      print(urls)
+      if len(urls) > 1 and mosaic:
+         from reproject import reproject_interp
+         baseurl = urls[0]
+         basefts = fits.open(baseurl)
+         for url in urls[1:]:
+            ft = fits.open(url)
+            arr,foot = reproject_interp(ft[0], basefts[0].header)
+            intersect = np.isnan(basefts[0].data)*np.greater(foot, 0)
+            basefts[0].data = np.where(intersect, arr, basefts[0].data)
+         ret.append(basefts)
+      else:
+         ret.append(fits.open(urls[0]))
+
+   return ret
 
 
 def ps1cone(ra,dec,radius,table="mean",release="dr1",format="csv",columns=None,
