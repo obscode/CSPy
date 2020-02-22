@@ -46,7 +46,7 @@ def getBackupCalibration(typ='Zero', chip=1, filt=None, tel='SWO',
 
    return fts
 
-def makeBiasFrame(blist, outfile='BIAS.fits', tel='SWO', ins='NC'):
+def makeBiasFrame(blist, outfile=None, tel='SWO', ins='NC'):
    '''Given a set of BIAS frames, combine into a single frame using
    imcombine.'''
    specs = getTelIns(tel,ins)
@@ -71,7 +71,10 @@ def makeBiasFrame(blist, outfile='BIAS.fits', tel='SWO', ins='NC'):
       A = A - OV2[np.newaxis,:]
 
    phdu = fits.PrimaryHDU(A.astype(np.float32), header=res[0].header)
-   fits.HDUList([phdu]).writeto(outfile, overwrite=True)
+   fts = fits.HDUList([phdu])
+   if outfile is not None:
+      fts.writeto(outfile, overwrite=True)
+   return fts
 
 
 def bias_correct(fts, overscan=True, frame=None, outfile=None, tel='SWO',
