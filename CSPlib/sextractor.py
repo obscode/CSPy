@@ -2,7 +2,6 @@
 from numpy import pi, floor
 from astropy.io import fits
 from astropy.io import ascii
-import aplpy
 from .tel_specs import getTelIns
 import os
 

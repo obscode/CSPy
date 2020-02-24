@@ -7,14 +7,17 @@ from . import ccdred
 from . import headers
 import os
 from glob import glob
+import time
+import signal
 
 filtlist = ['u','g','r','i','B','V']
 calibrations_folder = '/csp21/csp2/software/SWONC'
 
+stopped = False
+
 class Pipeline:
 
-   def __init__(self, datadir, workdir=None, prefix='ccd', suffix='.fits',
-         poll_interval=5):
+   def __init__(self, datadir, workdir=None, prefix='ccd', suffix='.fits'):
       '''
       Initialize the pipeline object.
 
@@ -39,6 +42,13 @@ class Pipeline:
 
       # A list of all files we've dealt with so far
       self.rawfiles = []
+      # A list of files that have been bias-corrected
+      self.bfiles = []
+      # A list of files that have been flat-fielded
+      self.ffiles = []
+
+      # Cache information so we don't have to open/close FITS files too often
+      self.headerData = {}
 
       if workdir is None:
          self.workdir = self.datadir
@@ -51,6 +61,7 @@ class Pipeline:
                "Cannot create workdir {}. Permission problem? Aborting".format(
                   workdir))
          self.workdir = workdir
+
 
       try:
          self.logfile = open(os.path.join(workdir, "pipeline.log"), 'w')
@@ -72,6 +83,7 @@ class Pipeline:
          self.files['astro'][filt] = []
 
       self.biasFrame = None
+      self.shutterFrames = {}
       self.flatFrame = {}
       for filt in filtlist:
          self.flatFrame[filt] = None
@@ -93,6 +105,11 @@ class Pipeline:
       # Update header
       fout = os.path.join(self.workdir, os.path.basename(filename))
       fts = headers.update_header(filename, fout)
+
+      fil = os.path.basename(filename)
+      self.headerData[fil] = {}
+      for h in ['OBJECT','OBSTYPE','FILTER','EXPTIME','OPAMP']:
+         self.headerData[fil][h] = fts[0].header[h]
       
       # Figure out what kind of file we're dealing with
       obstype = fts[0].header['OBSTYPE']
@@ -125,6 +142,16 @@ class Pipeline:
 
       return new
 
+   def getHeaderData(self, fil, key):
+      f = os.path.basename(fil)
+      f = 'c'+f[1:]
+      return self.headerData[f][key]
+
+   def getFileName(self, fil, prefix):
+      '''Add a prefix to the filename in the work folder.'''
+      fil = os.path.basename(fil)
+      return os.path.join(self.workdir, prefix+fil[1:])
+
    def makeBias(self):
       '''Make BIAS frame from the data, or retrieve from other sources.'''
       # Can we make a bias frame?
@@ -132,7 +159,7 @@ class Pipeline:
          self.log("Found {} bias frames, building an average...".format(
             len(self.files['zero'])))
          bfile = os.path.join(self.workdir, 'Zero{}'.format(self.suffix))
-         self.biasFrame = ccdred.makeBias(self.files['zero'], 
+         self.biasFrame = ccdred.makeBiasFrame(self.files['zero'], 
                outfile=bfile)
          self.log("BIAS frame saved to {}".format(bfile))
       else:
@@ -145,7 +172,7 @@ class Pipeline:
             self.biasFrame = fits.open(os.path.join(self.workdir, 
                'Zero{}'.format(self.suffix)))
          else:
-            cfile = os.path.join(calibrations_folder, "Zero{}".format(
+            cfile = os.path.join(calibrations_folder, "CAL", "Zero{}".format(
                self.suffix))
             self.biasFrame = fts.open(cfile)
             bfile = os.path.join(self.workdir, "Zero{}".format(self.suffix))
@@ -154,14 +181,15 @@ class Pipeline:
 
    def makeFlats(self):
       '''Make flat Frames from the data or retrieve from backup sources.'''
+
       for filt in filtlist:
          if len(self.files['sflat'][filt]) > 3:
-            self.log("Found {} {}-band sky flats, building an average..."\
+            self.log("Found {} {}-band sky flats, bias and flux correcting..."\
                   .format(len(self.files['sflat'][filt]), filt))
             fname = os.path.join(self.workdir, "SFlat{}{}".format(filt,
                self.suffix))
-            self.flatFrame[filt] = ccdred.makeFlatFrame(
-                  self.files['sflat'][filt], outfile=fname)
+            files = [self.getFileName(f,'b') for f in self.files['sflat'][filt]]
+            self.flatFrame[filt] = ccdred.makeFlatFrame(files, outfile=fname)
             self.log("Flat field saved to {}".format(fname))
          else:
             cmd = "rclone copy CSP:Swope/Calibrations/latest/SFlat{}{} {}".\
@@ -172,27 +200,106 @@ class Pipeline:
                self.flatFrame[filt] = fits.open(os.path.join(self.workdir, 
                   'SFlat{}{}'.format(filt,self.suffix)))
             else:
-               cfile = os.path.join(calibrations_folder, "SFlat{}{}".format(
+               cfile = os.path.join(calibrations_folder, "CAL", 
+                     "SFlat{}{}".format(
                   filt, self.suffix))
                self.flatFrame[filt] = fits.open(cfile)
                self.flatFrame[filt].writeto(os.path.join(self.workdir,
                   "SFlat{}{}".format(filt,self.suffix)))
                self.log("Retrieved backup FLAT frame from {}".format(cfile))
 
+   def BiasLinShutCorr(self):
+      '''Do bias, linearity, and shutter corrections to all files except bias 
+      frames.'''
+      if self.biasFrame is None:
+         self.log('Abort due to lack of bias frame')
+         raise RuntimeError("Error:  can't proceed without a bias frame!")
+      todo = []
+      for f in self.rawfiles:
+         base = os.path.basename(f)
+         wfile = self.getFileName(f, 'c')
+         bfile = self.getFileName(f, 'b')
+         if wfile not in self.files['zero'] and bfile not in self.bfiles:
+            todo.append(wfile)
+
+      for f in todo:
+         fts = ccdred.biasCorrect(f, overscan=True, frame=self.biasFrame)
+         # Get the correct shutter file
+         opamp = self.getHeaderData(f,'OPAMP')
+         if opamp not in self.shutterFrames:
+            shfile = os.path.join(calibrations_folder, 'CAL',
+                  "SH{}.fits".format(opamp))
+            self.shutterFrames[opamp] = fits.open(shfile)
+         fts = ccdred.LinearityCorrect(fts)
+         fts = ccdred.ShutterCorrect(fts, frame=self.shutterFrames[opamp])
+         bfile = self.getFileName(f, 'b')
+         fts.writeto(bfile, overwrite=True)
+         self.bfiles.append(bfile)
+
+   def FlatCorr(self):
+      '''Do flat field correction to all files that need it:  astro basically
+      '''
+      # Process files in 'astro' type that we haven't done yet and that have
+      # been bias-corrected
+      todo = []
+      for filt in self.files['astro']:
+         for f in self.files['astro'][filt]:
+            bfile = self.getFileName(f, 'b')
+            ffile = self.getFileName(f, 'f')
+            if bfile in self.bfiles and ffile not in self.ffiles:  
+               todo.append(bfile)
+
+      for f in todo:
+         filt = self.getHeaderData(f,'FILTER')
+         bfile = self.getFileName(f, 'b')
+         ffile = self.getFileName(f, 'f')
+         if filt not in self.flatFrame:
+            raise RuntimeError("No flat for filter {}. Abort!".format(filt))
+         self.log("Flat field correcting {} --> {}".format(bfile,ffile))
+         fts = ccdred.flatCorrect(bfile, self.flatFrame[filt],
+               outfile=ffile)
+         self.ffiles.append(ffile)
+
    def initialize(self):
       '''Make a first run through the data and see if we have what we need
-      to get going.'''
+      to get going. We can always fall back on generic calibrations if
+      needed.'''
 
+      self.log("Start pipeline at {}".format(time.strftime('%Y/%m/%d %H:%M:%S')))
       files = self.getNewFiles()
       for fil in files:
          self.addFile(fil)
 
       self.makeBias()
-
+      self.BiasLinShutCorr()
       self.makeFlats()
+      self.FlatCorr()
+
+   def sighandler(self, sig, frame):
+      if sig == signal.SIGHUP:
+         self.stopped = True
 
 
+   def run(self, poll_interval=10, wait_for_write=2):
+      '''Check for new files and process them as they come in. Only check
+      when idle for poll_interval seconds. Also, we wait wait_for_write
+      number of seconds before reading each file to avoid race conditions.'''
+      self.stopped = False
+      signal.signal(signal.SIGHUP, self.sighandler)
+      while not self.stopped:
+         print("Checking for new files")
+         files = self.getNewFiles()
+         for fil in files:
+            time.sleep(wait_for_write)
+            self.addFile(fil)
 
+         self.BiasLinShutCorr()
+         self.FlatCorr()
 
+         time.sleep(poll_interval)
+
+      self.log("Pipeline stopped normally at {}".format(
+         time.strftime('%Y/%m/%d %H:%M:%S')))
+      return
 
 
