@@ -1,10 +1,8 @@
 #!/usr/bin/env python
 
 from CSPlib.getPS import getStarCat,getFITS
-#from CSPlib.database import getConnection
 from astropy.io import fits
 import pymysql
-#import aplpy
 from matplotlib import pyplot as plt
 from matplotlib import rcParams
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
@@ -36,8 +34,8 @@ for sn,ra,dec in l:
    dec = float(dec)
 
    # Skip if we've already done the work
-   #if isfile(fchart):
-   #   continue
+   if isfile(fchart):
+      continue
    fnames = [join(templates, "{}_{}.fits".format(sn,filt)) \
          for filt in ['g','r','i']]
    if isfile(join(templates, "{}_{}.fits".format(sn, 'r'))):
@@ -59,30 +57,48 @@ for sn,ra,dec in l:
    cat = getStarCat(ra, dec, chart_size/2)
    sids = np.argsort(cat['rmag'])
    cat.write(join(templates, "{}.cat".format(sn)), format='ascii.fixed_width',
-         delimieter=' ', overwrite=True)
-   cat = cat[sids[0:Nstars]]
+         delimiter=' ', overwrite=True)
+   dists = np.sqrt(np.power(cat['RA']-ra,2)*np.cos(dec*np.pi/180)**2 + 
+         np.power(cat['DEC']-dec,2))
+   pids = []
+   symbs = ['s', 'o', 'd', '^', 'v','<','>'][::-1]
+   for magmin,magmax in [(11,12),(12,13),(13,14),(14,15),(16,17)]:
+      gids = np.greater_equal(cat['rmag'], magmin)*np.less(cat['rmag'],magmax)
+      if not np.sometrue(gids):
+         continue
+      idx = np.argmin(dists[gids])
+      pids.append(np.arange(len(gids))[gids][idx])
 
    fig = plt.figure(figsize=(9,9))
    ax = fig.add_subplot(111, projection=wcs)
    plt.subplots_adjust(left=0.2)
    ax.imshow(fts[0].data, origin='lower', norm=simple_norm(fts[0].data,
       min_cut=-300, max_cut=1000), cmap='gray_r')
-   ii,jj = wcs.wcs_world2pix(cat['RA'], cat['DEC'], 0)
-   ax.plot(ii, jj, 'o', mec='blue', mfc='none', ms=20)
-   ax.plot([0.25,0.75],[0.5, 0.5], '-', color='red', alpha=0.5,
+   #ii,jj = wcs.wcs_world2pix(cat['RA'][pids], cat['DEC'][pids], 0)
+   #ax.plot(ii, jj, 'o', mec='blue', mfc='none', ms=20)
+   ax.plot([0.3,0.48],[0.5, 0.5], '-', color='red', alpha=0.5,
       transform=ax.transAxes)
-   ax.plot([0.5,0.5],[0.25, 0.75], '-', color='red', alpha=0.5,
+   ax.plot([0.52,0.7],[0.5, 0.5], '-', color='red', alpha=0.5,
+      transform=ax.transAxes)
+   ax.plot([0.5,0.5],[0.3, 0.48], '-', color='red', alpha=0.5,
+      transform=ax.transAxes)
+   ax.plot([0.5,0.5],[0.52, 0.7], '-', color='red', alpha=0.5,
       transform=ax.transAxes)
    ax.set_xlabel('RA (J2000)')
    ax.set_ylabel('DEC (J2000)')
-   for i in range(len(cat)):
+   for i in pids:
       dx = np.cos(dec*np.pi/180)*(cat['RA'][i]-ra)*3600
       dy = (cat['DEC'][i]-dec)*3600
-      ax.text(ii[i]+30, jj[i]+45, "{:.1f}\n{:.1f}".format(dx,dy), color='blue',
-            fontsize=12, ha='right', va='bottom')
+      mag = cat['rmag'][i]
+      ii,jj = wcs.wcs_world2pix(cat['RA'][i], cat['DEC'][i], 0)
+      ax.plot(ii, jj, symbs.pop(), mec='blue', mfc='none', ms=20,
+            label="({:.1f},{:.1f})".format(dx,dy))
+      #ax.text(ii[i]+30, jj[i]+45, "{:.1f}\n{:.1f}".format(dx,dy), color='blue',
+      #      fontsize=12, ha='right', va='bottom')
 
    ins = inset_axes(ax, width="100%", height="100%",
          bbox_to_anchor=(0.7,0.7, 0.4, 0.4), bbox_transform=ax.transAxes)
+   ax.legend(loc='upper left', fontsize=10, markerscale=0.5)
    ins.tick_params(left=False, right=False, bottom=False, top=False)
    ins.axes.get_xaxis().set_visible(False)
    ins.axes.get_yaxis().set_visible(False)
