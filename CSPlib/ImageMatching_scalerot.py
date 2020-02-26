@@ -17,13 +17,9 @@
                 modules and python 3
 '''
 import time,os
-#from FITS import *
 from .fitsutils import qdump
-#from Multipack import *
 from .VTKHelperFunctions import *
 from .ReadSex import *
-#from masks import *
-#from basics import *
 from astropy.io import fits as FITS
 import numpy.fft as fft
 import numpy as np
@@ -31,7 +27,8 @@ from .GaussianBG import GaussianBG
 from .basis import abasis,mbasis,svdfit
 from .npextras import bwt, divz, between
 from .fitsutils import qdump
-#import convolve
+from numpy import linalg
+import sys
 debug = 1
 try:
    import TwoPicker as Picker
@@ -51,6 +48,9 @@ try:
    import fit_psf
 except:
    fit_psf = None
+
+def singular_value_decomposition(A, full_matrices=0):
+    return linalg.svd(A, full_matrices)
 
 NA = np.newaxis
 def QuickShift(i,x,y):
@@ -354,7 +354,6 @@ class Observation:
        in a specified log file.'''
        print(message)
        if self.log_stream is not None:
-          #print >> self.log_stream, message
           self.log_stream.write(message+'\n')
 
 
@@ -942,7 +941,7 @@ class Observation:
            pful = int(2*self.pwid+1)
            owid = self.pwid + 1.0
            # These are indices of a box containing the kernel
-           pbox = np.arange(-self.pwid,self.pwid+0.5,1.0).astype(Int32)
+           pbox = np.arange(-self.pwid,self.pwid+0.5,1.0).astype(np.int32)
            # These are the indices in the pbox that correspond to being
            # inside a circular aperture.
            self.ii = np.array([i for i in pbox for j in pbox \
@@ -972,7 +971,9 @@ class Observation:
            step = ll/79 + 1  # for performance meter
            cwt = np.compress(wtflat,wtflat)
            # i,j indeces of masked image
-           coy,cox = np.compress(wtflat, [np.ravel(self.oy), np.ravel(self.ox)]).astype(Int32)
+           print(wtflat.shape)
+           coy,cox = np.compress(wtflat, 
+              [np.ravel(self.oy), np.ravel(self.ox)], 1).astype(np.int32)
            flatimage = np.ravel(basisimage)
            basis = []
            for k in range(ll):
@@ -982,8 +983,9 @@ class Observation:
                  sys.stdout.write(".")
                  sys.stdout.flush()
 
-           if self.skyoff: basis = np.concatenate([basis,[np.ones(f0.shape,Float64)]])
-           basis = asarray(basis)
+           if self.skyoff: basis = np.concatenate([basis,
+              [np.ones(f0.shape,np.float64)]])
+           basis = np.asarray(basis)
            if self.spatial:
                self.oxl = (self.ox-self.naxis1/2.0)/(self.naxis1/2.0)
                woxl = np.compress(wtflat,np.ravel(self.oxl))
@@ -997,24 +999,24 @@ class Observation:
            self.log( "Decomposition.")
            it0 = time.time()
            self.log( "Size of basis matrix:")
-           self.log(basis.shape)
+           self.log(str(basis.shape))
            du,dv,dw = singular_value_decomposition(np.transpose(basis))
            it1 = time.time()
            self.log( "Decomposition in %.4fs." % (it1-it0))
            bases = []
            for sol1a in dw:
-               psf2 = zeros((pful,pful),Float64)
+               psf2 = np.zeros((pful,pful),np.float64)
                for k in range(ll):
                    py = self.jj[k]+self.pwid
                    px = self.ii[k]+self.pwid
                    pr = np.sqrt(self.jj[k]**2 + self.ii[k]**2)
                    psf2[py,px] = sol1a[k]
                bases.append(psf2)
-           bases = asarray(bases)
+           bases = np.asarray(bases)
            npsx = int(np.sqrt(bases.shape[0]))+1
-           npsy = bases.shape[0]/npsx + 1
-           imbases = zeros( (npsy*(bases.shape[1]+5), npsx*(bases.shape[2]+5)),
-                           Float64)
+           npsy = bases.shape[0]//npsx + 1
+           imbases = np.zeros((npsy*(bases.shape[1]+5), 
+                               npsx*(bases.shape[2]+5)), np.float64)
            imb1 = 0
            for j in range(npsy):
              for i in range(npsx):
@@ -1036,22 +1038,22 @@ class Observation:
                qdump(self.rdv,rdv)
                dv[self.mcut:] = 0 * dv[self.mcut:]
                sol2 = divz(1,dv[:self.mcut])
-               sol3 = dot(np.transpose(du[::,:self.mcut]),f0)
-               self.psf1 = dot(sol1[::,:self.mcut], (sol2*sol3))
+               sol3 = np.dot(np.transpose(du[::,:self.mcut]),f0)
+               self.psf1 = np.dot(sol1[::,:self.mcut], (sol2*sol3))
                fitted = np.add.reduce(self.psf1[::,NA]*basis,0)
                resid = fitted - f0
                vc = dv[0]/dv[self.mcut-1]
-               umean = mean(resid)
-               urms = np.sqrt(mean(np.power(resid,2)))
+               umean = np.mean(resid)
+               urms = np.sqrt(np.mean(np.power(resid,2)))
                uchi2 = np.sum(np.power(resid*n0,2))
                uchi2u = uchi2 / (len(resid)-self.mcut)
                self.log( "(CUT,MEAN,RMS,CHI2,RCHI2) = (%9.1f,%12.6f,%12.6f,%12.6f,%12.6f)" % (vc,umean,urms,uchi2,uchi2u))
            else:
                self.log( "Ratio of first eigenvalue with last ten:")
                rdv = 1.0/dv
-               self.log( rdv[-10:])
+               self.log( str(rdv[-10:]))
                qdump(self.rdv,rdv)
-               cdv = zeros(rdv.shape,Float64)
+               cdv = np.zeros(rdv.shape,np.float64)
                if self.vcut == 0: ucv = [0,1]
                else: ucv = [1]
                for cv in ucv:
@@ -1070,12 +1072,12 @@ class Observation:
                       jcut = int(np.sum(udv))
                       if cv: self.log( "Using %d out of %d." % (np.sum(udv),len(udv)))
                       sol2 = divz(1,dv[:jcut])
-                      sol3 = dot(np.transpose(du[::,:jcut]),f0)
-                      self.psf1 = dot(sol1[::,:jcut], (sol2*sol3))
+                      sol3 = np.dot(np.transpose(du[::,:jcut]),f0)
+                      self.psf1 = np.dot(sol1[::,:jcut], (sol2*sol3))
                       fitted = np.add.reduce(self.psf1[::,NA]*basis,0)
                       resid = fitted - f0
-                      umean = mean(resid)
-                      urms = np.sqrt(mean(np.power(resid,2)))
+                      umean = np.mean(resid)
+                      urms = np.sqrt(np.mean(np.power(resid,2)))
                       uchi2 = np.sum(np.power(divz(resid,n0),2))
                       uchi2u = uchi2 / (len(resid)-self.mcut)
                       if not cv: cdv[jvc] = urms
@@ -1093,7 +1095,7 @@ class Observation:
               fluxrat = np.sum(self.psf1[:ll])
               self.log( "Flux ratio=%f"%fluxrat)
            if self.verb > 1:
-             self.psf2 = zeros((pful,pful),Float64)
+             self.psf2 = np.zeros((pful,pful),np.float64)
              pxs = []
              pys = []
              prs = []
@@ -1122,14 +1124,14 @@ class Observation:
                   py = self.jj[k]+self.pwid
                   px = self.ii[k]+self.pwid
                   self.psf1[k] = self.psf2[py,px]
-           self.match = zeros(self.data.shape,Float64)
-           self.grid = zeros(self.data.shape,Float64)
+           self.match = np.zeros(self.data.shape,np.float64)
+           self.grid = np.zeros(self.data.shape,np.float64)
            if basis_sigma is not None:
               # the noise in the convolved image:
-              self.csigma = zeros(self.data.shape, Float64)
+              self.csigma = np.zeros(self.data.shape, np.float64)
            dgridx, dgridy = int(self.naxis1/32), int(self.naxis2/32)
-           gridin = logical_not(fmod(self.ox+dgridx,dgridx*2.0)) * \
-                    logical_not(fmod(self.oy+dgridy,dgridy*2.0))
+           gridin = np.logical_not(np.fmod(self.ox+dgridx,dgridx*2.0)) * \
+                    np.logical_not(np.fmod(self.oy+dgridy,dgridy*2.0))
            gridin = gridin.astype(np.int8)
            sys.stdout.write("Constructing matched image.\n")
            it0 = time.time()
@@ -1157,14 +1159,14 @@ class Observation:
 
        shape = matching.shape
        kshape = (2*self.pwid+1,2*self.pwid+1)
-       ksmall = zeros(kshape, float32)
+       ksmall = np.zeros(kshape, float32)
        ii = self.ii + self.pwid
        jj = self.jj + self.pwid
        for k in range(len(self.ii)):  ksmall[jj[k],ii[k]] = self.psf1[k]
 
        ksmall = ksmall[::-1,::-1]
 
-       kernel = zeros((kshape[0]+shape[0], kshape[1]+shape[1]), float32)
+       kernel = np.zeros((kshape[0]+shape[0], kshape[1]+shape[1]), float32)
        kernel[:kshape[0], :kshape[1]] = ksmall[:,:]
        data = kernel*0.0
        dy = (data.shape[0] - matching.shape[0])//2
@@ -1180,7 +1182,7 @@ class Observation:
        Fkernel = fft.rfft2(kernel)
        sys.stdout.write('.'*8)
        sys.stdout.flush()
-       multiply(Fdata, Fkernel, Fdata)
+       np.multiply(Fdata, Fkernel, Fdata)
        del Fkernel
        convolved = fft.irfft2(Fdata, s=kernel.shape)
        sys.stdout.write('.'*8)

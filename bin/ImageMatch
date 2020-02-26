@@ -6,6 +6,7 @@ from CSPlib.ImageMatching_scalerot import *
 from io import StringIO
 from CSPlib import config
 import numpy as np
+import argparse
 
 sample_config = '''
 [data]

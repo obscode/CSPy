@@ -422,7 +422,7 @@ def VTKSqrt(x0,rep=0.0):
       o = m.GetOutput()
       m.Update()
       b = VTKImageToNum(o)
-      return where(bad,rep,b)
+      return np.where(bad,rep,b)
 
 def VTKInvert(x1,rep=0.0):
       if type(x1) == np.ndarray: i1 = NumToVTKImage(x1)
@@ -450,4 +450,50 @@ def VTKIslandRemoval(x,isval,repval,area,numret=0):
       d.Update()
       if numret: return VTKImageToNum(o)
       else: return o
+
+
+def VTKGreaterEqual(x1,th):
+      if type(x1) == np.ndarray: i1 = NumToVTKImage(x1)
+      else: i1 = x1
+      m = vtk.vtkImageThreshold()
+      m.ThresholdByUpper(th)
+      m.SetInputData(i1)
+      m.ReplaceInOn()
+      m.ReplaceOutOn()
+      m.SetInValue(1.0)
+      m.SetOutValue(0.0)
+      m.SetOutputScalarTypeToFloat()
+      o = m.GetOutput()
+      m.Update()
+      return VTKImageToNum(o)
+
+def VTKLessEqual(x1,th):
+      if type(x1) == np.ndarray: i1 = NumToVTKImage(x1)
+      else: i1 = x1
+      m = vtk.vtkImageThreshold()
+      m.ThresholdByLower(th)
+      m.SetInputData(i1)
+      m.ReplaceInOn()
+      m.ReplaceOutOn()
+      m.SetInValue(1.0)
+      m.SetOutValue(0.0)
+      m.SetOutputScalarTypeToFloat()
+      o = m.GetOutput()
+      m.Update()
+      return VTKImageToNum(o)
+
+def VTKBetween(x1,th1,th2):
+      if type(x1) == np.ndarray: i1 = NumToVTKImage(x1)
+      else: i1 = x1
+      m = vtk.vtkImageThreshold()
+      m.ThresholdBetween(th1,th2)
+      m.SetInputData(i1)
+      m.ReplaceInOn()
+      m.ReplaceOutOn()
+      m.SetInValue(1.0)
+      m.SetOutValue(0.0)
+      m.SetOutputScalarTypeToFloat()
+      o = m.GetOutput()
+      m.Update()
+      return VTKImageToNum(o)
 
