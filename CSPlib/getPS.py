@@ -300,6 +300,8 @@ def getStarCat(ra, dec, radius):
                  'iMeanPSFMag.gt':0}
    results = ps1cone(ra, dec, radius, release='dr2', columns=columns,
          table='mean', **contraints)
+   if results == '':
+      return None
    tab = ascii.read(results)
    # make some nice column names
    tab.rename_column('raMean','RA')
