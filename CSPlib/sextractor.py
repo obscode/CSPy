@@ -3,17 +3,18 @@ from numpy import pi, floor
 from astropy.io import fits
 from astropy.io import ascii
 from .tel_specs import getTelIns
+import tempfile
 import os
 
-sex_in = '''CATALOG_NAME     sextractor.cat
+sex_in = '''CATALOG_NAME     {tmpdir}/sextractor.cat
 CATALOG_TYPE    ASCII_HEAD
-PARAMETERS_NAME sextractor.param
+PARAMETERS_NAME {tmpdir}/sextractor.param
 DETECT_TYPE     CCD
 DETECT_MINAREA  {minarea:d}
 DETECT_THRESH   {thresh:.2f}
 ANALYSIS_THRESH {thresh:.2f}
 FILTER          N
-FILTER_NAME     sextractor.conv
+FILTER_NAME     {tmpdir}/sextractor.conv
 DEBLEND_NTHRESH 32
 DEBLEND_MINCONT 0.005
 CLEAN           Y
@@ -27,7 +28,7 @@ MAG_GAMMA       4.0
 GAIN            {epadu:.2f}
 PIXEL_SCALE     {scale:.5f}
 SEEING_FWHM     {fwhm:.3f}
-STARNNW_NAME    sextractor.nnw
+STARNNW_NAME    {tmpdir}/sextractor.nnw
 BACK_SIZE       200
 BACK_FILTERSIZE 3
 CHECKIMAGE_TYPE  NONE
@@ -42,11 +43,14 @@ datadir = os.path.realpath(os.path.join(os.path.dirname(__file__), 'data'))
 class SexTractor:
    '''A class to runs source extractor on an image.'''
 
-   def __init__(self, image, tel='SWO', ins='NC'):
+   def __init__(self, image, tel='SWO', ins='NC', scale=None, gain=None):
 
       self.image = image
       teldata = getTelIns(tel, ins)
       self.__dict__.update(teldata)
+      if scale is not None: self.scale = scale
+      if gain is not None: self.gain = gain
+      self.tmpdir = tempfile.mkdtemp(dir='.')
 
    def makeSexFiles(self, aper, datamax, fwhm, thresh):
       '''Output a sextractor config file.
@@ -69,20 +73,24 @@ class SexTractor:
       minarea = int(floor(pi*(fwhm/scale)**2/4))
       if minarea == 0: minarea = 3
       epadu = self.gain
+      tmpdir = self.tmpdir
 
-      with open('sextractor.in','w') as fout:
+      with open(os.path.join(tmpdir,'sextractor.in'),'w') as fout:
          fout.write(sex_in.format(**locals()))
  
-      with open('sextractor.param', 'w') as fout:
-         fout.write('MAG_APER(2)\nX_IMAGE\nY_IMAGE\nFWHM_IMAGE\nCLASS_STAR\n')
+      with open(os.path.join(tmpdir,'sextractor.param'), 'w') as fout:
+         fout.write('MAG_APER(1)\nX_IMAGE\nY_IMAGE\nFWHM_IMAGE\nCLASS_STAR\n')
          fout.write('FLAGS\n')
 
-      os.system('cp {} .'.format(os.path.join(datadir, 'sextractor.nnw')))
+      os.system('cp {} {}'.format(os.path.join(datadir, 'sextractor.nnw'),
+         tmpdir))
 
    def cleanup(self):
       for fil in ['sextractor.in','sextractor.cat','sextractor.nnw',
-            'sextractor.param']:
-         os.unlink(fil)
+            'sextractor.param','image.fits']:
+         fname = os.path.join(self.tmpdir, fil)
+         if os.path.isfile(fname): os.unlink(fname)
+      os.rmdir(self.tmpdir)
 
    def run(self, fwmin=0.7, fwmax=2.5, thresh=3, datamax=30000,
          Nmax=None):
@@ -90,15 +98,22 @@ class SexTractor:
       aper = fwmin+fwmax
       fwhm = fwmin+(fwmin+fwmax)/4
       self.makeSexFiles(aper, datamax, fwhm, thresh)
-      ret = os.system('sex {} -c sextractor.in'.format(self.image))
+      if not isinstance(self.image, str):
+         image = os.path.join(self.tmpdir, 'image.fits')
+         self.image.writeto(image, overwrite=True)
+      else:
+         image = self.image
+
+      ret = os.system('sex {} -c {}/sextractor.in'.format(image,
+         self.tmpdir))
       if ret != 0:
          raise RuntimeError('Sextractor failed')
 
    def parseCatFile(self):
       '''Read in the catalog data.'''
-      if not os.path.isfile('sextractor.cat'):
+      if not os.path.isfile(os.path.join(self.tmpdir,'sextractor.cat')):
          raise IOError('Sextractor catalog file not found, did you run()?')
-      tab = ascii.read('sextractor.cat')
+      tab = ascii.read(os.path.join(self.tmpdir,'sextractor.cat'))
       return tab
 
 
