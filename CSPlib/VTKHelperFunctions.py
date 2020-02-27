@@ -46,14 +46,14 @@ def NumToVTKImage(numarray,name=None):
    if len(dims) ==1:
       return NumToVTKArray(numarray, name)
    ii = vtk.vtkImageData()
-   ii.SetDimensions(numarray.shape[0], numarray.shape[1], 0)
+   ii.SetDimensions(numarray.shape[0], numarray.shape[1], 1)
    ii.SetSpacing(1,1,1)
    ii.SetOrigin(0,0,0)
    ii.SetExtent(0, numarray.shape[0]-1, 0, numarray.shape[1]-1, 0, 0)
    vtktype = numpy_support.get_vtk_array_type(numarray.dtype)
    ii.AllocateScalars(vtktype, 1)
    pd = ii.GetPointData()
-   arr = numpy_support.numpy_to_vtk(np.ndarray.flatten(numarray, 'C'))
+   arr = numpy_support.numpy_to_vtk(np.ndarray.flatten(numarray, 'F'))
    pd.SetScalars(arr)
    return ii
 
@@ -72,6 +72,7 @@ def VTKImageToNum(i):
    d.reverse()
    if d[0] == 1: d = d[1:]
    if d[0] == 1: d = d[1:]
+   #d.reverse()
    it = i.GetScalarType()
    scalars = i.GetPointData().GetScalars()
    if scalars: it = scalars.GetDataType()
@@ -82,7 +83,7 @@ def VTKImageToNum(i):
    ie.ImageLowerLeftOn()
    ie.SetInputData(i)
    ie.Export()
-   return np.squeeze(x)
+   return np.squeeze(x).T
 
 
 def VTKImageShift(x,u,v,numret=False,interp=True,wrap=False,mirror=False,

@@ -28,6 +28,7 @@ from .basis import abasis,mbasis,svdfit
 from .npextras import bwt, divz, between
 from .fitsutils import qdump
 from numpy import linalg
+from scipy.ndimage import map_coordinates
 import sys
 debug = 1
 try:
@@ -744,7 +745,7 @@ class Observation:
         if self.data == None:
            self.log( "Now reading frames for %s" % (self))
            f = FITS.open(self.image)
-           self.data = f[self.hdu].data
+           self.data = f[self.hdu].data.astype(np.float32)
 
            # Check for NaNs
            self.nans = np.isnan(self.data)
@@ -779,7 +780,7 @@ class Observation:
            if self.sigimage is not None:
               self.log( "Reading in sigma map %s" % self.sigimage)
               f = FITS.open(self.sigimage)
-              self.sigma = f[self.hdu].data
+              self.sigma = f[self.hdu].data.astype(np.float32)
               f.close()
            else:
               self.sigma = None
@@ -789,7 +790,7 @@ class Observation:
               for xmap in self.extra_maps:
                  self.log("Reading in extra map %s" % xmap)
                  f = FITS.open(xmap)
-                 self.extras.append(f[self.hdu].data)
+                 self.extras.append(f[self.hdu].data.astype(np.float32))
                  f.close()
            else:
               self.extras = None
@@ -840,16 +841,25 @@ class Observation:
               self.tx = ix - self.ox
               self.ty = iy - self.oy
            self.log( "Transforming...")
-           self.timage = VTKImageTransform(mimage,self.tx,self.ty,numret=1,
-                                           cubic=0,interp=1,constant=0)
+           qdump('tx.fits', self.tx, self.image)
+           qdump('ty.fits', self.ty, self.image)
+           print(self.tx.shape, self.ty.shape)
+           # Let's try geomap like thing
+           self.timage = map_coordinates(mimage, [iy, ix], order=3,
+                 mode='constant', cval=0)
+           #self.timage = VTKImageTransform(mimage,self.tx,self.ty,numret=1,
+           #                                cubic=0,interp=1,constant=0)
            qdump(self.rectemp, self.timage, self.master.image)
            if self.master.sigimage is not None:
               self.log( "Transforming sigma map...")
               bpm = np.less(self.master.sigma,0)*1.0
-              self.tsigma = VTKImageTransform(self.master.sigma, self.tx, 
-                    self.ty, numret=1, cubic=0, interp=1, constant=-1)
-              tbpm = VTKImageTransform(bpm, self.tx, 
-                    self.ty, numret=1, cubic=0, interp=1, constant=-1)
+              self.tsigma = map_coordinates(self.master.sigma, [iy,ix], 
+                    order=3, mode='constant', cval=0)
+              #self.tsigma = VTKImageTransform(self.master.sigma, self.tx, 
+              tbpm = map_coordinates(bpm, [iy,ix], 
+                    order=3, mode='constant', cval=0)
+              #tbpm = VTKImageTransform(bpm, self.tx, 
+              #      self.ty, numret=1, cubic=0, interp=1, constant=-1)
               self.tsigma = np.where(tbpm > 0.1, -1, self.tsigma)
            else:
               self.tsigma = None
@@ -858,16 +868,20 @@ class Observation:
               self.log( "Transforming extra maps...")
               self.textras = []
               for xmap in self.master.extras:
-                 self.textras.append(VTKImageTransform(xmap, self.tx,
-                      self.ty, numret=1, cubic=0, interp=1, constant=-1))
+                 self.textras.append(map_coordinates(xmap, [iy,ix], 
+                       order=3, mode='constant', cval=0))
+                 #self.textras.append(VTKImageTransform(xmap, self.tx,
+                 #     self.ty, numret=1, cubic=0, interp=1, constant=-1))
            else:
               self.textras = None
 
            mseg = np.greater(self.master.seg, 0.0).astype(np.float32)
            if self.master.mask:
               mseg = VTKMultiply(mseg, self.master.mask.get_mask())
-           self.mseg = VTKImageTransform(mseg,self.tx,self.ty,numret=1,
-                                         cubic=0,interp=1,constant=-1)
+           self.mseg = map_coordinates(mseg, [iy, ix], order=3, mode='constant',
+                 cval=0)
+           #self.mseg = VTKImageTransform(mseg,self.tx,self.ty,numret=1,
+           #                              cubic=0,interp=1,constant=-1)
            qdump('mseg.fits', self.mseg, self.image)
 
     def estimate_bg(self, Niter=5):
@@ -915,6 +929,7 @@ class Observation:
         # Throug out any pixeles that don't have an object
         seg = np.greater(self.seg,0.0).astype(np.float32)
         mseg = np.greater(self.mseg,0.0).astype(np.float32)
+        print('seg {} mseg {}'.format(str(seg.shape),str(mseg.shape)))
 
         gwid = max([2,1*self.pwid])
         self.bg,r = self.estimate_bg()
@@ -934,6 +949,7 @@ class Observation:
         # note by using np.less(zids, 0.02), we're effectively doing a fuzzy 
         #  'not'
         wt = VTKMultiply(seg, VTKMultiply(mseg, np.less(zids, 0.02)))
+        qdump('wt0.fits', wt, self.image)
 
         # throw out data that have very low values
         lowids = np.less(self.data, self.bg-5*r).astype(np.float32)
@@ -948,15 +964,18 @@ class Observation:
         wt = VTKMultiply(np.greater(VTKGauss(wt,gwid,numret=1),
                                  0.02).astype(np.float32),swt*twt)
 
+        qdump('wt1.fits',wt, self.image)
         # Throw out data on the boundaries twice as wide as the kernel
         insidex = between(self.ox,2*gwid,self.naxis1-2*gwid).astype(np.float32)
         insidey = between(self.oy,2*gwid,self.naxis2-2*gwid).astype(np.float32)
         wt = VTKMultiply(wt,VTKAnd(insidex, insidey))
+        qdump('wt2.fits',wt, self.image)
 
         # If the FITS header had masks in the header, then we mask that out too
         #  This is opposite of xwin,ywin:  it's want we want to keep OUT.
         # Note that xwin and ywin are now included in get_mask
         wt = VTKMultiply(wt, self.mask.get_mask())
+        qdump('wt3.fits',wt, self.image)
 
         if self.snpos is not None:
            self.log("Applying super nova mask at x=%f, y=%f" % \
@@ -965,6 +984,7 @@ class Observation:
            dists = np.power(self.ox-snx, 2) + np.power(self.oy-sny, 2)
            cond = np.greater(dists, (self.snmaskr/self.scale)**2)
            wt = VTKMultiply(wt, cond.astype(np.float32))
+        qdump('wt4.fits',wt, self.image)
 
         # Get rid of any saturated pixels
         swt = VTKGreaterEqual(self.data,self.saturate)
@@ -972,6 +992,7 @@ class Observation:
         swt = VTKDilate(VTKOr(swt,twt),5,5,numret=1)
         swt = VTKGauss(swt,gwid,numret=1)
         wt = VTKMultiply(wt, VTKLessEqual(swt,0.02))
+        qdump('wt5.fits',wt, self.image)
         if self.sigimage:
            self.noise = self.sigma
         else:
@@ -979,11 +1000,13 @@ class Observation:
            self.noise = VTKSqrt(VTKAdd(n2,pow(r,2)))
         self.invnoise = VTKInvert(self.noise)
         wt = VTKMultiply(wt, self.invnoise)
+        qdump('wt6.fits',wt, self.image)
 
         # Get rid of little "islands" of data that can't constrain the kernel
         # and just add to the noise
         if self.pwid > -1: 
            wt = VTKIslandRemoval(wt,1.0,0.0,max([3,self.pwid])**2,numret=1)
+        qdump('wt7.fits',wt, self.image)
         self.wt = wt.astype(np.float32)
 
 
