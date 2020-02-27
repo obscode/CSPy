@@ -37,6 +37,11 @@ data = {
                   'alpha':1.0696,
                },
             },
+            'exposure':'@NEWEXPT',
+            'filter':'@FILTER',
+            'date':'@JD',
+            'ncombine':'@NCOMBINE',
+            'airmass':'@WAIRMASS',
          },
       },
    }
