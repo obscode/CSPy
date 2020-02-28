@@ -3,12 +3,15 @@ work of classifying images types, do the calibrations, and watching for
 new files.'''
 
 from astropy.io import fits
+from astropy.coordinates import SkyCoord
+from astropy import units as u
 from . import ccdred
 from . import headers
 import os
 from glob import glob
 import time
 import signal
+from . import database
 
 filtlist = ['u','g','r','i','B','V']
 calibrations_folder = '/csp21/csp2/software/SWONC'
@@ -46,6 +49,8 @@ class Pipeline:
       self.bfiles = []
       # A list of files that have been flat-fielded
       self.ffiles = []
+      # The ZTF designation for each identified object, indexed by ccd frame
+      self.ZIDs = {}
 
       # Cache information so we don't have to open/close FITS files too often
       self.headerData = {}
@@ -108,7 +113,7 @@ class Pipeline:
 
       fil = os.path.basename(filename)
       self.headerData[fil] = {}
-      for h in ['OBJECT','OBSTYPE','FILTER','EXPTIME','OPAMP']:
+      for h in ['OBJECT','OBSTYPE','FILTER','EXPTIME','OPAMP','RA','DEC']:
          self.headerData[fil][h] = fts[0].header[h]
       
       # Figure out what kind of file we're dealing with
@@ -147,10 +152,15 @@ class Pipeline:
       f = 'c'+f[1:]
       return self.headerData[f][key]
 
-   def getFileName(self, fil, prefix):
+   def getWorkName(self, fil, prefix):
       '''Add a prefix to the filename in the work folder.'''
       fil = os.path.basename(fil)
       return os.path.join(self.workdir, prefix+fil[1:])
+
+   def getDataName(self, fil):
+      '''Given a working file name, get the raw name it came from'''
+      fil = os.path.basename(fil)
+      return os.path.join(self.datadir, 'c'+fil[1:])
 
    def makeBias(self):
       '''Make BIAS frame from the data, or retrieve from other sources.'''
@@ -188,7 +198,7 @@ class Pipeline:
                   .format(len(self.files['sflat'][filt]), filt))
             fname = os.path.join(self.workdir, "SFlat{}{}".format(filt,
                self.suffix))
-            files = [self.getFileName(f,'b') for f in self.files['sflat'][filt]]
+            files = [self.getWorkName(f,'b') for f in self.files['sflat'][filt]]
             self.flatFrame[filt] = ccdred.makeFlatFrame(files, outfile=fname)
             self.log("Flat field saved to {}".format(fname))
          else:
@@ -217,8 +227,8 @@ class Pipeline:
       todo = []
       for f in self.rawfiles:
          base = os.path.basename(f)
-         wfile = self.getFileName(f, 'c')
-         bfile = self.getFileName(f, 'b')
+         wfile = self.getWorkName(f, 'c')
+         bfile = self.getWorkName(f, 'b')
          if wfile not in self.files['zero'] and bfile not in self.bfiles:
             todo.append(wfile)
 
@@ -232,7 +242,7 @@ class Pipeline:
             self.shutterFrames[opamp] = fits.open(shfile)
          fts = ccdred.LinearityCorrect(fts)
          fts = ccdred.ShutterCorrect(fts, frame=self.shutterFrames[opamp])
-         bfile = self.getFileName(f, 'b')
+         bfile = self.getWorkName(f, 'b')
          fts.writeto(bfile, overwrite=True)
          self.bfiles.append(bfile)
 
@@ -244,21 +254,57 @@ class Pipeline:
       todo = []
       for filt in self.files['astro']:
          for f in self.files['astro'][filt]:
-            bfile = self.getFileName(f, 'b')
-            ffile = self.getFileName(f, 'f')
+            bfile = self.getWorkName(f, 'b')
+            ffile = self.getWorkName(f, 'f')
             if bfile in self.bfiles and ffile not in self.ffiles:  
                todo.append(bfile)
 
       for f in todo:
          filt = self.getHeaderData(f,'FILTER')
-         bfile = self.getFileName(f, 'b')
-         ffile = self.getFileName(f, 'f')
+         bfile = self.getWorkName(f, 'b')
+         ffile = self.getWorkName(f, 'f')
          if filt not in self.flatFrame:
             raise RuntimeError("No flat for filter {}. Abort!".format(filt))
          self.log("Flat field correcting {} --> {}".format(bfile,ffile))
          fts = ccdred.flatCorrect(bfile, self.flatFrame[filt],
                outfile=ffile)
          self.ffiles.append(ffile)
+
+   def identify(self):
+      '''Figure out the identities of the objects and get their data if
+      we can.'''
+      todo = []
+      for f in self.ffiles:
+         if f not in self.ZIDs:
+            dname = self.getDataName(f)
+            obj = self.headerData[dname]['OBJECT']
+
+            # First, check to see if the catalog exists locally
+            catfile = os.path.join(self.workdir, obj+'.cat')
+            if os.path.isfile(catfile):
+               self.ZIDs[f] = obj
+               continue
+
+            # Next, try to lookup csp2 database
+            res = database.getNameCoords(obj, db='LCO')
+            if res == -2:
+               self.log('Could not contact csp2 database, flying blind...')
+               continue
+            if res == -1:
+               self.log('Object{}  not found in database, trying coordinates'.\
+                     format(obj))
+               ra = self.headerData[dname]['RA']
+               dec = self.headerData[dname]['DEC']
+               c = SkyCoord(ra, dec, unit=(u.hourangle, u.degree))
+               res = database.getCoordsName(c.ra.value, d.dec.value)
+               if res == -1 or res == -2:
+                  self.log('Coordinate lookup failed, assuming standard...')
+                  continue
+
+               self.log('Found {} {} degrees from frame center'.format(
+                  res[0], res[1]))
+               #ra,dec = 
+               # LEFT OFF HERE
 
    def initialize(self):
       '''Make a first run through the data and see if we have what we need
@@ -295,6 +341,11 @@ class Pipeline:
 
          self.BiasLinShutCorr()
          self.FlatCorr()
+
+         self.identify()
+         self.solve_wcs()
+         self.photometry()
+         self.update_db()
 
          time.sleep(poll_interval)
 

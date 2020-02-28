@@ -3,6 +3,7 @@ import getpass
 from astropy.table import Table
 import pymysql
 import os
+from numpy import argsort
 
 dbs = {'SBS': {
          'host':'sql.obs.carnegiescience.edu',
@@ -109,4 +110,41 @@ def getStandardPhotometry(SN, filt):
       tab[col].info.format='%.3f'
    return tab
 
+def getNameCoords(name, db='SBS'):
+   '''Given a name, return the coordinates or -1 if not found or -2 if
+   connection fails.'''
+
+   try:
+      db = getConnection(db)
+   except:
+      return -2
+   c = db.cursor()
+   c.execute('''SELECT RA*15,DE from SNList where SN=%s''', name)
+   l = c.fetchall()
+   if len(l) == 0:
+      return -1
+
+   return(l[0])
+
+def getCoordsName(ra, dec, db='SBS', tol=0.125):
+   '''Given coordinates, find a name within tol degrees. Return -1 if nothing
+   found, -2 if database can't be reached.'''
+   try:
+      db = getConnection(db)
+   except:
+      return -2
+
+   c = db.cursor()
+   c.execute("SELECT SN,SQRT(POW((RA*15-%s)*COS(%s/180*3.14159),2) + "
+             "POW((DE-%s),2)) as dist FROM "
+             "SNList having dist < %s",
+             (ra,dec,dec,tol))
+   l = c.fetchall()
+   if len(l) == 0:
+      return -1
+   if len(l) == 1:
+      return l[0]
+   # More than one. Find closest
+   idx = argsort([ll[1] for ll in l])
+   return l[idx[0]]
 
