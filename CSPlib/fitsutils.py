@@ -6,7 +6,7 @@ from astropy.io import fits
 def qdump(filename, data, header=None):
    if header is None:
       header = fits.PrimaryHDU(data)
-      header.writeto(filename)
+      header.writeto(filename, overwrite=True)
    else:
       if type(header) is str:
          hfts = fits.open(header)
