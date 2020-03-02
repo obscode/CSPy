@@ -32,12 +32,10 @@ from scipy.ndimage import map_coordinates
 import sys
 debug = 1
 try:
-   import TwoPicker as Picker
-   import FITSviewer
+   from . import Picker
    from matplotlib import pyplot as plt
 except:
    Picker = None
-   FITSviewer = None
    plt = None
 try:
    from astropy import wcs
@@ -489,8 +487,10 @@ class Observation:
           if Picker is None:
              raise RuntimeError("Sorry, to work interactively, you need "
                                 "matplotlib.")
-          picker = Picker.FITSpicker(self.image, self.master.image)
-                #self.scale, self.master.scale)
+          picker = Picker.FITSpicker(self.image, self.master.image,
+                scale1=self.scale, scale2=self.master.scale, equal_scale=True,
+                recenter='max', box=10)
+                #x1s=self.x, y1s=self.y, x2s=self.master.x, y2s=self.master.y)
           plt.show()
           x0,y0,x1,y1 = picker.get_points()
           Niter = 1
@@ -625,12 +625,6 @@ class Observation:
        # Start off with equal weight to all pixels
        wt = np.ones(x0.shape,np.float32)
 
-       # Visualize the matchings
-       if self.verb > 1 and FITSviewer is not None:
-          fig = FITSviewer.FITSviewer(self.master.image)
-          fig.label_objs(x1,y1, radius=5)
-          plt.draw()
-
        # now we iterate on the solution and throw out bad points
        for iter in range(Niter):
           if iter:
@@ -655,12 +649,6 @@ class Observation:
                 basis = abasis(nord,allx0,ally0,rot=[0,1][nord==0])
                 ixy = np.add.reduce(sol[NA,::]*basis,1)
                 ix,iy = ixy[:len(np.ravel(allx0))], ixy[len(np.ravel(allx0)):]
-             if self.verb > 1 and FITSviewer is not None:
-                fig.label_objs(allx1, ally1, radius=8, 
-                      color=['black','blue','green'][iter])
-                fig.label_objs(ix, iy, radius=8, 
-                      color=['black','blue','green'][iter])
-                plt.draw()
              delx = ix[::,NA] - allx1[NA,::]
              dely = iy[::,NA] - ally1[NA,::]
              dels = np.sqrt(np.power(delx,2) + np.power(dely,2))
@@ -697,10 +685,6 @@ class Observation:
              ixy = np.add.reduce(sol[NA,::]*basis,1)
              ix,iy = ixy[:len(np.ravel(x0))], ixy[len(np.ravel(x0)):]
 
-          if self.verb > 1 and FITSviewer is not None and not iter:
-             fig.label_objs(ix, iy, radius=8, color='black')
-             plt.draw()
-
           self.log( "Pass %d, with %d objects." % (iter+1,len(x0)))
           if nord==-1:
              self.log("  xshift: %.3f   yshift:  %.3f" % tuple(sol[0:2]))
@@ -720,8 +704,6 @@ class Observation:
                     "(%.5f,%.5f)" % (scx,scy))
           tol = 3.0*bwt(dels)[1]
 
-       if self.verb > 1 and FITSviewer is not None:
-          fig.save('match.eps')
        if not use_db:
           # Save matches for later use
           f = open(self.db, 'w')
