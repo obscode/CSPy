@@ -21,7 +21,7 @@ dec_keys = ['DEC','DEC-D','DEC-OBS']
 
 
 def do_astrometry(files, trim=None, replace=False, dir='/usr/local/astromery',
-      other={}):
+      other=[], verbose=False):
 
    bindir=os.path.join(dir, 'bin')
 
@@ -30,14 +30,16 @@ def do_astrometry(files, trim=None, replace=False, dir='/usr/local/astromery',
       sf_args = other
       if trim is not None:
          if not have_pyfits:
-            print("Warning:  could not load fits module.  Can't trim.")
+            if verbose: 
+               print("Warning:  could not load fits module.  Can't trim.")
             filename = fil
          else:
             sec = trim
             res = re.search(r'\[(\*|\d+):(\*|\d+),(\*|\d+):(\*|\d+)\]', sec)
             if res is None:
-               print("Error:  could not parse the section {}".format(sec))
-               print("        Using the full image")
+               if verbose:
+                  print("Error:  could not parse the section {}".format(sec))
+                  print("        Using the full image")
                filename = fil
             else:
                ids = res.groups()
@@ -88,29 +90,33 @@ def do_astrometry(files, trim=None, replace=False, dir='/usr/local/astromery',
          if '-u' not in sf_args:
             sf_args += ['-u','arcsecperpix']
       else:
-         print("Warning:  couldn't find pixel scale in FITS header.  You might")
-         print("  want to use --scale-high and --scale-low arguments")
+         if verbose:
+            print("Warning:  couldn't find pixel scale in FITS header. You "
+                  "might want to use --scale-high and --scale-low arguments")
       
       # put a default radius
       if '-5' not in sf_args and '--radius' not in sf_args:
          sf_args += ['--radius','1']
       
       if ra is None and ('-3' not in sf_args and '--ra' not in sf_args):
-         print("Warning:  couldn't find RA in header.  You might want to use")
-         print("  the --ra argument")
+         if verbose:
+            print("Warning:  couldn't find RA in header.  You might want to "
+                  "use the --ra argument")
       else:
          sf_args += ['--ra',str(ra)]
       
       if dec is None and ('-4' not in sf_args and '--dec' not in sf_args):
-         print("Warning:  couldn't find DEC in header.  You might want to use")
-         print("  the --dec argument")
+         if verbose:
+            print("Warning:  couldn't find DEC in header.  You might want to "
+                  "use the --dec argument")
       else:
          sf_args += ['--dec',str(dec)]
       
       sf_args.insert(0,filename)
       
       e = os.path.join(bindir,'solve-field')
-      print("Running ",e+" "+' '.join(sf_args))
+      if verbose:
+         print("Running ",e+" "+' '.join(sf_args))
       
       # run the command
       # ret = os.system(e+" "+' '.join(sf_args))
@@ -122,13 +128,26 @@ def do_astrometry(files, trim=None, replace=False, dir='/usr/local/astromery',
          for line in lines:
             fout.write(str(line)+"\n")
       if ret.returncode != 0:
-         print('solve-field failed for {}. Check {}.log'.format(fil,logfile))
+         if verbose:
+            print('solve-field failed for {}. Check {}.log'.format(fil,logfile))
+         # Clean up
+         if tmpfile is not None:
+            os.unlink(tmpfile)
+         return None
       
       # Clean up
       if tmpfile is not None:
          os.unlink(tmpfile)
- 
+      
+      newfile = '.'.join(fil.split('.')[:-1])+'.new'
       if replace:
-         #print('mv {} {}'.format('.'.join(fil.split('.')[:-1])+'.new', fil))
-         os.system('mv {} {}'.format('.'.join(fil.split('.')[:-1])+'.new', fil))
-
+         os.system('mv {} {}'.format(newfile, fil))
+         if have_pyfits:
+            return fits.open(fil)
+         else:
+            return fil
+      else:
+         if have_pyfits:
+            return fits.open(newfile)
+         else:
+            return newfile

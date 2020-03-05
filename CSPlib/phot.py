@@ -237,6 +237,10 @@ class ApPhot:
       eskies = []
       for mask in annmasks:
          anndata = mask.multiply(self.data)
+         if anndata is None:
+            skies.append(nan)
+            eskies.append(nan)
+            continue
          anndata = anndata[mask.data > 0]
          _,md,st = sigma_clipped_stats(anndata, sigma=3.0)
          skies.append(md)

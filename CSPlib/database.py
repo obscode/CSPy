@@ -135,16 +135,13 @@ def getCoordsName(ra, dec, db='SBS', tol=0.125):
       return -2
 
    c = db.cursor()
-   c.execute("SELECT SN,SQRT(POW((RA*15-%s)*COS(%s/180*3.14159),2) + "
+   c.execute("SELECT SN,RA*15,DE,SQRT(POW((RA*15-%s)*COS(%s/180*3.14159),2) + "
              "POW((DE-%s),2)) as dist FROM "
-             "SNList having dist < %s",
+             "SNList having dist < %s ORDER BY dist",
              (ra,dec,dec,tol))
    l = c.fetchall()
    if len(l) == 0:
       return -1
-   if len(l) == 1:
-      return l[0]
-   # More than one. Find closest
-   idx = argsort([ll[1] for ll in l])
-   return l[idx[0]]
+   # If More than one, use closest (first)
+   return l[0]
 

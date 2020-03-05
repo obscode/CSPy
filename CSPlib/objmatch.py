@@ -4,6 +4,7 @@ from .npextras import bwt
 from .basis import svdfit,abasis
 from .sextractor import SexTractor
 from astropy.wcs import WCS
+from astropy.io import fits
 
 def fitscalerot(x0, y0, x1, y1):
    '''compute a scale+rotation transformation.'''
@@ -89,7 +90,8 @@ def objmatch(x1,y1,x2,y2, dtol, atol, scale1=1.0, scale2=1.0,
    yshift,yscat = bwt(yy1-yt2)
    yscat = max([1.0,yscat])
    print(xscat,yscat)
-   keep = less(absolute(xx1-xt2-xshift),3*xscat)*less(absolute(yy1-yt2-yshift),3*yscat)
+   keep = less(absolute(xx1-xt2-xshift),3*xscat)*\
+          less(absolute(yy1-yt2-yshift),3*yscat)
    xx1,yy1,xx2,yy2 = compress( keep, [xx1,yy1,xx2,yy2], 1)
    #wt = ones(x0.shape,float32)
    return xshift,yshift,xx1,yy1,xx2,yy2
@@ -123,7 +125,7 @@ def iterativeSol(x1, y1, x2, y2, scale1=1.0, scale2=2.0, dtol=1.0, atol=1.0,
    if len(xx1) < 3:
       if verb:
          print("Sorry, less than 3 matches found, giving up")
-      return None
+      return None,None,None
 
    for iter in range(Niter):
       if iter:   # after first iteration
@@ -141,7 +143,7 @@ def iterativeSol(x1, y1, x2, y2, scale1=1.0, scale2=2.0, dtol=1.0, atol=1.0,
                print("Error:  residuals of coordinate transformation are all "
                      "greater than dtol")
 
-            return None
+            return None,None,None
          xx1,yy1 = take([x1, y1], ui0, 1)
          xx2,yy2 = take([x2, y2], ui1, 1)
       if verb:
@@ -215,6 +217,7 @@ def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO',
 
    res,idx1,idx2 = iterativeSol(x0, y0, x1, y1, scale1=imscale, scale2=wscale,
          dtol=1.0, verb=verbose, angles=angles)
+   if res is None: return None
    ii,ij = take([x0,y0], idx1, 1)
    wi,wj = take([x1,y1], idx2, 1)
 

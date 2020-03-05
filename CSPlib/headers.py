@@ -94,6 +94,6 @@ def update_header(f, fout=None):
    h['RA'] = newra
    h['DEC'] = newdec
    if fout is not None:
-      fts.writeto(fout, overwrite=True)
+      fts.writeto(fout, overwrite=True, output_verify='fix')
    return fts
 
