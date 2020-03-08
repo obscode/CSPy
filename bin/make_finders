@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
-from CSPlib.getPS import getStarCat,getFITS
+#from CSPlib.getPS import getPS.getStarCat,getPS.getFITS
+from CSPlib import getPS
 from astropy.io import fits
 import pymysql
 from matplotlib import pyplot as plt
@@ -42,7 +43,9 @@ for sn,ra,dec in l:
       flist = [fits.open(fname) for fname in fnames]
    else:
       try:
-         flist = getFITS(ra, dec, chart_size, 'gri', mosaic=True)
+         flist = getPS.getFITS(ra, dec, chart_size, 'gri', mosaic=True)
+         if flist is None:
+            flist = getSM.getFITS(ra, dec, chart_size, 'gri', mosaic=True)
       except:
          print("Error, could not download PS image data "
              "for {}({:.5f}{:.5f})".format(sn,ra,dec))
@@ -54,8 +57,16 @@ for sn,ra,dec in l:
    #      maxmag=19.0, outfile=join(templates, "{}.cat".format(sn)))
    fts = flist[idx]
    wcs = WCS(fts[0])
-   cat = getStarCat(ra, dec, chart_size/2)
+   cat = getPS.getStarCat(ra, dec, chart_size/2)
+   if cat is None:
+      cat = getSM.getStarCat(ra, dec, chart_size/2)
+      if cat is None:
+         print("Error, could not download catalog data "
+             "for {}({:.5f}{:.5f})".format(sn,ra,dec))
+         continue
+
    sids = np.argsort(cat['rmag'])
+   cat.insert_row(0, [0, ra, dec, -1, -1, -1, -1, -1, -1])
    cat.write(join(templates, "{}.cat".format(sn)), format='ascii.fixed_width',
          delimiter=' ', overwrite=True)
    dists = np.sqrt(np.power(cat['RA']-ra,2)*np.cos(dec*np.pi/180)**2 + 

@@ -86,9 +86,7 @@ def getFITS(ra, dec, size, filters, mosaic=False):
    filters = list(filters)
    ret = []
    for filt in filters:
-      print(ra,dec,isize,filt)
       urls = geturls(ra, dec, isize, filt)
-      print(urls)
       if len(urls) > 1 and mosaic:
          from reproject import reproject_interp
          baseurl = urls[0]
