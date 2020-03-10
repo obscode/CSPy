@@ -29,14 +29,14 @@ def getImages(ra, dec, size=0.125, filt='g', verbose=False):
       Returns:
          list of filenames
    '''
-   templ = 'http://api.skymapper.nci.org.au/public/siap/dr1/query?'
-           'POS={},{}&SIZE={}&BAND={}&FORMAT=image/fits&VERB=3&'
-           'RESPONSEFORMAT=CSV'
+   templ = "http://api.skymapper.nci.org.au/public/siap/dr1/query?"\
+           "POS={},{}&SIZE={}&BAND={}&FORMAT=image/fits&VERB=3&"\
+           "RESPONSEFORMAT=CSV"
    baseurl = templ.format(ra, dec, size, filt)
    if verbose: print("About to query: " + baseurl)
    table = Table.read(baseurl, format='ascii')
 
-   return list(tab['get_fits'])
+   return list(table['get_fits'])
    
 def getFITS(ra, dec, size, filters, mosaic=False):
    '''Retrieve the FITS files from SkyMapper server, centered on ra,dec
@@ -58,12 +58,12 @@ def getFITS(ra, dec, size, filters, mosaic=False):
    filters = list(filters)
    ret = []
    for filt in filters:
-      urls = getImages(ra, dec, isize, filt)
+      urls = getImages(ra, dec, size, filt)
       if len(urls) < 1:
          return None
       if len(urls) > 1 and mosaic:
          from reproject import reproject_interp
-         from reproject mosaicking import find_optimal_wcs
+         from reproject.mosaicking import find_optimal_wcs
          fts = [fits.open(url) for url in urls]
          wcs_out,shape_out = find_optimal_celestial_wcs([ft[0] for ft in fts])
          ar_out,footprint = reproject_and_coadd([ft[0] for ft in fts],
@@ -85,7 +85,7 @@ def getFITS(ra, dec, size, filters, mosaic=False):
 def getStarCat(ra, dec, radius):
    '''Get a list of SM stars plus their photometry.'''
 
-   templ = "http://skymapper.anu.edu.au/sm-cone/public/query?RA={}&DEC={}"
+   templ = "http://skymapper.anu.edu.au/sm-cone/public/query?RA={}&DEC={}"\
           "&SR={}&VERB=3&RESPONSEFORMAT=CSV&CATALOG=dr1.fs_photometry"
    url = templ.format(ra, dec, radius)
 
