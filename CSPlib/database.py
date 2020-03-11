@@ -21,7 +21,12 @@ if 'CSPpasswd' in os.environ:
 else:
    passwd = None
 
-def getConnection(db='SBS'):
+if 'CSPdb' in os.environ:
+   default_db = os.environ['CSPdb']
+else:
+   default_db = 'SBS'
+
+def getConnection(db=default_db):
    global passwd, dbs
    if db not in dbs:
       raise ValueError("db must be either SBS or LCO")
@@ -34,7 +39,7 @@ def getConnection(db='SBS'):
    passwd = resp
    return d
 
-def getPhotometricNights(SN):
+def getPhotometricNights(SN, db=default_db):
    '''Given a SN name, search the database for nights that were photometric.
    
    Args:
@@ -43,7 +48,7 @@ def getPhotometricNights(SN):
    Returns
       nights:  list of datetime() dates
    '''
-   db = getConnection()
+   db = getConnection(db=db)
    c = db.cursor()
    c.execute('''select MAGINS.night from MAGINS left join MAGFIT1
                 on (MAGINS.night=MAGFIT1.night) 
@@ -53,7 +58,7 @@ def getPhotometricNights(SN):
    db.close()
    return [item[0] for item in nights]
 
-def getPhotometricZeroPoints(SN, filt):
+def getPhotometricZeroPoints(SN, filt, db=default_db):
    '''Given a supernova and filter, find all photometric nights and
    return their zero-points.
 
@@ -64,7 +69,7 @@ def getPhotometricZeroPoints(SN, filt):
    Returns:
       table:  astropy.Table with columns 'night','zp','zper'. 
    '''
-   db = getConnection()
+   db = getConnection(db=db)
    c = db.cursor()
    c.execute('''select MAGINS.night,MAGFIT1.zp,MAGFIT1.zper 
                 FROM MAGINS left join MAGFIT1
@@ -78,7 +83,7 @@ def getPhotometricZeroPoints(SN, filt):
    return tab
    
 
-def getStandardPhotometry(SN, filt):
+def getStandardPhotometry(SN, filt, db=default_db):
    '''Given a SN name, retrieve the instrumental magnitudes, airmasses
    for standard stars on nights that were photometric.
    
@@ -91,7 +96,7 @@ def getStandardPhotometry(SN, filt):
               'airm','zp',zper'.
    '''
    nights = getPhotometricZeroPoints(SN, filt)
-   db = getConnection()
+   db = getConnection(db=db)
    c = db.cursor()
    data = []
    for i in range(len(nights)):
@@ -110,7 +115,7 @@ def getStandardPhotometry(SN, filt):
       tab[col].info.format='%.3f'
    return tab
 
-def getNameCoords(name, db='SBS'):
+def getNameCoords(name, db=default_db):
    '''Given a name, return the coordinates or -1 if not found or -2 if
    connection fails.'''
 
@@ -126,7 +131,7 @@ def getNameCoords(name, db='SBS'):
 
    return(l[0])
 
-def getCoordsName(ra, dec, db='SBS', tol=0.125):
+def getCoordsName(ra, dec, db=default_db, tol=0.125):
    '''Given coordinates, find a name within tol degrees. Return -1 if nothing
    found, -2 if database can't be reached.'''
    try:
