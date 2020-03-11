@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 #from CSPlib.getPS import getPS.getStarCat,getPS.getFITS
+from CSPlib.database import getConnection
 from CSPlib import getPS
 from astropy.io import fits
 import pymysql
@@ -10,24 +11,38 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from astropy.visualization import simple_norm
 from astropy.wcs import WCS
 from os.path import join,isfile
+import os
 import numpy as np
+import sys
 
 rcParams['font.size'] = 18
 
 # Where to put/look for stuff
-fcharts = '/Users/cburns/CSP/fcharts'
-templates = '/Users/cburns/CSP/templates'
+fcharts = join(os.environ['HOME'],'fcharts')
+templates = join(os.environ['HOME'],'templates')
 chart_size = 0.25   # degrees
 chart_filter = 'r'
 Nstars = 20
 
-#db = getConnection('SBS')
-# list of all objects in the queue
-#c = db.cursor()
-#snlist = c.execute('''select SN,RA,DE from SNList where QSWO > 0''')
-#l = c.fetchall()
-todo = open('/Volumes/GoogleDrive/Shared drives/CSP/Swope/todo.list')
-l = [l.strip().split() for l in todo.readlines()[1:]]
+db = getConnection()
+c = db.cursor()
+if len(sys.argv) > 1:
+   l = []
+   # name on command-line
+   for arg in sys.argv[1:]:
+      c.execute('''select RA,DE from SNList where SN=%s''', (arg,))
+      r = c.fetchall()
+      if len(r) == 0:
+         print("Ojbect {} not found in database, skipping".format(arg))
+         continue
+      l.append([arg,r[0][0],r[0][1]])
+else:      
+   # list of all objects in the queue
+   snlist = c.execute('''select SN,RA,DE from SNList where QSWO > 0''')
+   l = c.fetchall()
+
+#todo = open('/Volumes/GoogleDrive/Shared drives/CSP/Swope/todo.list')
+#l = [l.strip().split() for l in todo.readlines()[1:]]
 
 for sn,ra,dec in l:
    fchart = join(fcharts, '{}.png'.format(sn))
