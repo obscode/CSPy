@@ -399,6 +399,8 @@ class Observation:
       self.sexcom += ["-SATUR_LEVEL "+str(self.saturate)]
       self.sexcom += ["-DEBLEND_MINCONT 1"]
       self.sexcom += ["-VERBOSE_TYPE QUIET"]
+      if self.zp is not None:
+         self.sexcom += ["-MAG_ZEROPOINT " + str(self.zp)]
       self.sexcom = ' '.join(self.sexcom)
       if self.verb:
          self.log("Running {}".format(self.sexcom))
@@ -733,6 +735,10 @@ class Observation:
          self.log( "Now reading frames for %s" % (self))
          f = FITS.open(self.image)
          self.data = f[self.hdu].data.astype(np.float32)
+         if 'ZP' in f[hdu].header:
+            self.zp = f[hdu].header['ZP']
+         else:
+            self.zp = None
 
          # Check for NaNs
          self.nans = np.isnan(self.data)
