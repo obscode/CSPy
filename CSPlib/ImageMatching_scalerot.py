@@ -986,6 +986,8 @@ class Observation:
       '''Here's where the kernel is solved.  Need to work on comments here.
       Right now, it's pretty black-box.'''
 
+      # Try to get counts on same scale
+      self.timage = self.timage * (self.exptime/self.master.exptime)
       for i in range(Niter):
          if i == 0:
             wtflat = np.ravel(self.wt)
@@ -1000,8 +1002,6 @@ class Observation:
             wtflat[ids[bids]] = 0
 
  
-         # Try to get counts on same scale
-         self.timage = self.timage * (self.exptime/self.master.exptime)
          self.log( "Using %d pixels." % (np.sum(1.0*np.greater(wtflat,0))))
          if self.pwid == -1:
             # Just solving for a flux ratio
@@ -1295,16 +1295,16 @@ class Observation:
       if xwin and ywin:
          self.mask.add_mask(xwin[0], ywin[0], xwin[1], ywin[1], 
                sense='outside')
-         self.master.mask.add_mask(xwin[0], ywin[0], xwin[1], ywin[1], 
-               sense='outside')
+         #self.master.mask.add_mask(xwin[0], ywin[0], xwin[1], ywin[1], 
+         #      sense='outside')
       elif xwin:
          self.mask.add_mask(xwin[0], None, xwin[1], None, sense='outside')
-         self.master.mask.add_mask(xwin[0], None, xwin[1], None, 
-               sense='outside')
+         #self.master.mask.add_mask(xwin[0], None, xwin[1], None, 
+         #      sense='outside')
       elif ywin:
          self.mask.add_mask(None, ywin[0], None, ywin[1], sense='outside')
-         self.master.mask.add_mask(None, ywin[0], None, ywin[1], 
-               sense='outside')
+         #self.master.mask.add_mask(None, ywin[0], None, ywin[1], 
+         #      sense='outside')
       self.spatial=spatial
       self.rev=rev
       self.vcut=vcut
