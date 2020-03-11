@@ -5,6 +5,7 @@ new files.'''
 from astropy.io import fits,ascii
 from astropy.coordinates import SkyCoord
 from astropy import units as u
+from astropy.wcs import WCS
 from astropy import table
 import numpy as np
 from .phot import ApPhot
@@ -28,7 +29,7 @@ if not sys.warnoptions:
 filtlist = ['u','g','r','i','B','V']
 calibrations_folder = '/Users/cspuser/SWONC'
 templates_folder = '/Users/cspuser/templates'
-sex_dir = '/Users/cburns/sex'
+sex_dir = '/Users/cspuser/sex'
 
 stopped = False
 
@@ -334,16 +335,17 @@ class Pipeline:
          if filt not in ['g','r','i']:
             self.log('Skipping {} with filter {}'.format(f,filt))
             self.ignore.append(f)
+            continue
          if f not in self.ZIDs and f not in self.ignore:
             obj = self.getHeaderData(f,'OBJECT')
 
             # First, check to see if the catalog exists locally
-            catfile = join(self.workdir, obj+'.cat')
+            catfile = join(self.templates, obj+'.cat')
             if isfile(catfile):
                self.ZIDs[f] = obj
             else:
                # Next, try to lookup csp2 database
-               res = database.getNameCoords(obj, db='LCO')
+               res = database.getNameCoords(obj)
                if res == -2:
                   self.log('Could not contact csp2 database, trying gdrive...')
                   cmd = 'rclone copy CSP:Swope/templates/{}.cat {}'.format(
@@ -361,8 +363,7 @@ class Pipeline:
                   ra = self.getHeaderData(f,'RA')
                   dec = self.getHeaderData(f,'DEC')
                   c = SkyCoord(ra, dec, unit=(u.hourangle, u.degree))
-                  res = database.getCoordsName(c.ra.value, d.dec.value, 
-                        db='LCO')
+                  res = database.getCoordsName(c.ra.value, c.dec.value)
                   if res == -1 or res == -2:
                      self.log('Coordinate lookup failed, assuming standard...')
                      self.ignore.append(f)
@@ -376,7 +377,7 @@ class Pipeline:
                   self.ZIDs[f] = obj
          # At this point, self.ZIDS[f] is the ZTF ID
          tmpname = "{}_{}.fits".format(self.ZIDs[f], filt)
-         if not isfile(join(self.workdir, tmpname)):
+         if not isfile(join(self.templates, tmpname)):
             cmd = 'rclone copy CSP:Swope/templates/{}_{}.fits {}'.format(
                     self.ZIDs[f], filt, self.templates)
             res = os.system(cmd)
@@ -388,7 +389,7 @@ class Pipeline:
                 self.ignore.append(f)
          # Get the catalog file
          catfile = "{}.cat".format(self.ZIDs[f])
-         if not isfile(join(self.workdir, catfile)):
+         if not isfile(join(self.templates, catfile)):
             cmd = 'rclone copy CSP:Swope/templates/{} {}'.format(
                     catfile, self.templates)
             res = os.system(cmd)
@@ -399,7 +400,7 @@ class Pipeline:
                     catfile))
                 self.ignore.append(f)
                 continue
-         tab = ascii.read(join(self.workdir,"{}.cat".format(obj)))
+         tab = ascii.read(join(self.templates,"{}.cat".format(obj)))
          if 0 not in tab['objID']:
             self.log('No SN object in catalog file, skipping...')
             self.ignore.append(f)
@@ -422,7 +423,16 @@ class Pipeline:
       for fil in todo:
          ZID = self.ZIDs[fil]
          filt = self.getHeaderData(fil, 'FILTER')
-         wcsimage = join(self.workdir, "{}_{}.fits".format(
+      
+         # check to see if we have a wcs already
+         fts = fits.open(fil)
+         wcs = WCS(fts[0])
+         fts.close()
+         if wcs.has_celestial:
+            self.wcsSolved.append(fil)
+            continue
+
+         wcsimage = join(self.templates, "{}_{}.fits".format(
             ZID,filt))
          new = WCStoImage(wcsimage, fil, angles=np.arange(-2,2.5,0.5))
          if new is None:
@@ -570,7 +580,7 @@ class Pipeline:
          with open(join(self.workdir,'SNphot.dat'), 'a') as fout:
             fout.write("{:20s} {:2s} {:.3f} {:.3f} {:.3f}\n".format(
                obj, filt, jd, mag, emag))
-         self.finalPhotometry.append(fil)
+         self.finalPhot.append(fil)
       return
 
    def template_subtract(self):
@@ -580,18 +590,27 @@ class Pipeline:
       todo = [fil for fil in self.initialPhot if fil not in self.subtracted]
       for fil in todo:
          obj = self.ZIDs[fil]
+         diff = fil.replace('.fits','diff.fits')
+         # Check to see if we've done it already
+         if isfile(diff): 
+            self.subtracted.append(fil)
+            continue
          filt = self.getHeaderData(fil, 'FILTER')
-         template = join(self.workdir, '{}_{}.fits'.format(obj,filt))
-         obs = ImageMatch.Observation(fil, scale=0.435, saturate=6e5, 
+         template = join(self.templates, '{}_{}.fits'.format(obj,filt))
+         obs = ImageMatch.Observation(fil, scale=0.435, saturate=4e4, 
                reject=True, snx='SNRA', sny='SNDEC')
-         ref = ImageMatch.Observation(template, scale=0.25, saturate=6e5,
+         ref = ImageMatch.Observation(template, scale=0.25, saturate=6e4,
                reject=True)
-         obs.GoCatGo(ref, skyoff=True, pwid=11, perr=3.0, nmax=50, nord=3,
-               match=True, subt=True, quick_convolve=True, do_sex=True,
-               thresh=3., sexdir=sex_dir, diff_size=35, bs=True, 
-               usewcs=True)
-         self.subtracted.append(fil)
-         # Left off here
+         try:
+            obs.GoCatGo(ref, skyoff=True, pwid=11, perr=3.0, nmax=100, nord=3,
+                  match=True, subt=True, quick_convolve=True, do_sex=True,
+                  thresh=3., sexdir=sex_dir, diff_size=35, bs=True, 
+                  usewcs=True, xwin=[200,1848], ywin=[200,1848], vcut=1e8)
+            self.subtracted.append(fil)
+         except:
+            self.log('Template subtraction failed for {}, skipping'.format(
+                fil))
+            self.ignore.append(fil)
 
    def update_db(self):
       '''For all images that are fully reduced, calibrated, and template-
