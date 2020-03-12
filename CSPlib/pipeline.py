@@ -27,9 +27,12 @@ if not sys.warnoptions:
     warnings.simplefilter("ignore")
 
 filtlist = ['u','g','r','i','B','V']
-calibrations_folder = '/Users/cspuser/SWONC'
-templates_folder = '/Users/cspuser/templates'
-sex_dir = '/Users/cspuser/sex'
+#calibrations_folder = '/Users/cspuser/SWONC'
+calibrations_folder = '/csp21/csp2/software/SWONC'
+#templates_folder = '/Users/cspuser/templates'
+templates_folder = '/home/cspuser/reductions/templates'
+#sex_dir = '/Users/cspuser/sex'
+sex_dir = '/home/cspuser/sex'
 
 stopped = False
 
@@ -152,7 +155,7 @@ class Pipeline:
       # Update header
       fout = join(self.workdir, basename(filename))
       if isfile(fout):
-         fts = fits.open(fout)
+         fts = fits.open(fout, memmap=False)
       else:
          fts = headers.update_header(filename, fout)
 
@@ -212,7 +215,7 @@ class Pipeline:
       # Can we make a bias frame?
       bfile = join(self.workdir, 'Zero{}'.format(self.suffix))
       if isfile(bfile):
-         self.biasFrame = fits.open(bfile)
+         self.biasFrame = fits.open(bfile, memmap=False)
          self.log("Found existing BIAS: {}, using that".format(bfile))
          return
       if len(self.files['zero']) :
@@ -229,7 +232,7 @@ class Pipeline:
          if res == 0:
             self.log("Retrieved BIAS frame from latest reductions")
             self.biasFrame = fits.open(join(self.workdir, 
-               'Zero{}'.format(self.suffix)))
+               'Zero{}'.format(self.suffix)), memmap=False)
          else:
             cfile = join(calibrations_folder, "CAL", "Zero{}".format(
                self.suffix))
@@ -244,7 +247,7 @@ class Pipeline:
          fname = join(self.workdir, "SFlat{}{}".format(filt,
                self.suffix))
          if isfile(fname):
-             self.flatFrame[filt] = fits.open(fname)
+             self.flatFrame[filt] = fits.open(fname, memmap=False)
              self.log("Found existing flat {}. Using that.".format(fname))
              continue
          if len(self.files['sflat'][filt]) > 3:
@@ -260,11 +263,11 @@ class Pipeline:
             if ret == 0:
                self.log("Retrieved Flat SFlat{}{} from latest reductions".\
                      format(filt,self.suffix))
-               self.flatFrame[filt] = fits.open(fname)
+               self.flatFrame[filt] = fits.open(fname, memmap=False)
             else:
                cfile = join(calibrations_folder, "CAL", 
                      "SFlat{}{}".format(filt, self.suffix))
-               self.flatFrame[filt] = fits.open(cfile)
+               self.flatFrame[filt] = fits.open(cfile, memmap=False)
                self.flatFrame[filt].writeto(fname)
                self.log("Retrieved backup FLAT frame from {}".format(cfile))
 
@@ -292,7 +295,7 @@ class Pipeline:
          if opamp not in self.shutterFrames:
             shfile = join(calibrations_folder, 'CAL',
                   "SH{}.fits".format(opamp))
-            self.shutterFrames[opamp] = fits.open(shfile)
+            self.shutterFrames[opamp] = fits.open(shfile, memmap=False)
          fts = ccdred.LinearityCorrect(fts)
          fts = ccdred.ShutterCorrect(fts, frame=self.shutterFrames[opamp])
          bfile = self.getWorkName(f, 'b')
@@ -339,6 +342,7 @@ class Pipeline:
             continue
          if f not in self.ZIDs and f not in self.ignore:
             obj = self.getHeaderData(f,'OBJECT')
+            self.log("OBJECT is {}".format(obj))
 
             # First, check to see if the catalog exists locally
             catfile = join(self.templates, obj+'.cat')
@@ -351,6 +355,7 @@ class Pipeline:
                   self.log('Could not contact csp2 database, trying gdrive...')
                   cmd = 'rclone copy CSP:Swope/templates/{}.cat {}'.format(
                         obj,self.templates)
+                  print(cmd)
                   ret = os.system(cmd)
                   if ret != 0:
                      self.log("Can't contact csp2 or gdrive, giving up!")
@@ -410,7 +415,7 @@ class Pipeline:
             idx = list(tab['objID']).index(0)
             ra = tab[idx]['RA']
             dec = tab[idx]['DEC']
-            fts = fits.open(f)
+            fts = fits.open(f,memmap=False)
             fts[0].header['SNRA'] = "{:.6f}d".format(ra)
             fts[0].header['SNDEC'] = "{:.6f}d".format(dec)
             fts.writeto(f, overwrite=True)
@@ -427,7 +432,7 @@ class Pipeline:
          filt = self.getHeaderData(fil, 'FILTER')
       
          # check to see if we have a wcs already
-         fts = fits.open(fil)
+         fts = fits.open(fil, memmap=False)
          wcs = WCS(fts[0])
          fts.close()
          if wcs.has_celestial:
@@ -440,7 +445,7 @@ class Pipeline:
          if new is None:
             self.log("Fast WCS failed... resorting to astrometry.net")
             new = do_astrometry.do_astrometry([fil], replace=True,
-                  dir='/usr/local/', verbose=True, other=['--overwrite'])
+                  verbose=True, other=['--overwrite'])
             if new is None:
                self.log("astrometry.net failed for {}. No WCS coputed, "
                         "skipping...".format(fil))
@@ -512,7 +517,7 @@ class Pipeline:
          self.log('Determined zero-point to be {} +/- {}'.format(
             zp,ezp))
 
-         fts = fits.open(fil)
+         fts = fits.open(fil, memmap=False)
          fts[0].header['ZP'] = zp
          fts[0].header['EZP'] = ezp
 
@@ -550,7 +555,7 @@ class Pipeline:
          catfile = join(self.templates, '{}_LS.cat'.format(obj))
          cat = ascii.read(catfile)
          allcat = ascii.read(join(self.templates, '{}.cat'.format(obj)))
-         fts = fits.open(fil)
+         fts = fits.open(fil, memmap=False)
          zpt = fts[0].header['ZP']
          ezpt = fts[0].header['EZP']
          apcor = fts[0].header['APCOR20']
