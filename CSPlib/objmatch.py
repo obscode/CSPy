@@ -60,7 +60,7 @@ def objmatch(x1,y1,x2,y2, dtol, atol, scale1=1.0, scale2=1.0,
       if max(ravel(suse)) < 4: 
          if verb: print("angle {:.2f} gives < 4 matches".format(aoff))
          continue
-      guse = greater(suse,max(suse.ravel())/2)
+      guse = greater(suse,max(suse.ravel())//2)
       if verb: print("angle {:.2f} gives {} matches".format(aoff, 
             sum(ravel(guse))))
       if sum(ravel(guse)) > best_N:
@@ -71,7 +71,7 @@ def objmatch(x1,y1,x2,y2, dtol, atol, scale1=1.0, scale2=1.0,
    da = where(greater(da, 180.0), da-180.0, da)
    use = less(absolute(ds),dtol)*less(absolute(da),atol)
    suse = add.reduce(add.reduce(use,3),1)
-   guse = greater(suse,max(suse.ravel())/2)
+   guse = greater(suse,max(suse.ravel())//2)
    if verb:
       print("Found {} matches".format(sum(ravel(guse))))
       if best_a != 0:
@@ -96,7 +96,7 @@ def objmatch(x1,y1,x2,y2, dtol, atol, scale1=1.0, scale2=1.0,
    #wt = ones(x0.shape,float32)
    return xshift,yshift,xx1,yy1,xx2,yy2
 
-def iterativeSol(x1, y1, x2, y2, scale1=1.0, scale2=2.0, dtol=1.0, atol=1.0, 
+def iterativeSol(x1, y1, x2, y2, scale1=1.0, scale2=1.0, dtol=1.0, atol=1.0, 
       angles=[0], Niter=3, verb=False):
    '''Using iteration, solve for the transformation from x1,y1 to
    x2,y2, returning the solution and tranformed x1,y1
@@ -196,16 +196,16 @@ def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO',
    s.run()
    icat = s.parseCatFile()
    s.cleanup()
-   gids = icat['FLAGS'] < 1
-   icat = icat[gids]
+   #gids = icat['FLAGS'] < 4
+   #icat = icat[gids]
    icat = icat[argsort(icat['MAG_APER'])]
 
    s = SexTractor(wcsimage, gain=1.0, scale=wscale)
    s.run()
    wcat = s.parseCatFile()
    s.cleanup()
-   gids = wcat['FLAGS'] < 1
-   wcat = wcat[gids]
+   #gids = wcat['FLAGS'] < 4
+   #wcat = wcat[gids]
    wcat = wcat[argsort(wcat['MAG_APER'])]
 
    icat = icat[:Nstars] 
@@ -223,7 +223,7 @@ def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO',
 
    x,y = wcs.wcs_pix2world(wi,wj,0)
    # Now solve or CD matrix
-   crval1,crval2,cd11,cd12,cd21,cd22 = fitpix2RADEC(ii, jj, x, y)
+   crval1,crval2,cd11,cd12,cd21,cd22 = fitpix2RADEC(ii, ij, x, y)
 
    image[0].header['CRPIX1'] = 1   # FITS standard indexes from 1
    image[0].header['CRPIX2'] = 1
