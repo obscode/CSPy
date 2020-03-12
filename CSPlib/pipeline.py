@@ -329,7 +329,8 @@ class Pipeline:
    def identify(self):
       '''Figure out the identities of the objects and get their data if
       we can.'''
-      for f in self.ffiles:
+      todo = [f for f in self.ffiles if f not in self.ignore]
+      for f in todo:
          if f in self.ZIDs:  continue   # done it already
          filt = self.getHeaderData(f, 'FILTER')
          if filt not in ['g','r','i']:
@@ -593,6 +594,7 @@ class Pipeline:
       for fil in todo:
          obj = self.ZIDs[fil]
          diff = fil.replace('.fits','diff.fits')
+         magcat = join(self.templates, "{}.cat".format(obj))
          # Check to see if we've done it already
          if isfile(diff): 
             self.subtracted.append(fil)
@@ -600,14 +602,16 @@ class Pipeline:
          filt = self.getHeaderData(fil, 'FILTER')
          template = join(self.templates, '{}_{}.fits'.format(obj,filt))
          obs = ImageMatch.Observation(fil, scale=0.435, saturate=4e4, 
-               reject=True, snx='SNRA', sny='SNDEC')
+               reject=True, snx='SNRA', sny='SNDEC', magmax=22,
+               magmin=11)
          ref = ImageMatch.Observation(template, scale=0.25, saturate=6e4,
-               reject=True)
+               reject=True, magmax=22, magmin=11)
          try:
             obs.GoCatGo(ref, skyoff=True, pwid=11, perr=3.0, nmax=100, nord=3,
                   match=True, subt=True, quick_convolve=True, do_sex=True,
                   thresh=3., sexdir=sex_dir, diff_size=35, bs=True, 
-                  usewcs=True, xwin=[200,1848], ywin=[200,1848], vcut=1e8)
+                  usewcs=True, xwin=[200,1848], ywin=[200,1848], vcut=1e8,
+                  magcat=magcat)
             self.subtracted.append(fil)
          except:
             self.log('Template subtraction failed for {}, skipping'.format(

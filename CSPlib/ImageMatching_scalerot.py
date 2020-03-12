@@ -21,6 +21,7 @@ from .fitsutils import qdump
 from .VTKHelperFunctions import *  # all start with VTK, so this is okay :)
 from .ReadSex import readsex
 from astropy.io import fits as FITS
+from astropy.io import ascii
 import numpy.fft as fft
 import numpy as np
 from .GaussianBG import GaussianBG
@@ -256,10 +257,12 @@ class Observation:
    def __init__(self,image,wt=None,scale='scale',pakey="rotangle",
          saturate=30000, skylev=None, sigsuf=None, wtype="MAP_RMS", 
          mask_file=None, reject=0, snx=None, sny=None, snmaskr=10.0, 
-         extra_sufs=[], hdu=0):
+         extra_sufs=[], hdu=0, magmin=None, magmax=None):
 
       self.image = image   # The image name
       self.hdu = hdu
+      self.magmax = magmax
+      self.magmin = magmin
 
       # Keep a logfile
       self.log_stream = open(self.image.replace('.fits','')+'.log', 'w')
@@ -406,13 +409,31 @@ class Observation:
          self.log("Running {}".format(self.sexcom))
       os.system(self.sexcom)
 
-   def readcat(self):
+   def readcat(self, magcat=None, racol='RA', deccol='DEC', magcol='rmag'):
       '''Read the SExtractor output.'''
       if self.do_sex:  self.sex()
       self.sexdata = readsex(self.catalog)[0]
+         
       f = FITS.open(self.segmap)
       self.seg = f[self.hdu].data
       f.close()
+      # read magnitude data
+      if magcat is not None:
+         if self.wcs is None:
+            raise AttributeError("To use magcat, you need a WCS in the image")
+         magtab = ascii.read(magcat)
+         ii,jj = self.wcs.wcs_world2pix(magtab[racol], magtab[deccol], 0)
+         self.segmags = np.zeros((self.seg.max()+1,))-999
+         for i in range(len(ii)):
+            if not 0 < jj[i] < self.data.shape[0] or \
+               not 0 < ii[i] < self.data.shape[1]:
+               continue
+            obj_id = self.seg[int(jj[i]),int(ii[i])]
+            if obj_id > 0:
+               self.segmags[obj_id] = magtab[i][magcol]
+      else:
+         self.segmags = self.sexdata['MAG_APER']
+         
 
    def compute(self,nmax=40, min_sep=None):
       '''Based on the data output by SExtractor, build arrays of the distances
@@ -735,8 +756,8 @@ class Observation:
          self.log( "Now reading frames for %s" % (self))
          f = FITS.open(self.image)
          self.data = f[self.hdu].data.astype(np.float32)
-         if 'ZP' in f[hdu].header:
-            self.zp = f[hdu].header['ZP']
+         if 'ZP' in f[self.hdu].header:
+            self.zp = f[self.hdu].header['ZP']
          else:
             self.zp = None
 
@@ -800,6 +821,14 @@ class Observation:
          sat_pixels_m = np.logical_or(sat_pixels_m, self.master.nans)
          sat_ids_m = np.nonzero(np.ravel(sat_pixels_m))
          sat_objects_m = np.ravel(self.master.seg)[sat_ids_m]
+         if self.master.magmax or self.master.magmin:
+            gids = np.greater(self.master.segmags, -900)
+            if self.master.magmax: 
+               gids = gids*np.less(self.master.segmags, self.master.magmax)
+            if self.master.magmin: 
+               gids = gids*np.greater(self.master.segmags, self.master.magmin)
+            gids[0] = False   # zero is no object
+            sat_objects_m = np.concatenate([sat_objects_m,np.nonzero(~gids)[0]])
          # Now a bit of trickery to find non-repeating set of object numbers:
          objects_m = list(set(sat_objects_m))
          for obj in objects_m:
@@ -908,6 +937,12 @@ class Observation:
          sat_pixels = np.logical_or(sat_pixels, self.nans)
          sat_ids = np.nonzero(np.ravel(sat_pixels))
          sat_objects = np.ravel(self.seg)[sat_ids]
+         if self.magmax or self.magmin:
+            gids = np.greater(self.segmags, -900)
+            if self.magmax: gids = gids*np.less(self.segmags, self.magmax)
+            if self.magmin: gids = gids*np.greater(self.segmags, self.magmin)
+            gids[0] = False   # zero is no object
+            sat_objects = np.concatenate([sat_objects, np.nonzero(~gids)[0]])
 
          # Now a bit of trickery to find non-repeating set of object numbers:
          objects = list(set(sat_objects))
@@ -918,7 +953,8 @@ class Observation:
 
       # Throug out any pixeles that don't have an object
       seg = np.greater(self.seg,0.0).astype(np.float32)
-      mseg = np.greater(self.mseg,0.0).astype(np.float32)
+      mseg = np.greater(self.mseg,0.5).astype(np.float32)
+      qdump('mseg.fits', mseg, self.image)
 
       gwid = max([2,1*self.pwid])
       self.bg,r = self.estimate_bg()
@@ -937,6 +973,7 @@ class Observation:
       # note by using np.less(zids, 0.02), we're effectively doing a fuzzy 
       #  'not'
       wt = VTKMultiply(seg, VTKMultiply(mseg, np.less(zids, 0.02)))
+      qdump('wt1.fits', wt, self.image)
 
       # throw out data that have very low values
       lowids = np.less(self.data, self.bg-5*r).astype(np.float32)
@@ -948,11 +985,13 @@ class Observation:
       twt = np.less(lowids, 0.02).astype(np.float32)
       wt = VTKMultiply(np.greater(VTKGauss(wt,gwid,numret=1),
                                0.02).astype(np.float32),swt*twt)
+      qdump('wt2.fits', wt, self.image)
 
       # Throw out data on the boundaries twice as wide as the kernel
       insidex = between(self.ox,2*gwid,self.naxis1-2*gwid).astype(np.float32)
       insidey = between(self.oy,2*gwid,self.naxis2-2*gwid).astype(np.float32)
       wt = VTKMultiply(wt,VTKAnd(insidex, insidey))
+      qdump('wt3.fits', wt, self.image)
 
       # If the FITS header had masks in the header, then we mask that out too
       #  This is opposite of xwin,ywin:  it's want we want to keep OUT.
@@ -966,6 +1005,7 @@ class Observation:
          dists = np.power(self.ox-snx, 2) + np.power(self.oy-sny, 2)
          cond = np.greater(dists, (self.snmaskr/self.scale)**2)
          wt = VTKMultiply(wt, cond.astype(np.float32))
+      qdump('wt4.fits', wt, self.image)
 
       # Get rid of any saturated pixels
       swt = VTKGreaterEqual(self.data,self.saturate)
@@ -973,6 +1013,7 @@ class Observation:
       swt = VTKDilate(VTKOr(swt,twt),5,5,numret=1)
       swt = VTKGauss(swt,gwid,numret=1)
       wt = VTKMultiply(wt, VTKLessEqual(swt,0.02))
+      qdump('wt5.fits', wt, self.image)
       if self.sigimage:
          self.noise = self.sigma
       else:
@@ -980,6 +1021,7 @@ class Observation:
          self.noise = VTKSqrt(VTKAdd(n2,pow(r,2)))
       self.invnoise = VTKInvert(self.noise)
       wt = VTKMultiply(wt, self.invnoise)
+      qdump('wt6.fits', wt, self.image)
 
       # Get rid of little "islands" of data that can't constrain the kernel
       # and just add to the noise
@@ -1294,7 +1336,8 @@ class Observation:
                subt=0, registered=0,preserve=0, min_sep=None,
                quick_convolve=0, do_sex=0, thresh=3., sexdir="./sex", 
                angles=[0.0], use_db=0, interactive=0, starlist=None, 
-               diff_size=None, bs=False, crowd=False, usewcs=False):
+               diff_size=None, bs=False, crowd=False, usewcs=False,
+               magcat=None, racol='RA', deccol='DEC', magcol='rmag'):
       self.master = master
       self.skyoff=skyoff
       self.pwid=pwid
@@ -1325,8 +1368,10 @@ class Observation:
       self.master.thresh = thresh
       self.master.crowd = crowd
       self.imread(bs=bs, usewcs=usewcs)
-      self.readcat()
-      self.master.readcat()
+      self.readcat(magcat, racol, deccol, magcol)
+      np.savetxt('segmags.dat', self.segmags.T)
+      self.master.readcat(magcat, racol, deccol, magcol)
+      np.savetxt('msegmags.dat', self.segmags.T)
       if self.snpos is not None:
          snx,sny = self.snpos.topixel()
       else:
