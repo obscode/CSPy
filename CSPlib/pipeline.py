@@ -27,9 +27,9 @@ if not sys.warnoptions:
     warnings.simplefilter("ignore")
 
 filtlist = ['u','g','r','i','B','V']
-calibrations_folder = '/Users/cspuser/SWONC'
-templates_folder = '/Users/cspuser/templates'
-sex_dir = '/Users/cspuser/sex'
+calibrations_folder = '/Users/fsusn/SWONC'
+templates_folder = '/Users/fsusn/templates'
+sex_dir = '/Users/fsusn/sex'
 
 stopped = False
 
