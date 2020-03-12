@@ -418,7 +418,8 @@ class Pipeline:
       '''Go through the astro files and solve for the WCS. This can go
       one of two ways:  either we get a quick solution from catalog
       matching, or if that fails, use astrometry.net (slower).'''
-      todo = [fil for fil in self.ZIDs if fil not in self.wcsSolved]
+      todo = [fil for fil in self.ZIDs if fil not in self.wcsSolved \
+            and fil not in self.ignore]
 
       for fil in todo:
          ZID = self.ZIDs[fil]
@@ -587,7 +588,8 @@ class Pipeline:
       '''For objects with initial photometry, do template-subtraction
       and then redo the photometry for the SN object'''
 
-      todo = [fil for fil in self.initialPhot if fil not in self.subtracted]
+      todo = [fil for fil in self.initialPhot if fil not in self.subtracted \
+            and fil not in self.ignore]
       for fil in todo:
          obj = self.ZIDs[fil]
          diff = fil.replace('.fits','diff.fits')
