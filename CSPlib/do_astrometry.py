@@ -20,7 +20,7 @@ ra_keys = ['RA','RA-D','RA-OBS']
 dec_keys = ['DEC','DEC-D','DEC-OBS']
 
 
-def do_astrometry(files, trim=None, replace=False, dir='/usr/local/astromery',
+def do_astrometry(files, trim=None, replace=False, dir='/usr/local/astrometry',
       other=[], verbose=False):
 
    bindir=os.path.join(dir, 'bin')
