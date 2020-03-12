@@ -1,9 +1,11 @@
 '''A module with convenience functions for connecting to the CSP database.'''
 import getpass
 from astropy.table import Table
+from astropy.time import Time
 import pymysql
 import os
 from numpy import argsort
+from datetime import date
 
 dbs = {'SBS': {
          'host':'sql.obs.carnegiescience.edu',
@@ -32,7 +34,7 @@ def getConnection(db=default_db):
       raise ValueError("db must be either SBS or LCO")
    if passwd is None:
       resp = getpass.getpass(
-            prompt="SQL passwd for CSP@sql.obs.carnegiescience.edu:")
+            prompt="SQL passwd:")
    else:
       resp = passwd
    d = pymysql.connect(passwd=resp, **dbs[db])
@@ -149,4 +151,16 @@ def getCoordsName(ra, dec, db=default_db, tol=0.125):
       return -1
    # If More than one, use closest (first)
    return l[0]
+
+def updateSNPhot(SN, JD, filt, fits, mag, emag, db=default_db):
+   try:
+      db = getConnection(db)
+   except:
+      return -2
+   t = Time(JD, format='jd').datetime.date()
+   c = db.cursor()
+   c.execute('INSERT INTO MAGSN (night,field,obj,filt,fits,mag,err,jd) '\
+             'VALUES (%s,%s,%s,%s,%s,%s,%s,%s)', 
+             (t, SN, 0, filt, fits, mag, emag, JD))
+   db.close()
 

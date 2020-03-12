@@ -582,6 +582,9 @@ class Pipeline:
          with open(join(self.workdir,'SNphot.dat'), 'a') as fout:
             fout.write("{:20s} {:2s} {:.3f} {:.3f} {:.3f}\n".format(
                obj, filt, jd, mag, emag))
+         res = databse.updateSNPhot(obj, jd, filt, basename(fil), mag, emag)
+         if res == -2:
+            self.log('Failed to udpate csp2 database')
          self.finalPhot.append(fil)
       return
 
