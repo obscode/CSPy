@@ -32,7 +32,7 @@ calibrations_folder = '/csp21/csp2/software/SWONC'
 #templates_folder = '/Users/cspuser/templates'
 templates_folder = '/home/cspuser/reductions/templates'
 #sex_dir = '/Users/cspuser/sex'
-sex_dir = '/home/cspuser/sex'
+sex_dir = join(dirname(__file__), 'data', 'sex')
 
 stopped = False
 
@@ -434,10 +434,16 @@ class Pipeline:
          # check to see if we have a wcs already
          fts = fits.open(fil, memmap=False)
          wcs = WCS(fts[0])
-         fts.close()
+         #fts.close()
          if wcs.has_celestial:
             self.wcsSolved.append(fil)
+            fts.close()
             continue
+         if 'ROTANG' not in fts[0].header:
+            fts[0].data = fts[0].data.T
+            fts[0].data = fts[0].data[:,::-1]
+            fts[0].header['ROTANG'] = 90
+            fts.writeto(fil, overwrite=True)
 
          wcsimage = join(self.templates, "{}_{}.fits".format(
             ZID,filt))
@@ -453,6 +459,7 @@ class Pipeline:
             else:
                self.wcsSolved.append(fil)
          else:
+            new.writeto(fil, overwrite=True)
             self.wcsSolved.append(fil)
       return
 

@@ -6,6 +6,29 @@ from .sextractor import SexTractor
 from astropy.wcs import WCS
 from astropy.io import fits
 
+def normalcoord(ra, dec, rc, dc):
+   '''Given ra,dec in degrees, convert to normal coordinates'''
+   ra = ra*pi/180
+   dec = dec*pi/180
+   rc = rc*pi/180
+   dc = dc*pi/180
+   squ = cos(dec)*sin(ra-rc)/(sin(dc)*sin(dec)+cos(dc)*cos(dec)*cos(ra-rc))
+   eta = (cos(dc)*sin(dec)-sin(dc)*cos(dec)*cos(ra-rc))/\
+         (sin(dc)*sin(dec)+cos(dc)*cos(dec)*cos(ra-rc))
+   return squ*180/pi, eta*180/pi
+
+def equicoord(u, v, rc, dc):
+   '''Given normal coordinates cetered at rc,dc, compute equitorial coords.'''
+   rc = rc*pi/180
+   dc = dc*pi/180
+   u = u*pi/180
+   v = v*pi/180
+   t = u/(cos(dc) - v*sin(dc))
+   tt = (sin(dc)+v*cos(dc))/(cos(dc)-v*sin(dc))*cos(arctan(t))
+   dec = arctan(tt)
+   ra = arctan(t) + rc
+   return ra*180/pi,dec*180/pi
+
 def fitscalerot(x0, y0, x1, y1):
    '''compute a scale+rotation transformation.'''
    basis = abasis(0, x0, y0, rot=1)
@@ -196,42 +219,44 @@ def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO',
    s.run()
    icat = s.parseCatFile()
    s.cleanup()
-   #gids = icat['FLAGS'] < 4
-   #icat = icat[gids]
    icat = icat[argsort(icat['MAG_APER'])]
 
    s = SexTractor(wcsimage, gain=1.0, scale=wscale)
    s.run()
    wcat = s.parseCatFile()
    s.cleanup()
-   #gids = wcat['FLAGS'] < 4
-   #wcat = wcat[gids]
    wcat = wcat[argsort(wcat['MAG_APER'])]
 
    icat = icat[:Nstars] 
    wcat = wcat[:Nstars]
 
-   #x0,y0 = wcs.wcs_pix2world(wcat['X_IMAGE'], wcat['Y_IMAGE'], 0)
-   x1,y1 = wcat['X_IMAGE'], wcat['Y_IMAGE']
+   x1,y1 = wcat['X_IMAGE'],wcat['Y_IMAGE']
    x0,y0 = icat['X_IMAGE'],icat['Y_IMAGE']
 
    res,idx1,idx2 = iterativeSol(x0, y0, x1, y1, scale1=imscale, scale2=wscale,
          dtol=1.0, verb=verbose, angles=angles)
    if res is None: return None
-   ii,ij = take([x0,y0], idx1, 1)
+   ii,ij = take([x0,y0], idx1, 1)  # Source extractor indexes from 1
    wi,wj = take([x1,y1], idx2, 1)
 
    x,y = wcs.wcs_pix2world(wi,wj,0)
+   i0 = image[0].data.shape[1]//2
+   j0 = image[0].data.shape[0]//2
+   xc,yc = median(x),median(y)
+   u,v = normalcoord(x, y, xc, yc)
    # Now solve or CD matrix
-   crval1,crval2,cd11,cd12,cd21,cd22 = fitpix2RADEC(ii, ij, x, y)
+   u0,v0,cd11,cd12,cd21,cd22 = fitpix2RADEC(ii-i0, ij-j0, u, v)
+   ra0,dec0 = equicoord(u0, v0, xc, yc)
 
-   image[0].header['CRPIX1'] = 1   # FITS standard indexes from 1
-   image[0].header['CRPIX2'] = 1
-   image[0].header['CRVAL1'] = crval1
-   image[0].header['CRVAL2'] = crval2
+   image[0].header['CTYPE1'] = 'RA---TAN'
+   image[0].header['CTYPE2'] = 'DEC--TAN'
+   image[0].header['CRPIX1'] = i0
+   image[0].header['CRPIX2'] = j0
+   image[0].header['CRVAL1'] = ra0
+   image[0].header['CRVAL2'] = dec0
    image[0].header['CD1_1'] = cd11
    image[0].header['CD1_2'] = cd12
    image[0].header['CD2_1'] = cd21
    image[0].header['CD2_2'] = cd22
 
-   return fitpix2RADEC(ii,ij,x,y)
+   return image
