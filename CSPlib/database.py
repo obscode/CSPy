@@ -166,9 +166,10 @@ def updateSNPhot(SN, JD, filt, fits, mag, emag, db=default_db):
    c = db.cursor()
    
    #check to see if entry exists:
-   n = c.execute('select fits from MAGSN where fits=%s', (fits,))
+   n = c.execute('select night,fits from MAGSN where fits=%s and night=%s', 
+         (fits,t))
    if n > 0:
-      c.execute('delete from MAGSN where fits=%s', (fits,))
+      c.execute('delete from MAGSN where fits=%s and night=%s', (fits,t))
 
    c.execute('INSERT INTO MAGSN (night,field,obj,filt,fits,mag,err,jd) '\
              'VALUES (%s,%s,%s,%s,%s,%s,%s,%s)', 
