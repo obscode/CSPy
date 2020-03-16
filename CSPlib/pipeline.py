@@ -66,6 +66,8 @@ class Pipeline:
 
       # A list of all files we've dealt with so far
       self.rawfiles = []
+      # A list of bad raw ccd files we want to ingore
+      self.badfiles = []
       # A list of files that have been bias-corrected
       self.bfiles = []
       # A list of files that have been flat-fielded
@@ -151,6 +153,7 @@ class Pipeline:
       it to the queue.'''
       if not isfile(filename):
          self.log("File {} not found. Did it disappear?".format(filename))
+         self.badfiles.append(filename)
          return
 
       # Update header
@@ -158,7 +161,13 @@ class Pipeline:
       if isfile(fout):
          fts = fits.open(fout, memmap=False)
       else:
-         fts = headers.update_header(filename, fout)
+         try:
+            fts = headers.update_header(filename, fout)
+         except:
+            self.log('Warning: had a problem with the headers for {}, '\
+                     'skipping...'.format(filename))
+            self.badfiles.append(filename)
+            return
 
       fil = basename(filename)
       self.headerData[fil] = {}
@@ -192,7 +201,7 @@ class Pipeline:
       flist = glob(join(self.datadir, "{}*{}".format(
          self.prefix, self.suffix)))
 
-      new = [f for f in flist if f not in self.rawfiles]
+      new = [f for f in flist if f not in self.rawfiles+self.badfiles]
 
       return new
 
@@ -237,7 +246,7 @@ class Pipeline:
          else:
             cfile = join(calibrations_folder, "CAL", "Zero{}".format(
                self.suffix))
-            self.biasFrame = fts.open(cfile)
+            self.biasFrame = fits.open(cfile)
             self.biasFrame.writeto(bfile)
             self.log("Retrieved backup BIAS frame from {}".format(cfile))
 
@@ -290,6 +299,7 @@ class Pipeline:
             todo.append(wfile)
 
       for f in todo:
+         self.log('Bias correcting CCD frames...')
          fts = ccdred.biasCorrect(f, overscan=True, frame=self.biasFrame)
          # Get the correct shutter file
          opamp = self.getHeaderData(f,'OPAMP')
@@ -302,6 +312,7 @@ class Pipeline:
          bfile = self.getWorkName(f, 'b')
          fts.writeto(bfile, overwrite=True)
          self.bfiles.append(bfile)
+         self.log('   Corrected file saved to {}'.format(bfile))
 
    def FlatCorr(self):
       '''Do flat field correction to all files that need it:  astro basically
@@ -661,14 +672,14 @@ class Pipeline:
          self.stopped = True
 
 
-   def run(self, poll_interval=10, wait_for_write=2):
+   def run(self, poll_interval=10, wait_for_write=60):
       '''Check for new files and process them as they come in. Only check
       when idle for poll_interval seconds. Also, we wait wait_for_write
       number of seconds before reading each file to avoid race conditions.'''
       self.stopped = False
       signal.signal(signal.SIGHUP, self.sighandler)
       while not self.stopped:
-         print("Checking for new files")
+         #print("Checking for new files")
          files = self.getNewFiles()
          for fil in files:
             time.sleep(wait_for_write)

@@ -143,6 +143,9 @@ def getCoordsName(ra, dec, db=default_db, tol=0.125):
    ra = float(ra)
    dec = float(dec)
 
+   ra = float(ra)
+   dec = float(dec)
+
    c = db.cursor()
    c.execute("SELECT SN,RA*15,DE,SQRT(POW((RA*15-%s)*COS(%s/180*3.14159),2) + "
              "POW((DE-%s),2)) as dist FROM "
@@ -159,6 +162,9 @@ def updateSNPhot(SN, JD, filt, fits, mag, emag, db=default_db):
       db = getConnection(db)
    except:
       return -2
+   JD = float(JD)
+   mag = float(mag)
+   emag = float(emag)
    t = Time(JD, format='jd').datetime.date()
    c = db.cursor()
    
