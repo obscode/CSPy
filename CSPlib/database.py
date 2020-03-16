@@ -140,6 +140,8 @@ def getCoordsName(ra, dec, db=default_db, tol=0.125):
       db = getConnection(db)
    except:
       return -2
+   ra = float(ra)
+   dec = float(dec)
 
    c = db.cursor()
    c.execute("SELECT SN,RA*15,DE,SQRT(POW((RA*15-%s)*COS(%s/180*3.14159),2) + "
@@ -159,8 +161,16 @@ def updateSNPhot(SN, JD, filt, fits, mag, emag, db=default_db):
       return -2
    t = Time(JD, format='jd').datetime.date()
    c = db.cursor()
+   
+   #check to see if entry exists:
+   n = c.execute('select fits from MAGSN where fits=%s', (fits,))
+   if n > 0:
+      c.execute('delete from MAGSN where fits=%s', (fits,))
+
    c.execute('INSERT INTO MAGSN (night,field,obj,filt,fits,mag,err,jd) '\
              'VALUES (%s,%s,%s,%s,%s,%s,%s,%s)', 
              (t, SN, 0, filt, fits, mag, emag, JD))
+
+
    db.close()
 
