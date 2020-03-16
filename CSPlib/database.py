@@ -143,9 +143,6 @@ def getCoordsName(ra, dec, db=default_db, tol=0.125):
    ra = float(ra)
    dec = float(dec)
 
-   ra = float(ra)
-   dec = float(dec)
-
    c = db.cursor()
    c.execute("SELECT SN,RA*15,DE,SQRT(POW((RA*15-%s)*COS(%s/180*3.14159),2) + "
              "POW((DE-%s),2)) as dist FROM "
