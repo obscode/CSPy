@@ -40,7 +40,7 @@ class Pipeline:
 
    def __init__(self, datadir, workdir=None, prefix='ccd', suffix='.fits',
          calibrations=calibrations_folder, templates=templates_folder,
-         catalogs=templates_folder):
+         catalogs=templates_folder, update_db=True):
       '''
       Initialize the pipeline object.
 
@@ -62,6 +62,7 @@ class Pipeline:
       self.datadir = datadir
       self.prefix = prefix
       self.suffix = suffix
+      self.update_db = update_db
 
       # A list of all files we've dealt with so far
       self.rawfiles = []
@@ -406,7 +407,7 @@ class Pipeline:
                     catfile))
                 self.ignore.append(f)
                 continue
-         tab = ascii.read(join(self.templates,"{}.cat".format(obj)))
+         tab = ascii.read(join(self.templates,"{}.cat".format(self.ZIDs[f])))
          if 0 not in tab['objID']:
             self.log('No SN object in catalog file, skipping...')
             self.ignore.append(f)
@@ -594,9 +595,10 @@ class Pipeline:
          with open(join(self.workdir,'SNphot.dat'), 'a') as fout:
             fout.write("{:20s} {:2s} {:.3f} {:.3f} {:.3f}\n".format(
                obj, filt, jd, mag, emag))
-         res = database.updateSNPhot(obj, jd, filt, basename(fil), mag, emag)
-         if res == -2:
-            self.log('Failed to udpate csp2 database')
+         if self.update_db:
+            res = database.updateSNPhot(obj, jd, filt, basename(fil), mag, emag)
+            if res == -2:
+               self.log('Failed to udpate csp2 database')
          self.finalPhot.append(fil)
       return
 
