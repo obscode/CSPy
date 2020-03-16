@@ -2,7 +2,7 @@
 
 #from CSPlib.getPS import getPS.getStarCat,getPS.getFITS
 from CSPlib.database import getConnection
-from CSPlib import getPS
+from CSPlib import getPS, getSM, getPOSS
 from astropy.io import fits
 import pymysql
 from matplotlib import pyplot as plt
@@ -54,18 +54,30 @@ for sn,ra,dec in l:
       continue
    fnames = [join(templates, "{}_{}.fits".format(sn,filt)) \
          for filt in ['g','r','i']]
+   imagesrc = 'PS'
    if isfile(join(templates, "{}_{}.fits".format(sn, 'r'))):
-      flist = [fits.open(fname) for fname in fnames]
+      flist = []
+      for fname in fnames:
+         if isfile(fname):
+            flist.append(fits.open(fname))
+         else:
+            imagesrc = 'POSS'
+            flist.append(None)
    else:
       try:
          flist = getPS.getFITS(ra, dec, chart_size, 'gri', mosaic=True)
+         imagesrc='PS'
          if flist is None:
-            flist = getSM.getFITS(ra, dec, chart_size, 'gri', mosaic=True)
+            flist = [None, getPOSS.getFITS(ra, dec, chart_size),None]
+            imagesrc='POSS'
       except:
          print("Error, could not download PS image data "
              "for {}({:.5f}{:.5f})".format(sn,ra,dec))
          continue
-      [flist[i].writeto(fnames[i], overwrite=True) for i in range(3)]
+      if flist[0] is not None:
+         [flist[i].writeto(fnames[i], overwrite=True) for i in range(3)]
+      else:
+         flist[1].writeto(fnames[1], overwrite=True)
 
    # Use r-band to make catalog and finder
    idx = ['g','r','i'].index(chart_filter)
@@ -98,8 +110,11 @@ for sn,ra,dec in l:
    fig = plt.figure(figsize=(9,9))
    ax = fig.add_subplot(111, projection=wcs)
    plt.subplots_adjust(left=0.2)
-   ax.imshow(fts[0].data, origin='lower', norm=simple_norm(fts[0].data,
-      min_cut=-300, max_cut=1000), cmap='gray_r')
+   if imagesrc == 'PS':
+      norm = simple_norm(fts[0].data, min_cut=-300, max_cut=1000)
+   else:
+      norm = simple_norm(fts[0].data, percent=99)
+   ax.imshow(fts[0].data, origin='lower', norm=norm, cmap='gray_r')
    #ii,jj = wcs.wcs_world2pix(cat['RA'][pids], cat['DEC'][pids], 0)
    #ax.plot(ii, jj, 'o', mec='blue', mfc='none', ms=20)
    ax.plot([0.3,0.48],[0.5, 0.5], '-', color='red', alpha=0.5,
@@ -135,9 +150,7 @@ for sn,ra,dec in l:
    y1 = size//2 + size//8
 
    subdata = fts[0].data[x0:x1,y0:y1]
-   ins.imshow(subdata,origin='lower',
-         norm=simple_norm(subdata, min_cut=-300, max_cut=1000),
-         cmap='gray_r')
+   ins.imshow(subdata,origin='lower', norm=norm, cmap='gray_r')
    ins.plot([0.25,0.45],[0.5, 0.5], '-', color='red', alpha=0.5,
       transform=ins.transAxes)
    ins.plot([0.55,0.75],[0.5, 0.5], '-', color='red', alpha=0.5,

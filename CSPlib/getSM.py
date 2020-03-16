@@ -55,6 +55,8 @@ def getFITS(ra, dec, size, filters, mosaic=False):
    '''
    if mosaic and reproject is None:
       raise ValueError("To use mosaic, you need to install reproject")
+   # max size form image server... need to work on more mosaicking later.
+   if size > 0.17: size = 0.17
    filters = list(filters)
    ret = []
    for filt in filters:
@@ -63,19 +65,20 @@ def getFITS(ra, dec, size, filters, mosaic=False):
          return None
       if len(urls) > 1 and mosaic:
          from reproject import reproject_interp
-         from reproject.mosaicking import find_optimal_wcs
+         from reproject.mosaicking import find_optimal_celestial_wcs
+         from reproject.mosaicking import reproject_and_coadd
          fts = [fits.open(url) for url in urls]
          wcs_out,shape_out = find_optimal_celestial_wcs([ft[0] for ft in fts])
          ar_out,footprint = reproject_and_coadd([ft[0] for ft in fts],
              wcs_out, shape_out=shape_out, reproject_function=reproject_interp,
              match_background=True)
          h_out = fts[0][0].header.copy()
-         for key in h_out.keys:
+         for key in list(h_out.keys()):
             if key in ['CD1_1','CD2_2','CD1_2','CD2_1'] or key[:2] == 'PV':
                h_out.remove(key)
          h_out.update(wcs_out.to_header())
          newhdu = fits.PrimaryHDU(ar_out, header=h_out)
-         return fits.HDUList([newhdu])
+         ret.append(fits.HDUList([newhdu]))
       else:
          ret.append(fits.open(urls[0]))
 
@@ -93,28 +96,30 @@ def getStarCat(ra, dec, radius):
    if len(tab) == 0:
       return None
    
+   tab = tab[~tab['object_id'].mask]
    tab = tab['object_id', 'filter', 'ra_img','decl_img','mag_psf','e_mag_psf']
    tab.rename_column('object_id','objID')
    tab.rename_column('ra_img', 'RA')
    tab.rename_column('decl_img', 'DEC')
    tabg = tab[tab['filter'] == 'g']
-   tabg = tab[tab['filter'] == 'r']
-   tabg = tab[tab['filter'] == 'i']
+   tabr = tab[tab['filter'] == 'r']
+   tabi = tab[tab['filter'] == 'i']
    tabg.rename_column('mag_psf','gmag')
-   tabg.rename_column('mag_psf','gerr')
+   tabg.rename_column('e_mag_psf','gerr')
    tabg.remove_column('filter')
    tabr.rename_column('mag_psf','rmag')
-   tabr.rename_column('mag_psf','rerr')
+   tabr.rename_column('e_mag_psf','rerr')
    tabr.remove_column('filter')
    tabi.rename_column('mag_psf','imag')
-   tabi.rename_column('mag_psf','ierr')
+   tabi.rename_column('e_mag_psf','ierr')
    tabi.remove_column('filter')
 
    newtab = join(tabg, tabr, keys='objID')
    newtab = join(newtab, tabi, keys='objID')
-   gids = greater(tab['gmag'], 0)*less(tab['gmag'],20)
-   gids = gids*greater(tab['rmag'], 0)*less(tab['rmag'],20)
-   gids = gids*greater(tab['imag'], 0)*less(tab['imag'],20)
+   newtab = newtab['objID','RA','DEC','gmag','gerr','rmag','rerr','imag','ierr']
+   gids = np.greater(newtab['gmag'], 0)*np.less(newtab['gmag'],20)
+   gids = gids*np.greater(newtab['rmag'], 0)*np.less(newtab['rmag'],20)
+   gids = gids*np.greater(newtab['imag'], 0)*np.less(newtab['imag'],20)
 
    newtab = newtab[gids]
    return newtab
