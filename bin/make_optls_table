@@ -63,8 +63,8 @@ if N > 0:
 else:
    SN2 = None
 
-cols = ['OBJ','RA*15','DE','magB','errB','magV','errV','magu','erru',
-       'magg', 'errg','magr','errr','magi','erri']
+cols = ['OBJ','RA*15','DE','magu','erru','magg','errg','magr','errr',
+       'magi', 'erri','magB','errB','magV','errV']
 dtype=tuple(['i4']+['f4']*14)
 
 c.execute('''select {} from OPTLS where SN=%s'''.format(','.join(cols)), 
@@ -103,7 +103,7 @@ if args.latex:
       for i in range(len(tab)):
          line = "%3d & %10.6f & %10.6f " % \
                (tab[i]['OBJ'],tab[i]['RA*15'], tab[i]['DE'])
-         for filt in ['B','V','u','g','r','i']:
+         for filt in ['u','g','r','i','B','V']:
             if tab['mag'+filt].mask[i]:
                line = line + "& \\ldots     "
                continue
