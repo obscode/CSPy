@@ -261,8 +261,8 @@ class Observation:
 
       self.image = image   # The image name
       self.hdu = hdu
-      self.magmax = magmax
       self.magmin = magmin
+      self.magmax = magmax
 
       # Keep a logfile
       self.log_stream = open(self.image.replace('.fits','')+'.log', 'w')
