@@ -12,7 +12,7 @@ from .phot import ApPhot
 from . import ccdred
 from . import headers
 from . import do_astrometry
-from . import ImageMatching_scalerot as ImageMatch
+from imagematch import ImageMatching_scalerot as ImageMatch
 from .objmatch import WCStoImage
 import os
 from os.path import join,basename,isfile,dirname,isdir

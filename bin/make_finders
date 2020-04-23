@@ -60,7 +60,7 @@ else:
 if not os.path.isdir(fcharts):
    print("INFO:  making finder chart folder: {}".format(fcharts))
    os.mkdir(fcharts)
-if not os.path.isdir(fcharts):
+if not os.path.isdir(templates):
    print("INFO:  making FITS cache folder: {}".format(templates))
    os.mkdir(templates)
 

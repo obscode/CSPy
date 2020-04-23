@@ -27,6 +27,7 @@ setup(
          'scipy',
          'matplotlib',
          'numpy',
+         'imagematch',
       ],
       )
 
