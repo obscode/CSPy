@@ -31,7 +31,10 @@ def floatToCol(v,ev, fmt='%.3f'):
 
 parser = argparse.ArgumentParser(description="Make LaTeX table of SN photometry")
 parser.add_argument('SN', help='Name of the SN from the database')
-parser.add_argument('Tmax', help='Time of maximum in MJD')
+parser.add_argument('-Tmax', help='Time of maximum in MJD', type=float,
+      default = 0)
+parser.add_argument('-latex', help='Output to latex instead of txt',
+      action='store_true')
 args = parser.parse_args()
 
 db = database.getConnection()
@@ -59,15 +62,28 @@ if len(data) == 0:
          sys.exit(1)
 
 tab = Table(rows=data, names=cols, masked=True, dtype=dtype)
-tab['phase'] = tab['MJD'] - float(args.Tmax)
+if args.Tmax > 1:
+   tab['phase'] = tab['MJD'] - float(args.Tmax)
+   tab['phase'].info.format="%.3f"
 tab['mag'].info.format = "%.3f"
 tab['err'].info.format = "%.3f"
+tab['MJD'].info.format = "%.3f"
+
+if not args.latex:
+   tab.write('table_%s_phot.txt' % SN, format='ascii.fixed_width',
+         delimiter=' ', fill_values=[(ascii.masked, 'nan')], overwrite=True)
+   sys.exit(0)
 
 with open('table_%s_phot.tex' % SN, 'w') as fout:
    fout.write(header % SN)
    for i in range(len(tab)):
-      line = "%.2f & %s & %6.3f & %6.3f & %6.3f" % \
-            (tab[i]['MJD'],tab[i]['filt'], tab[i]['mag'], tab[i]['err'], tab[i]['phase'])
+      if args.Tmax > 1:
+         line = "%.2f & %s & %6.3f & %6.3f & %6.3f" % \
+               (tab[i]['MJD'],tab[i]['filt'], tab[i]['mag'], tab[i]['err'], 
+                tab[i]['phase'])
+      else:
+         line = "%.2f & %s & %6.3f & %6.3f" % \
+               (tab[i]['MJD'],tab[i]['filt'], tab[i]['mag'], tab[i]['err'])
       line = line + '\\\\\n'
       fout.write(line)
    fout.write(footer)
