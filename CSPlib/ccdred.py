@@ -26,6 +26,20 @@ if not isdir(datadir):
 
 def getBackupCalibration(typ='Zero', chip=1, filt=None, tel='SWO',
       ins='NC'):
+   '''Utility function for retrieving calibration data from the correct
+   location.
+
+   Args:
+     typ (str):  The type of calibration: 'Zero','Flat', or 'Shutter'
+     chip (int):  Chip number
+     filt (str):  Which filter (for calibrations that are filter specific)
+     tel (str):  Telescope code (SWO, DUP, etc)
+     ins (str):  Instrument code (DC, NC, RC, etc)
+
+   Returns:
+      calibration (fits instance):  the calibration as a fits object.
+   '''
+
    if typ not in ['Zero','Flat','Shutter']:
       raise ValueError("Type must be Zero, Flat, Shutter")
    if typ == 'Zero':
@@ -49,7 +63,16 @@ def getBackupCalibration(typ='Zero', chip=1, filt=None, tel='SWO',
 
 def makeBiasFrame(blist, outfile=None, tel='SWO', ins='NC'):
    '''Given a set of BIAS frames, combine into a single frame using
-   imcombine.'''
+   imcombine.
+   
+   Args:
+      blist (list): List of bias frames to combine
+      outfile (str):  Output FITS file for combined BIAS
+      tel(str):  Telescope code (e.g., SWO)
+      ins(str):  Instrument code (e.g. DC)
+   Returns:
+      BIAS (fits instance):  combined BIAS frame as fits object
+   '''
    specs = getTelIns(tel,ins)
 
    res = imcombine(blist, combine='average', reject='avsigclip', 
