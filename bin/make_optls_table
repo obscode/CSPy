@@ -14,8 +14,9 @@ header = r'''\begin{deluxetable}{ccccccccc}
    \tablecaption{Optical local sequence photometry for %s\label{tab:LSPhot}}
    \tablehead{
       \colhead{ID} & \colhead{$\alpha$ (2000)} & \colhead{$\delta$ (2000)} & 
-      \colhead{$B$} & \colhead{$V$} & \colhead{$u^\prime$} & \colhead{$g^\prime$} & 
-      \colhead{$r^\prime$} & \colhead{$i^\prime$} }
+      \colhead{$u^\prime$} & \colhead{$g^\prime$} & 
+      \colhead{$r^\prime$} & \colhead{$i^\prime$} &
+      \colhead{$B$} & \colhead{$V$} }
    \startdata
 '''
    
