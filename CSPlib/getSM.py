@@ -29,7 +29,7 @@ def getImages(ra, dec, size=0.125, filt='g', verbose=False):
       Returns:
          list of filenames
    '''
-   templ = "http://api.skymapper.nci.org.au/public/siap/dr1/query?"\
+   templ = "http://api.skymapper.nci.org.au/public/siap/dr2/query?"\
            "POS={},{}&SIZE={}&BAND={}&FORMAT=image/fits&VERB=3&"\
            "RESPONSEFORMAT=CSV"
    baseurl = templ.format(ra, dec, size, filt)
@@ -86,36 +86,30 @@ def getStarCat(ra, dec, radius):
    '''Get a list of SM stars plus their photometry.'''
 
    templ = "http://skymapper.anu.edu.au/sm-cone/public/query?RA={}&DEC={}"\
-          "&SR={}&VERB=3&RESPONSEFORMAT=CSV&CATALOG=dr1.fs_photometry"
+          "&SR={}&VERB=3&RESPONSEFORMAT=CSV"
    url = templ.format(ra, dec, radius)
 
    tab = ascii.read(url)
    if len(tab) == 0:
       return None
    
-   tab = tab['object_id', 'filter', 'ra_img','decl_img','mag_psf','e_mag_psf']
+   tab = tab[tab['star_class'] > 0.8]
+   tab = tab['object_id', 'raj2000','dej2000','g_psf','e_g_psf','r_psf',
+         'e_r_psf', 'i_psf','e_i_psf']
    tab.rename_column('object_id','objID')
-   tab.rename_column('ra_img', 'RA')
-   tab.rename_column('decl_img', 'DEC')
-   tabg = tab[tab['filter'] == 'g']
-   tabg = tab[tab['filter'] == 'r']
-   tabg = tab[tab['filter'] == 'i']
-   tabg.rename_column('mag_psf','gmag')
-   tabg.rename_column('mag_psf','gerr')
-   tabg.remove_column('filter')
-   tabr.rename_column('mag_psf','rmag')
-   tabr.rename_column('mag_psf','rerr')
-   tabr.remove_column('filter')
-   tabi.rename_column('mag_psf','imag')
-   tabi.rename_column('mag_psf','ierr')
-   tabi.remove_column('filter')
+   tab.rename_column('raj2000', 'RA')
+   tab.rename_column('dej2000', 'DEC')
+   tab.rename_column('g_psf','gmag')
+   tab.rename_column('e_g_psf','gerr')
+   tab.rename_column('r_psf','rmag')
+   tab.rename_column('e_r_psf','rerr')
+   tab.rename_column('i_psf','imag')
+   tab.rename_column('e_i_psf','ierr')
 
-   newtab = join(tabg, tabr, keys='objID')
-   newtab = join(newtab, tabi, keys='objID')
    gids = greater(tab['gmag'], 0)*less(tab['gmag'],20)
    gids = gids*greater(tab['rmag'], 0)*less(tab['rmag'],20)
    gids = gids*greater(tab['imag'], 0)*less(tab['imag'],20)
 
-   newtab = newtab[gids]
-   return newtab
+   tab = tab[gids]
+   return tab
 
