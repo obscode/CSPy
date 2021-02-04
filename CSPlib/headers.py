@@ -44,11 +44,19 @@ def update_header(f, fout=None):
    fts = fits.open(f, memmap=False)
    h = fts[0].header
 
+   # Get rid of spaces!!
+   if h['OBJECT'].find(' ') >= 0:
+      h['OBJECT'] = h['OBJECT'].replace(' ','_')
+
    # First, update the OBSTYPE, as per PREV_SWONC
    obj = h['OBJECT'].lower()
+   # Get rid of spaces!!!
+   obj = obj.replace(' ','_')
    if obj not in obstypes:
       if obj[-4:] == '_bad':
          obstype = 'none'
+      elif obj.find('focus') >= 0:
+         obstype = 'focus'
       else:
          obstype = 'astro'
    else:
