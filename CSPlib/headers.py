@@ -17,6 +17,7 @@ obstypes = {'dflat':'dflat',
             'test':'none',
             'linear':'none',
             'shutter':'none',
+            'focus':'none',
             }
 
 def shift_center(header):

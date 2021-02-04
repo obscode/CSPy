@@ -12,7 +12,7 @@ from .phot import ApPhot
 from . import ccdred
 from . import headers
 from . import do_astrometry
-from . import ImageMatching_scalerot as ImageMatch
+from imagematch import ImageMatching_scalerot as ImageMatch
 from .objmatch import WCStoImage
 import os
 from os.path import join,basename,isfile,dirname,isdir
@@ -32,7 +32,7 @@ calibrations_folder = '/csp21/csp2/software/SWONC'
 #templates_folder = '/Users/cspuser/templates'
 templates_folder = '/home/cspuser/reductions/templates'
 #sex_dir = '/Users/cspuser/sex'
-sex_dir = '/home/cspuser/sex'
+sex_dir = join(dirname(__file__), 'data', 'sex')
 
 
 stopped = False
@@ -41,7 +41,7 @@ class Pipeline:
 
    def __init__(self, datadir, workdir=None, prefix='ccd', suffix='.fits',
          calibrations=calibrations_folder, templates=templates_folder,
-         catalogs=templates_folder, fsize=9512640):
+         catalogs=templates_folder, fsize=9512640, update_db=True):
       '''
       Initialize the pipeline object.
 
@@ -67,9 +67,12 @@ class Pipeline:
       self.prefix = prefix
       self.suffix = suffix
       self.fsize = fsize
+      self.update_db = update_db
 
       # A list of all files we've dealt with so far
       self.rawfiles = []
+      # A list of bad raw ccd files we want to ingore
+      self.badfiles = []
       # A list of files that have been bias-corrected
       self.bfiles = []
       # A list of files that have been flat-fielded
@@ -155,6 +158,7 @@ class Pipeline:
       it to the queue.'''
       if not isfile(filename):
          self.log("File {} not found. Did it disappear?".format(filename))
+         self.badfiles.append(filename)
          return
 
       # Update header
@@ -162,7 +166,13 @@ class Pipeline:
       if isfile(fout):
          fts = fits.open(fout, memmap=False)
       else:
-         fts = headers.update_header(filename, fout)
+         try:
+            fts = headers.update_header(filename, fout)
+         except:
+            self.log('Warning: had a problem with the headers for {}, '\
+                     'skipping...'.format(filename))
+            self.badfiles.append(filename)
+            return
 
       fil = basename(filename)
       self.headerData[fil] = {}
@@ -198,8 +208,7 @@ class Pipeline:
 
       new = [f for f in flist if not os.path.islink(f)]
       new = [f for f in new if os.path.getsize(f) == self.fsize]
-      new = [f for f in new if f not in self.rawfiles]
-      # check that the files are the right size
+      new = [f for f in new if f not in self.rawfiles+self.badfiles]
 
       return new
 
@@ -297,6 +306,7 @@ class Pipeline:
             todo.append(wfile)
 
       for f in todo:
+         self.log('Bias correcting CCD frames...')
          fts = ccdred.biasCorrect(f, overscan=True, frame=self.biasFrame)
          # Get the correct shutter file
          opamp = self.getHeaderData(f,'OPAMP')
@@ -309,6 +319,7 @@ class Pipeline:
          bfile = self.getWorkName(f, 'b')
          fts.writeto(bfile, overwrite=True)
          self.bfiles.append(bfile)
+         self.log('   Corrected file saved to {}'.format(bfile))
 
    def FlatCorr(self):
       '''Do flat field correction to all files that need it:  astro basically
@@ -414,7 +425,7 @@ class Pipeline:
                     catfile))
                 self.ignore.append(f)
                 continue
-         tab = ascii.read(join(self.templates,"{}.cat".format(obj)))
+         tab = ascii.read(join(self.templates,"{}.cat".format(self.ZIDs[f])))
          if 0 not in tab['objID']:
             self.log('No SN object in catalog file, skipping...')
             self.ignore.append(f)
@@ -446,6 +457,11 @@ class Pipeline:
             self.wcsSolved.append(fil)
             fts.close()
             continue
+         if 'ROTANG' not in fts[0].header:
+            fts[0].data = fts[0].data.T
+            fts[0].data = fts[0].data[:,::-1]
+            fts[0].header['ROTANG'] = 90
+            fts.writeto(fil, overwrite=True)
 
          # Now, we need to rotate 90 degrees to match up with the sky
          if 'ROTANG' not in fts[0].header:
@@ -617,9 +633,12 @@ class Pipeline:
          with open(join(self.workdir,'SNphot.dat'), 'a') as fout:
             fout.write("{:20s} {:2s} {:.3f} {:.3f} {:.3f}\n".format(
                obj, filt, jd, mag, emag))
-         res = database.updateSNPhot(obj, jd, filt, basename(fil), mag, emag)
-         if res == -2:
-            self.log('Failed to udpate csp2 database')
+         if self.update_db:
+            self.log("Updating CSP database with photometry for {},{}".format(
+               obj,filt))
+            res = database.updateSNPhot(obj, jd, filt, basename(fil), mag, emag)
+            if res == -2:
+               self.log('Failed to udpate csp2 database')
          self.finalPhot.append(fil)
       return
 
@@ -687,14 +706,14 @@ class Pipeline:
          self.stopped = True
 
 
-   def run(self, poll_interval=10, wait_for_write=2):
+   def run(self, poll_interval=10, wait_for_write=60):
       '''Check for new files and process them as they come in. Only check
       when idle for poll_interval seconds. Also, we wait wait_for_write
       number of seconds before reading each file to avoid race conditions.'''
       self.stopped = False
       signal.signal(signal.SIGHUP, self.sighandler)
       while not self.stopped:
-         print("Checking for new files")
+         #print("Checking for new files")
          files = self.getNewFiles()
          for fil in files:
             time.sleep(wait_for_write)

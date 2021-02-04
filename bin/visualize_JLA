@@ -1,0 +1,103 @@
+#!/usr/bin/env python
+'''Interactive plot to demonstrate the confidence contours and how they
+relate to the best-fit SN Hubble diagram.'''
+
+from matplotlib import pyplot as plt
+from numpy import *
+from matplotlib import rcParams
+import os
+import CSPlib
+rcParams['font.size'] = 18
+
+# The Betoule et al. (2014) data set. These are binned into several redshifts
+# cov.dat is the covariance matrix. We'll just use the diagonal for errors
+base = os.path.join(os.path.dirname(os.path.realpath(CSPlib.__file__)),'data')
+z,mu = loadtxt(os.path.join(base,'Betoule_2014.t1.dat'), unpack=True)
+cov = loadtxt(os.path.join(base,'Betoule_2014.cov.dat'))
+emu = sqrt(diag(cov))
+
+def dlum(z, h0, om, ol):
+   '''luminosity distance good to z^3'''
+   q0 = 0.5*(om - 2*ol)
+   j0 = om + ol
+   ok = om + ol - 1
+   return 3e5*z/h0*(1 + 0.5*(1-q0)*z - 1./6*(1-q0-3*q0**2+j0+ok)*z*z)
+
+def muz(z, h0, om, ol):
+   '''distance modulus'''
+   dl = dlum(z, h0, om, ol)
+   return 5*log10(dl) + 25
+
+# Key bindings for interactive plots
+def bind_click(event):
+   global buttondown
+   buttondown = True
+
+def bind_motion(event):
+   global buttondown, zs, m
+   if not buttondown: return
+   if not event.inaxes: return
+
+   OM = event.xdata
+   OL = event.ydata
+   # Udpate the fit, and the legend
+   m.set_ydata(muz(zs, 71, OM, OL) - muz(zs, 71, 0.3, 0.0))
+   m.set_label('$\Omega_m = {:.2f}, \Omega_\Lambda = {:.2f}$'.format(OM,OL))
+   m.axes.legend(fontsize=10, loc='upper left')
+   # do this, or nothing happens!
+   fig2.canvas.draw()
+
+def bind_release(event):
+   global buttondown
+   buttondown = False
+
+
+# The Omega_m, Omega_L plot
+fig1 = plt.figure(figsize=(6,8))
+fig1.subplots_adjust(left=0.15)
+ax1 = fig1.add_subplot(111)
+ax1.set_xlabel('$\Omega_m$')
+ax1.set_ylabel('$\Omega_\Lambda$')
+buttondown = False
+
+# Create the chi-square surface
+OLs = linspace(0, 1.5, 100)
+OMs = linspace(0, 1.0, 100)
+chisqs = zeros((100,100))
+# Change the list in the enumerate to set different redshif cuts
+proxy = []   # needed to label contours
+labs = []
+for k,zmax in enumerate([0.2, 0.4, 1.5]):
+   cmap = ['Greens_r', 'Reds_r', 'Blues_r'][k]
+   gids = less(z, zmax)
+   for i in range(100):
+      for j in range(100):
+         delt = mu[gids] - muz(z[gids], 71, OMs[i], OLs[j])
+         chisqs[j,i] = sum(power(delt/emu[gids],2))
+   # Filled contours are all the rage!
+   cts = plt.contourf(OMs, OLs, chisqs, 
+         levels=[chisqs.min()+2.3, chisqs.min()+6.17, chisqs.min()+11.8],
+         cmap=cmap, origin='lower', extend='min')
+   proxy.append(plt.Rectangle((0,0), 1,1, 
+      fc=cts.collections[1].get_facecolor()[0]))
+   labs.append("z < {:.1f}".format(zmax))
+ax1.legend(proxy, labs, fontsize=12, loc='lower right')
+
+# Plot of Hubble residuals relative to Omega_m=0.3, Omega_L=0.0. Easier to
+# see the effects
+fig2 = plt.figure()
+fig2.subplots_adjust(left=0.18, bottom=0.14)
+ax2 = fig2.add_subplot(111)
+ax2.errorbar(z, mu-muz(z, 71, 0.3, 0.0), fmt='o', yerr=emu, label='JLA')
+ax2.axhline(0, label='$\Omega_m = 0.3, \Omega_\Lambda=0.0$')
+ax2.set_xlabel('Redshift')
+ax2.set_ylabel('$\Delta \mu$ (mag)')
+zs = linspace(0.001, z.max(), 100)
+m, = ax2.plot(zs, 0*zs, label="$\Omega_m = 0.30, \Omega_\Lambda=0.00$")
+ax2.legend(fontsize=10, loc='upper left')
+
+fig1.canvas.mpl_connect('button_press_event', bind_click)
+fig1.canvas.mpl_connect('button_release_event', bind_release)
+fig1.canvas.mpl_connect('motion_notify_event', bind_motion)
+
+plt.show()

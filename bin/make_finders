@@ -2,7 +2,7 @@
 
 #from CSPlib.getPS import getPS.getStarCat,getPS.getFITS
 from CSPlib.database import getConnection
-from CSPlib import getPS
+from CSPlib import getPS, getSM, getPOSS
 from astropy.io import fits
 import pymysql
 from matplotlib import pyplot as plt
@@ -14,64 +14,138 @@ from os.path import join,isfile
 import os
 import numpy as np
 import sys
+import argparse
+from urllib import request
+from json import loads
+
+parser = argparse.ArgumentParser(description=\
+      'Make a finder chart using panSTARRs data by specifing CSP nane,'\
+      ' Alerce name or RA/DEC')
+parser.add_argument('-SN', 
+      help="Supernova name. It must exist in the CSP database",
+      default=None)
+parser.add_argument('-alerce', help="Specify ALeRCE ID",
+      default=None)
+parser.add_argument('-ra', help='RA of center of finder in decimal degrees', 
+      default=None)
+parser.add_argument('-dec', help='DEC of center of finder in dec. degrees', 
+      default=None)
+parser.add_argument('-name', help='SN name for finder chart', 
+      default="Candidate")
+parser.add_argument('-size', help='Size of finder in degrees', default=0.25,
+      type=float)
+parser.add_argument('-percent', help='Percent of pixel values to scale to 0,1'\
+      ' for the finder', type=float , default=99)
+parser.add_argument('-maxpercent', help='Percent of pixels to scale for upper '\
+      'limit of image', type=float, default=None)
+parser.add_argument('-minpercent', help='Percent of pixels to scale for lower '\
+      'limit of image', type=float, default=None)
+parser.add_argument('-outdir', help='Output folder', default=None)
+parser.add_argument('-filters', help='List of filters (e.g., gri) to download',
+      default='gri')
+args = parser.parse_args()
 
 rcParams['font.size'] = 18
 
+
+
 # Where to put/look for stuff
-fcharts = join(os.environ['HOME'],'fcharts')
-templates = join(os.environ['HOME'],'templates')
-chart_size = 0.25   # degrees
-chart_filter = 'r'
+if args.outdir is None:
+   fcharts = join(os.environ['HOME'],'fcharts')
+   templates = join(os.environ['HOME'],'templates')
+else:
+   fcharts = args.outdir
+   templates = args.outdir
+
+if not os.path.isdir(fcharts):
+   print("INFO:  making finder chart folder: {}".format(fcharts))
+   os.mkdir(fcharts)
+if not os.path.isdir(templates):
+   print("INFO:  making FITS cache folder: {}".format(templates))
+   os.mkdir(templates)
+
+chart_size = args.size
+if 'r' in args.filters:
+   chart_filter = 'r'
+else:
+   chart_fitler = args.filters[0]
+
 Nstars = 20
 
-db = getConnection()
-c = db.cursor()
-if len(sys.argv) > 1:
-   l = []
-   # name on command-line
-   for arg in sys.argv[1:]:
-      c.execute('''select RA,DE from SNList where SN=%s''', (arg,))
-      r = c.fetchall()
-      if len(r) == 0:
-         print("Ojbect {} not found in database, skipping".format(arg))
-         continue
-      l.append([arg,r[0][0],r[0][1]])
-else:      
-   # list of all objects in the queue
-   snlist = c.execute('''select SN,RA,DE from SNList where QSWO > 0''')
-   l = c.fetchall()
-
-#todo = open('/Volumes/GoogleDrive/Shared drives/CSP/Swope/todo.list')
-#l = [l.strip().split() for l in todo.readlines()[1:]]
+if args.alerce is None and (args.ra is None or args.dec is None):
+   db = getConnection()
+   c = db.cursor()
+   if args.SN is not None:
+      l = []
+      # name on command-line
+      for arg in sys.argv[1:]:
+         c.execute('''select RA,DE from SNList where SN=%s''', (arg,))
+         r = c.fetchall()
+         if len(r) == 0:
+            print("Ojbect {} not found in database, skipping".format(arg))
+            continue
+         l.append([arg,r[0][0],r[0][1]])
+   else:      
+      print("INFO: Querying CSP database for objects in the queue...")
+      # list of all objects in the queue
+      snlist = c.execute('''select SN,RA,DE from SNList where QSWO > 0''')
+      l = c.fetchall()
+elif args.alerce is not None:
+   data = '{{"query_parameters":{{"filters":{{"oid":"{}"}}}}}}'.format(
+         args.alerce)
+   data = bytes(data.encode('ascii'))
+   with request.urlopen("http://ztf.alerce.online/query", data) as f:
+      res = f.read().decode('utf-8')
+   d = loads(res)
+   res = d['result'][args.alerce]
+   l = [[args.alerce, res['meanra']/15, res['meandec']]]
+   
+else:
+   l = [[args.name, float(args.ra)/15, float(args.dec)]]
 
 for sn,ra,dec in l:
    fchart = join(fcharts, '{}.png'.format(sn))
    ra = float(ra)*15   # Sigh
    dec = float(dec)
 
+   #if isfile(fchart):
+   #   continue
    # Skip if we've already done the work
-   if isfile(fchart):
-      continue
    fnames = [join(templates, "{}_{}.fits".format(sn,filt)) \
-         for filt in ['g','r','i']]
-   if isfile(join(templates, "{}_{}.fits".format(sn, 'r'))):
-      flist = [fits.open(fname) for fname in fnames]
-   else:
-      try:
-         flist = getPS.getFITS(ra, dec, chart_size, 'gri', mosaic=True)
-         if flist is None:
-            flist = getSM.getFITS(ra, dec, chart_size, 'gri', mosaic=True)
-      except:
-         print("Error, could not download PS image data "
-             "for {}({:.5f}{:.5f})".format(sn,ra,dec))
-         continue
-      [flist[i].writeto(fnames[i], overwrite=True) for i in range(3)]
+         for filt in args.filters]
+   flist = []
+   for i in range(len(fnames)):
+      if isfile(join(templates, fnames[i])):
+         flist.append(fits.open(join(templates,fnames[i])))
+      else:
+         flist.append(None)
+   for i in range(len(fnames)):
+      if flist[i] is None:
+         try:
+            result = getPS.getFITS(ra, dec, chart_size, args.filters[i],
+                  mosaic=True)
+            if result is None:
+               flist[i] = getPOSS.getFITS(ra, dec, chart_size)
+               imagesrc='POSS'
+            else:
+               flist[i] = result[0]
+         except:
+            print("Error, could not download PS image data "
+                "for {}({:.5f}{:.5f})".format(sn,ra,dec))
+            continue
+   for i in range(len(flist)):
+      if flist[i] is not None:
+         flist[i].writeto(fnames[i],overwrite=True)
 
    # Use r-band to make catalog and finder
-   idx = ['g','r','i'].index(chart_filter)
-   #      maxmag=19.0, outfile=join(templates, "{}.cat".format(sn)))
+   idx = args.filters.index(chart_filter)
    fts = flist[idx]
+   if 'PLATEID' in fts[0].header:
+      imagesrc = 'POSS'
+   else:
+      imagesrc = 'PS'
    wcs = WCS(fts[0])
+   print(ra,dec,chart_size/2)
    cat = getPS.getStarCat(ra, dec, chart_size/2)
    if cat is None:
       cat = getSM.getStarCat(ra, dec, chart_size/2)
@@ -98,8 +172,9 @@ for sn,ra,dec in l:
    fig = plt.figure(figsize=(9,9))
    ax = fig.add_subplot(111, projection=wcs)
    plt.subplots_adjust(left=0.2)
-   ax.imshow(fts[0].data, origin='lower', norm=simple_norm(fts[0].data,
-      min_cut=-300, max_cut=1000), cmap='gray_r')
+   norm = simple_norm(fts[0].data, percent=args.percent, 
+         max_percent=args.maxpercent, min_percent=args.minpercent)
+   ax.imshow(fts[0].data, origin='lower', norm=norm, cmap='gray_r')
    #ii,jj = wcs.wcs_world2pix(cat['RA'][pids], cat['DEC'][pids], 0)
    #ax.plot(ii, jj, 'o', mec='blue', mfc='none', ms=20)
    ax.plot([0.3,0.48],[0.5, 0.5], '-', color='red', alpha=0.5,
@@ -135,9 +210,7 @@ for sn,ra,dec in l:
    y1 = size//2 + size//8
 
    subdata = fts[0].data[x0:x1,y0:y1]
-   ins.imshow(subdata,origin='lower',
-         norm=simple_norm(subdata, min_cut=-300, max_cut=1000),
-         cmap='gray_r')
+   ins.imshow(subdata,origin='lower', norm=norm, cmap='gray_r')
    ins.plot([0.25,0.45],[0.5, 0.5], '-', color='red', alpha=0.5,
       transform=ins.transAxes)
    ins.plot([0.55,0.75],[0.5, 0.5], '-', color='red', alpha=0.5,
@@ -154,8 +227,9 @@ for sn,ra,dec in l:
    ax.text(0.95, 0.17, 'N', fontsize=16, color='blue', transform=ax.transAxes,
          ha='center', va='bottom')
 
-   ax.set_title(sn, loc='left')
 
+   title="{}\n{:.5f},{:.5f}".format(sn,ra,dec)
+   ax.set_title(title, loc='left')
 
    i0,j0 = size*0.05,size*0.05
    x0,y0 = wcs.wcs_pix2world(i0, j0, 0)

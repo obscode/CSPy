@@ -34,6 +34,7 @@ def getImages(ra, dec, size=240, filt='g', verbose=False):
    baseurl = templ.format(base, ra, dec, size, filt)
    if verbose: print("About to query: " + baseurl)
    table = Table.read(baseurl, format='ascii')
+   if len(table) == 0: return None
    filenames = [table[0]['filename']]
    for i in [-1,1]:
       for j in [-1,1]:
@@ -57,6 +58,9 @@ def geturls(ra, dec, size=240, filt='g'):
       list of URLs.'''
 
    flist = getImages(ra, dec, size, filt)
+   if flist is None:
+      # No data found
+      return None
    base = "https://ps1images.stsci.edu/cgi-bin/fitscut.cgi"
    templ = "{}?ra={}&dec={}&size={}&format=fits&red={}"
    urls = [templ.format(base, ra, dec, size, f) for f in flist]
@@ -87,6 +91,9 @@ def getFITS(ra, dec, size, filters, mosaic=False):
    ret = []
    for filt in filters:
       urls = geturls(ra, dec, isize, filt)
+      if urls is None:
+         # no data
+         return None
       if len(urls) > 1 and mosaic:
          from reproject import reproject_interp
          baseurl = urls[0]
