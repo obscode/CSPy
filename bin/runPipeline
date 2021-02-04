@@ -15,13 +15,15 @@ p.add_argument('-prefix', default='ccd',
       help='prefix for data files to process.')
 p.add_argument('-suffix', default='c3.fits', 
       help='suffix for datafiles to process')
+p.add_argument('-fsize', default=9512640, type=int, 
+      help="Expected CCD filesize")
 p.add_argument('-poll', default=10, 
    help="number of seconds between checks for new files")
 
 args = p.parse_args()
 
 pipe = Pipeline(args.datadir, args.workdir, args.prefix, args.suffix,
-      args.calibrations, args.templates)
+      args.calibrations, args.templates, fsize=args.fsize)
 
 pipe.initialize()
 pipe.run()
