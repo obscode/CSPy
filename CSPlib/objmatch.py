@@ -5,6 +5,7 @@ from .basis import svdfit,abasis
 from .sextractor import SexTractor
 from astropy.wcs import WCS
 from astropy.io import fits
+import aplpy
 
 def fitscalerot(x0, y0, x1, y1):
    '''compute a scale+rotation transformation.'''
@@ -19,10 +20,14 @@ def fitscalerot(x0, y0, x1, y1):
 
 def fitpix2RADEC(i, j, x, y):
    '''compute a WCS via CDn_n pixel matrix.'''
+
+   # Set the crpix values to the medians of the i,j
+   i0 = int(median(i))
+   j0 = int(median(j))
    I = ones(i.shape)
    Z = zeros(i.shape)
-   sb = [I, Z, -i, j]
-   eb = [Z, I, j, i]
+   sb = [I, Z, -(i-i0), (j-j0)]
+   eb = [Z, I, (j-j0), (i-i0)]
    sb = transpose(sb); eb = transpose(eb)
    basis = concatenate([sb,eb])
    sol = svdfit(basis, concatenate([x,y]))
@@ -30,7 +35,7 @@ def fitpix2RADEC(i, j, x, y):
    cd11 = -sol[2]
    cd12 = cd21 = sol[3]
    cd22 = sol[2]
-   return xshift,yshift, cd11, cd12, cd21, cd22
+   return xshift,yshift,i0,j0,cd11, cd12, cd21, cd22
 
 
 def objmatch(x1,y1,x2,y2, dtol, atol, scale1=1.0, scale2=1.0, 
@@ -162,7 +167,7 @@ def iterativeSol(x1, y1, x2, y2, scale1=1.0, scale2=1.0, dtol=1.0, atol=1.0,
 
 
 def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO', 
-      ins='NC', Nstars=50, verbose=False, angles=[0.0]):
+      ins='NC', Nstars=100, verbose=False, angles=[0.0], plotfile=None):
    '''Given a FITS image with a WCS, solve for the WCS in a different
    image.
 
@@ -174,6 +179,7 @@ def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO',
                             header keyword.
       tel (str):   Telescope code (e.g., SWO)
       ins (str):   Instrument code (e.g., NC)
+      plotfile (str):  If specified, plot the WCS solution and save to this file
    Returns:
       The original image with WCS header information updated.
 
@@ -221,12 +227,14 @@ def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO',
    ii,ij = take([x0,y0], idx1, 1)
    wi,wj = take([x1,y1], idx2, 1)
 
-   x,y = wcs.wcs_pix2world(wi,wj,0)
+   x,y = wcs.wcs_pix2world(wi,wj,1)  # Sextractor counts from 1
    # Now solve or CD matrix
-   crval1,crval2,cd11,cd12,cd21,cd22 = fitpix2RADEC(ii, ij, x, y)
+   crval1,crval2,crpix1,crpix2,cd11,cd12,cd21,cd22 = fitpix2RADEC(ii, ij, x, y)
 
-   image[0].header['CRPIX1'] = 1   # FITS standard indexes from 1
-   image[0].header['CRPIX2'] = 1
+   image[0].header['CTYPE1'] = 'RA---TAN'
+   image[0].header['CTYPE2'] = 'DEC--TAN'
+   image[0].header['CRPIX1'] = crpix1
+   image[0].header['CRPIX2'] = crpix2
    image[0].header['CRVAL1'] = crval1
    image[0].header['CRVAL2'] = crval2
    image[0].header['CD1_1'] = cd11
@@ -234,4 +242,18 @@ def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO',
    image[0].header['CD2_1'] = cd21
    image[0].header['CD2_2'] = cd22
 
-   return fitpix2RADEC(ii,ij,x,y)
+   # Estimate how good we're doing
+   nwcs = WCS(image[0])
+   # predicted pixels
+   pi,pj = nwcs.wcs_world2pix(x,y,1)
+   dists = np.sqrt(np.power(pi-ii,2) + np.power(pj-jj,2))
+   sig = 1.5*median(dists)
+   print("MAD dispersion in WCS determination: {}".format(sig))
+
+   if plotfile is not None:
+      fig = aplpy.FITSFigure(image)
+      fig.show_grayscale(invert=True)
+      fig.show_markers(x, y, marker='o', s=30)
+      fig.savefig(plotfile)
+
+   return image
