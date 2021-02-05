@@ -33,6 +33,13 @@ def divz(x,y=1,repl=0.0,out=None):
       if y == 0: return repl
       else: return x/y
 
+def rms( x,y=None):
+  if len(x) > 2:
+    if y == None: y=average(x)
+    return sqrt(mean(power(subtract(x,y),2)))
+  else: return 0.0
+
+
 def getexp(x,flo=-1000,fhi=1000):
     x2 = x.astype(longfloat)
     y = greater(x2,flo)*less(x2,fhi)

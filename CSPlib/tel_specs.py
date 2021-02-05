@@ -10,7 +10,7 @@ data = {
                1:[2070,2166],
             },
             'datasec':[1,2048,1,2056],
-            'statssec':[300:1600,300:1600],
+            'statssec':[300,1600,300,1600],
             'lincorr':{
                1:{
                   'c1':1.0,
@@ -37,6 +37,11 @@ data = {
                   'alpha':1.0696,
                },
             },
+            'exposure':'@NEWEXPT',
+            'filter':'@FILTER',
+            'date':'@JD',
+            'ncombine':'@NCOMBINE',
+            'airmass':'@WAIRMASS',
          },
       },
    }

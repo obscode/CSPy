@@ -1,0 +1,35 @@
+#!/usr/bin/env python
+
+from CSPlib.pipeline import Pipeline,templates_folder,calibrations_folder
+import argparse
+
+p = argparse.ArgumentParser(description='Run the CSP pipeline')
+p.add_argument('datadir', help='Folder where we can find the data')
+p.add_argument('-workdir', default=None, type=str,
+      help='Working folder with LOTS of space available')
+p.add_argument('-templates', default=templates_folder, type=str,
+      help='Folder where galaxy host templates are found/stored')
+p.add_argument('-calibrations', default=calibrations_folder, type=str,
+      help='Folder where photometric calibrations from previous nights are')
+p.add_argument('-prefix', default='ccd', 
+      help='prefix for data files to process.')
+p.add_argument('-suffix', default='c3.fits', 
+      help='suffix for datafiles to process')
+p.add_argument('-fsize', default=9512640, type=int, 
+      help="Expected CCD filesize")
+p.add_argument('-poll', default=10, 
+   help="number of seconds between checks for new files")
+p.add_argument('-noupdate', default=False, 
+   help="Do not update the CSP database with final photometry",
+   action="store_true")
+
+args = p.parse_args()
+
+pipe = Pipeline(args.datadir, args.workdir, args.prefix, args.suffix,
+      args.calibrations, args.templates, fsize=args.fsize, 
+      update_db=~args.noupdate)
+
+pipe.initialize()
+pipe.run()
+
+

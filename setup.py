@@ -23,7 +23,11 @@ setup(
       requires=[
          'astropy',
          'pymysql',
+         'reproject',
+         'scipy',
+         'matplotlib',
          'numpy',
+         'imagematch',
       ],
       )
 

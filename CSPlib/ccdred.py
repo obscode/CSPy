@@ -26,6 +26,20 @@ if not isdir(datadir):
 
 def getBackupCalibration(typ='Zero', chip=1, filt=None, tel='SWO',
       ins='NC'):
+   '''Utility function for retrieving calibration data from the correct
+   location.
+
+   Args:
+     typ (str):  The type of calibration: 'Zero','Flat', or 'Shutter'
+     chip (int):  Chip number
+     filt (str):  Which filter (for calibrations that are filter specific)
+     tel (str):  Telescope code (SWO, DUP, etc)
+     ins (str):  Instrument code (DC, NC, RC, etc)
+
+   Returns:
+      calibration (fits instance):  the calibration as a fits object.
+   '''
+
    if typ not in ['Zero','Flat','Shutter']:
       raise ValueError("Type must be Zero, Flat, Shutter")
    if typ == 'Zero':
@@ -49,13 +63,22 @@ def getBackupCalibration(typ='Zero', chip=1, filt=None, tel='SWO',
 
 def makeBiasFrame(blist, outfile=None, tel='SWO', ins='NC'):
    '''Given a set of BIAS frames, combine into a single frame using
-   imcombine.'''
+   imcombine.
+   
+   Args:
+      blist (list): List of bias frames to combine
+      outfile (str):  Output FITS file for combined BIAS
+      tel(str):  Telescope code (e.g., SWO)
+      ins(str):  Instrument code (e.g. DC)
+   Returns:
+      BIAS (fits instance):  combined BIAS frame as fits object
+   '''
    specs = getTelIns(tel,ins)
 
    res = imcombine(blist, combine='average', reject='avsigclip', 
          lsigma=3, hsigma=3, nkeep=1)
    xl,xh,yl,yh = specs['datasec']
-   A = res[0].data[yl:yh+1,xl:xh+1]
+   A = res[0].data[yl-1:yh,xl-1:xh]     # index from zero, not one
    if 1 in specs['overscan']:
       lov,hov = specs['overscan'][1]
       O = res[0].data[yl:yh+1, lov:hov+1]
@@ -78,12 +101,12 @@ def makeBiasFrame(blist, outfile=None, tel='SWO', ins='NC'):
    return fts
 
 
-def biasCorrect(fts, overscan=True, frame=None, outfile=None, tel='SWO',
+def biasCorrect(image, overscan=True, frame=None, outfile=None, tel='SWO',
       ins='NC', verbose=False):
    '''Apply a bias correction from the overscan and bias frame if supplied.
 
    Args:
-      fts (file or FITS): Frame to correct
+      image (file or FITS): Frame to correct
       overscan(bool): compute bias from overscan section of CCD
       frame (file or FITS):  If not None, a BIAS frame to subtract
       outfile(str): If not None, bias-corrected frame is saved as filename
@@ -91,6 +114,10 @@ def biasCorrect(fts, overscan=True, frame=None, outfile=None, tel='SWO',
    Returns:
       New fits object with bias corrected data, trimmed to DATASEC, if set'''
 
+   if isinstance(image, str):
+      fts = fits.open(image)
+   else:
+      fts = image
    if 'DATASEC' in fts[0].header:
       x0,x1,y0,y1 = slice_pat.search(fts[0].header['DATASEC']).groups()
       x0 = int(x0)-1
@@ -227,10 +254,15 @@ def ShutterCorrect(fts, frame=None, copy=False, tel='SWO',ins='NC',
    if type(exptime) is str and exptime[0] == '@':
       exptime = fts[0].header[exptime[1:]]
 
-   if (tel,ins,chip) not in shutters:
-      fname = join(datadir, tel+ins, "SH{}.fits".format(chip))
-      shutters[(tel,ins,chip)] = fits.open(fname)
-   factor = shutters[(tel,ins,chip)][0].data/exptime
+   if frame is None:
+      if (tel,ins,chip) not in shutters:
+         fname = join(datadir, tel+ins, "SH{}.fits".format(chip))
+         shutters[(tel,ins,chip)] = fits.open(fname)
+      frame = shutters[(tel,ins,chip)]
+   else:
+      if isinstance(frame, str):
+         frame = fts.open(frame)
+   factor = frame[0].data/exptime
       
    fts[0].data = fts[0].data / (1.0 + factor)
    fts[0].header['COMMENT'] = "Shutter correction using EXPT={}".format(exptime)
@@ -261,11 +293,9 @@ def makeFlatFrame(flist, outfile=None, tel='SWO', ins='NC'):
 
    # Determine the mode of the pixels
    if 'statssec' in specs:
-      y0,y1,x0,x1 = slice_pat.search(specs['statssec']).groups()
-      x0 = int(x0)-1
-      y0 = int(y0)-1
-      x1 = int(x1)
-      y1 = int(y1)
+      x0,x1,y0,y1 = specs['statssec']
+      y0 = y0 - 1   # FITS index from 1, not zero
+      x0 = x0 - 1
       subdata = res[0].data[y0:y1,x0:x1]
    else:
       subdata = res[0].data

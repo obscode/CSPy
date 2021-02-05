@@ -203,6 +203,7 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
       retdata = sum(weight*cube, axis=0)/sum(weight, axis=0)
    elif combine == 'median':
       retdata = ma.median(ma.masked_array(cube, mask=~mask), axis=0)
+      retdata = ma.filled(retdata, fill_value=1.0)
    else:
       raise NotImplemented("Combine method {} not implemented yet".format(
          combine))
