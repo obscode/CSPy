@@ -29,7 +29,7 @@ def getImages(ra, dec, size=0.125, filt='g', verbose=False):
       Returns:
          list of filenames
    '''
-   templ = "http://api.skymapper.nci.org.au/public/siap/dr1/query?"\
+   templ = "http://api.skymapper.nci.org.au/public/siap/dr2/query?"\
            "POS={},{}&SIZE={}&BAND={}&FORMAT=image/fits&VERB=3&"\
            "RESPONSEFORMAT=CSV"
    baseurl = templ.format(ra, dec, size, filt)
@@ -67,6 +67,7 @@ def getFITS(ra, dec, size, filters, mosaic=False):
          from reproject import reproject_interp
          from reproject.mosaicking import find_optimal_celestial_wcs
          from reproject.mosaicking import reproject_and_coadd
+         
          fts = [fits.open(url) for url in urls]
          wcs_out,shape_out = find_optimal_celestial_wcs([ft[0] for ft in fts])
          ar_out,footprint = reproject_and_coadd([ft[0] for ft in fts],
@@ -78,7 +79,7 @@ def getFITS(ra, dec, size, filters, mosaic=False):
                h_out.remove(key)
          h_out.update(wcs_out.to_header())
          newhdu = fits.PrimaryHDU(ar_out, header=h_out)
-         ret.append(fits.HDUList([newhdu]))
+         ret.append(fits.HDUList([newhdu])) 
       else:
          ret.append(fits.open(urls[0]))
 
@@ -89,38 +90,37 @@ def getStarCat(ra, dec, radius):
    '''Get a list of SM stars plus their photometry.'''
 
    templ = "http://skymapper.anu.edu.au/sm-cone/public/query?RA={}&DEC={}"\
-          "&SR={}&VERB=3&RESPONSEFORMAT=CSV&CATALOG=dr1.fs_photometry"
+          "&SR={}&VERB=3&RESPONSEFORMAT=CSV"
    url = templ.format(ra, dec, radius)
 
    tab = ascii.read(url)
    if len(tab) == 0:
       return None
    
-   tab = tab[~tab['object_id'].mask]
-   tab = tab['object_id', 'filter', 'ra_img','decl_img','mag_psf','e_mag_psf']
+   tab = tab[tab['class_star'] > 0.8]
+   tab = tab['object_id', 'raj2000','dej2000','g_psf','e_g_psf','r_psf',
+         'e_r_psf', 'i_psf','e_i_psf']
    tab.rename_column('object_id','objID')
-   tab.rename_column('ra_img', 'RA')
-   tab.rename_column('decl_img', 'DEC')
-   tabg = tab[tab['filter'] == 'g']
-   tabr = tab[tab['filter'] == 'r']
-   tabi = tab[tab['filter'] == 'i']
-   tabg.rename_column('mag_psf','gmag')
-   tabg.rename_column('e_mag_psf','gerr')
-   tabg.remove_column('filter')
-   tabr.rename_column('mag_psf','rmag')
-   tabr.rename_column('e_mag_psf','rerr')
-   tabr.remove_column('filter')
-   tabi.rename_column('mag_psf','imag')
-   tabi.rename_column('e_mag_psf','ierr')
-   tabi.remove_column('filter')
+   tab.rename_column('raj2000', 'RA')
+   tab.rename_column('dej2000', 'DEC')
+   tab.rename_column('g_psf','gmag')
+   tab.rename_column('e_g_psf','gerr')
+   tab.rename_column('r_psf','rmag')
+   tab.rename_column('e_r_psf','rerr')
+   tab.rename_column('i_psf','imag')
+   tab.rename_column('e_i_psf','ierr')
 
-   newtab = join(tabg, tabr, keys='objID')
-   newtab = join(newtab, tabi, keys='objID')
-   newtab = newtab['objID','RA','DEC','gmag','gerr','rmag','rerr','imag','ierr']
-   gids = np.greater(newtab['gmag'], 0)*np.less(newtab['gmag'],20)
-   gids = gids*np.greater(newtab['rmag'], 0)*np.less(newtab['rmag'],20)
-   gids = gids*np.greater(newtab['imag'], 0)*np.less(newtab['imag'],20)
+   tab = tab[~tab['rmag'].mask]
+   tab = tab[~tab['imag'].mask]
+   tab = tab[~tab['gmag'].mask]
+   tab = tab[~tab['rerr'].mask]
+   tab = tab[~tab['ierr'].mask]
+   tab = tab[~tab['gerr'].mask]
 
-   newtab = newtab[gids]
-   return newtab
+   gids = np.greater(tab['gmag'], 0)*np.less(tab['gmag'],20)
+   gids = gids*np.greater(tab['rmag'], 0)*np.less(tab['rmag'],20)
+   gids = gids*np.greater(tab['imag'], 0)*np.less(tab['imag'],20)
+
+   tab = tab[gids]
+   return tab
 
