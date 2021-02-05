@@ -34,13 +34,14 @@ templates_folder = '/home/cspuser/reductions/templates'
 #sex_dir = '/Users/cspuser/sex'
 sex_dir = join(dirname(__file__), 'data', 'sex')
 
+
 stopped = False
 
 class Pipeline:
 
    def __init__(self, datadir, workdir=None, prefix='ccd', suffix='.fits',
          calibrations=calibrations_folder, templates=templates_folder,
-         catalogs=templates_folder, update_db=True):
+         catalogs=templates_folder, fsize=9512640, update_db=True):
       '''
       Initialize the pipeline object.
 
@@ -50,8 +51,11 @@ class Pipeline:
                          None, same as datadir
          prefix/suffix (str):  Prefix  and suffix for raw data. 
                          glob(prefix+'*'+suffix) should return all files.
-         poll_interval(int): Sleep for this many seconds between checks for
-                        new files
+         fsize (int):  Expected size of the CCD file. If it's not this size
+                       we skip (it could still be reading out)
+         calibrations (str): location where older calibration files are located
+         templates (str): location where templates are stored
+         catalogs (str): location where catalog files are stored
       Returns:
          Pipeline object
       '''
@@ -62,6 +66,7 @@ class Pipeline:
       self.datadir = datadir
       self.prefix = prefix
       self.suffix = suffix
+      self.fsize = fsize
       self.update_db = update_db
 
       # A list of all files we've dealt with so far
@@ -201,7 +206,9 @@ class Pipeline:
       flist = glob(join(self.datadir, "{}*{}".format(
          self.prefix, self.suffix)))
 
-      new = [f for f in flist if f not in self.rawfiles+self.badfiles]
+      new = [f for f in flist if not os.path.islink(f)]
+      new = [f for f in new if os.path.getsize(f) == self.fsize]
+      new = [f for f in new if f not in self.rawfiles+self.badfiles]
 
       return new
 
@@ -247,7 +254,7 @@ class Pipeline:
             cfile = join(calibrations_folder, "CAL", "Zero{}".format(
                self.suffix))
             self.biasFrame = fits.open(cfile)
-            self.biasFrame.writeto(bfile)
+            self.biasFrame.writeto(bfile, output_verify='ignore')
             self.log("Retrieved backup BIAS frame from {}".format(cfile))
 
    def makeFlats(self):
@@ -446,7 +453,6 @@ class Pipeline:
          # check to see if we have a wcs already
          fts = fits.open(fil, memmap=False)
          wcs = WCS(fts[0])
-         #fts.close()
          if wcs.has_celestial:
             self.wcsSolved.append(fil)
             fts.close()
@@ -457,9 +463,22 @@ class Pipeline:
             fts[0].header['ROTANG'] = 90
             fts.writeto(fil, overwrite=True)
 
+         # Now, we need to rotate 90 degrees to match up with the sky
+         if 'ROTANG' not in fts[0].header:
+            fts[0].data = fts[0].data.T
+            fts[0].data = fts[0].data[:,::-1]
+            fts[0].header['ROTANG'] = 90
+            fts.writeto(fil, overwrite=True)
+         fts.close()
+
          wcsimage = join(self.templates, "{}_{}.fits".format(
             ZID,filt))
-         new = WCStoImage(wcsimage, fil, angles=np.arange(-2,2.5,0.5))
+         h = fits.getheader(wcsimage)
+         if 'TELESCOP' not in h or h['TELESCOP'] != 'SkyMapper':
+            new = WCStoImage(wcsimage, fil, angles=np.arange(-2,2.5,0.5),
+                  plotfile=fil.replace('.fits','_wcs.png'))
+         else:
+            new = None
          if new is None:
             self.log("Fast WCS failed... resorting to astrometry.net")
             new = do_astrometry.do_astrometry([fil], replace=True,
@@ -524,10 +543,19 @@ class Pipeline:
 
          # Just the good stuff
          gids = (~np.isnan(phot['ap2er']))*(~np.isnan(phot['ap2']))
+         if not np.sometrue(gids):
+            self.log("Initial photomery failed for {}, skipping...".format(fil))
+            self.ignore.append(fil)
+            continue
          phot = phot[gids]
          phot.write(fil.replace('.fits','.phot0'), format='ascii.fixed_width',
                delimiter=' ')
          gids = np.greater(phot['objID'], 0)
+         if not np.sometrue(gids):
+            self.log("Determining zero-point for frame {} failed, "\
+                  "skipping...".format(fil))
+            self.ignore.append(fil)
+            continue
          diffs = phot[filt+'mag'][gids] - phot['ap2'][gids]
          wts = np.power(phot['ap2er'][gids]**2 + phot[filt+'err'][gids]**2,-1)
          # 30 is used internall in photometry code as arbitrary zero-point
@@ -604,8 +632,8 @@ class Pipeline:
          mag = phot[idx]['ap0'] - 30 + zpt + apcor
          emag = np.sqrt(phot[idx]['ap0er']**2 + ezpt**2)
          with open(join(self.workdir,'SNphot.dat'), 'a') as fout:
-            fout.write("{:20s} {:2s} {:.3f} {:.3f} {:.3f}\n".format(
-               obj, filt, jd, mag, emag))
+            fout.write("{:20s} {:2s} {:.3f} {:.3f} {:.3f} {}\n".format(
+               obj, filt, jd, mag, emag, basename(fil)))
          if self.update_db:
             self.log("Updating CSP database with photometry for {},{}".format(
                obj,filt))
@@ -637,11 +665,16 @@ class Pipeline:
          ref = ImageMatch.Observation(template, scale=0.25, saturate=6e4,
                reject=True, magmax=22, magmin=11)
          try:
-            obs.GoCatGo(ref, skyoff=True, pwid=11, perr=3.0, nmax=100, nord=3,
-                  match=True, subt=True, quick_convolve=True, do_sex=True,
-                  thresh=3., sexdir=sex_dir, diff_size=35, bs=True, 
+            res = obs.GoCatGo(ref, skyoff=True, pwid=11, perr=3.0, nmax=100, 
+                  nord=3, match=True, subt=True, quick_convolve=True, 
+                  do_sex=True, thresh=3., sexdir=sex_dir, diff_size=35, bs=True,
                   usewcs=True, xwin=[200,1848], ywin=[200,1848], vcut=1e8,
-                  magcat=magcat)
+                  magcat=magcat, magcol='rmag')
+            if res != 0:
+               self.log('Template subtraction failed for {}, skipping'.format(
+                  fil))
+               self.ignore.append(fil)
+               continue
             self.subtracted.append(fil)
          except:
             self.log('Template subtraction failed for {}, skipping'.format(
@@ -674,7 +707,7 @@ class Pipeline:
          self.stopped = True
 
 
-   def run(self, poll_interval=10, wait_for_write=60):
+   def run(self, poll_interval=10, wait_for_write=2):
       '''Check for new files and process them as they come in. Only check
       when idle for poll_interval seconds. Also, we wait wait_for_write
       number of seconds before reading each file to avoid race conditions.'''

@@ -12,9 +12,13 @@ args = parser.parse_args()
 
 files = args.files
 key = args.key
+keys = key.split(',')
 for f in files:
    data,header = fits.getdata(f, header=True)
-   if key in header:
-      print(f,header[key])
-   else:
-      print(f, "N/A")
+   keyvals = []
+   for key in keys:
+      if key in header:
+         keyvals.append(str(header[key]))
+      else:
+         keyvals.append('N/A')
+   print("{}:  {}".format(f, ','.join(keyvals)))

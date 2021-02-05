@@ -5,6 +5,7 @@ from .basis import svdfit,abasis
 from .sextractor import SexTractor
 from astropy.wcs import WCS
 from astropy.io import fits
+import aplpy
 
 def normalcoord(ra, dec, rc, dc):
    '''Given ra,dec in degrees, convert to normal coordinates.
@@ -98,7 +99,7 @@ def fitpix2RADEC(i, j, x, y):
    cd11 = -sol[2]
    cd12 = cd21 = sol[3]
    cd22 = sol[2]
-   return xshift,yshift, cd11, cd12, cd21, cd22
+   return xshift,yshift,cd11, cd12, cd21, cd22
 
 
 def objmatch(x1,y1,x2,y2, dtol, atol, scale1=1.0, scale2=1.0, 
@@ -249,7 +250,7 @@ def iterativeSol(x1, y1, x2, y2, scale1=1.0, scale2=1.0, dtol=1.0, atol=1.0,
 
 
 def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO', 
-      ins='NC', Nstars=50, verbose=False, angles=[0.0]):
+      ins='NC', Nstars=100, verbose=False, angles=[0.0], plotfile=None):
    '''Given a FITS image with a WCS, solve for the WCS in a different
    image.
 
@@ -261,6 +262,7 @@ def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO',
                             header keyword.
       tel (str):   Telescope code (e.g., SWO)
       ins (str):   Instrument code (e.g., NC)
+      plotfile (str):  If specified, plot the WCS solution and save to this file
    Returns:
       The original image with WCS header information updated.
 
@@ -322,5 +324,19 @@ def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO',
    image[0].header['CD1_2'] = cd12
    image[0].header['CD2_1'] = cd21
    image[0].header['CD2_2'] = cd22
+
+   # Estimate how good we're doing
+   nwcs = WCS(image[0])
+   # predicted pixels
+   pi,pj = nwcs.wcs_world2pix(x,y,1)
+   dists = sqrt(power(pi-ii,2) + power(pj-ij,2))
+   sig = 1.5*median(dists)
+   print("MAD dispersion in WCS determination: {}".format(sig))
+
+   if plotfile is not None:
+      fig = aplpy.FITSFigure(image)
+      fig.show_grayscale(invert=True)
+      fig.show_markers(x, y, marker='o', s=30)
+      fig.savefig(plotfile)
 
    return image
