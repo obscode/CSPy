@@ -43,14 +43,10 @@ def fitscalerot(x0, y0, x1, y1):
 
 def fitpix2RADEC(i, j, x, y):
    '''compute a WCS via CDn_n pixel matrix.'''
-
-   # Set the crpix values to the medians of the i,j
-   i0 = int(median(i))
-   j0 = int(median(j))
    I = ones(i.shape)
    Z = zeros(i.shape)
-   sb = [I, Z, -(i-i0), (j-j0)]
-   eb = [Z, I, (j-j0), (i-i0)]
+   sb = [I, Z, -i, j]
+   eb = [Z, I, j, i]
    sb = transpose(sb); eb = transpose(eb)
    basis = concatenate([sb,eb])
    sol = svdfit(basis, concatenate([x,y]))
@@ -58,7 +54,7 @@ def fitpix2RADEC(i, j, x, y):
    cd11 = -sol[2]
    cd12 = cd21 = sol[3]
    cd22 = sol[2]
-   return xshift,yshift,i0,j0,cd11, cd12, cd21, cd22
+   return xshift,yshift,cd11, cd12, cd21, cd22
 
 
 def objmatch(x1,y1,x2,y2, dtol, atol, scale1=1.0, scale2=1.0, 
@@ -269,7 +265,7 @@ def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO',
    nwcs = WCS(image[0])
    # predicted pixels
    pi,pj = nwcs.wcs_world2pix(x,y,1)
-   dists = np.sqrt(np.power(pi-ii,2) + np.power(pj-jj,2))
+   dists = sqrt(power(pi-ii,2) + power(pj-ij,2))
    sig = 1.5*median(dists)
    print("MAD dispersion in WCS determination: {}".format(sig))
 
