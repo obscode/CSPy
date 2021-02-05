@@ -21,7 +21,15 @@ obstypes = {'dflat':'dflat',
             }
 
 def shift_center(header):
-   '''Shift the RA/DEC from center of detector to center of chip.'''
+   '''Shift the RA/DEC from center of detector to center of chip.
+   
+   Args:
+      header (astropy.fits header):  Header of the image.
+
+   Returns:
+      (RA,DEC):  tuple of new center coordinates.
+    '''
+
    chip = int(header['OPAMP'])
    jd = header['JD']
    RA = header['RA']
@@ -42,6 +50,18 @@ def shift_center(header):
    return(newra,newdec)
 
 def update_header(f, fout=None):
+   '''Do various housekeeping on an input header.
+
+   Args:
+       f (str):  filename
+       fout (str):  output file name if not None
+
+   Returns:
+       astropy.io.fits instance of updated FITS
+   
+   Effects:
+      Output file created
+   '''
    fts = fits.open(f, memmap=False)
    h = fts[0].header
 

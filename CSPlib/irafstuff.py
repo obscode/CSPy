@@ -14,7 +14,15 @@ def getInputList(l):
    str:  treat as a glob pattern
    str prefixed with '@': get list from file
    list of str:  list of filenames
-   list of fits:  as is'''
+   list of fits:  as is
+   
+   Args:
+      l (multi):  input list. See text above
+      
+   Returns:
+      fitslist:  list of FITS files.
+   '''
+
    if isinstance(l,str):
       if l[0] == '@':
          if not os.path.isfile(l[1:]):
@@ -44,13 +52,13 @@ def wairmass_for_lco_images(ra, dec, equinox, dateobs, utstart, exptime,
    '''Compute the effective airmass for observations at LCO. 
 
    Args:
-      - ra(str):       Right-ascention in the format hh:mm:ss.s
-      - dec(str):      Declination in the format +dd:mm:ss.s
-      - equinox(float): Equinox in decimal years
-      - dateobs(str): Date of observation in the format yyyy-mm-dd
-      - utstart(str):    Start UT time in the format hh:mm:ss
-      - exptime(float): Exposure time in seconds
-      - scale (float): Scale hight of atmosphere
+      ra(str):       Right-ascention in the format hh:mm:ss.s
+      dec(str):      Declination in the format +dd:mm:ss.s
+      equinox(float): Equinox in decimal years
+      dateobs(str): Date of observation in the format yyyy-mm-dd
+      utstart(str):    Start UT time in the format hh:mm:ss
+      exptime(float): Exposure time in seconds
+      scale (float): Scale hight of atmosphere
 
    Returns:
       (AM, ST, UTmid):  Airmass (float), 
@@ -74,6 +82,19 @@ def wairmass_for_lco_images(ra, dec, equinox, dateobs, utstart, exptime,
    return(AM, tsid, utmid)
 
 def computeCenter(cube, axis=0, mclip=False, exclude_ends=False, mask=None):
+   '''Compute the center of an array. 
+
+   Args:
+      cube (array):  array to compute the center.
+      axis (int):  which axis to compute on
+      mclip (bool):  If true, compute median, otherwise mean
+      exclude_ends (bool):  If true, omit the ends of the array along axis
+      mask (array):  array of True/False for which values to keep
+
+   Returns:
+      center:  an array with one less dimension.
+   '''
+
    if mclip:
       if mask is not None:
          return ma.median(ma.masked_array(cube, ~mask))

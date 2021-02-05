@@ -22,6 +22,18 @@ dec_keys = ['DEC','DEC-D','DEC-OBS']
 
 def do_astrometry(files, trim=None, replace=False, dir='/usr/local/astrometry',
       other=[], verbose=False):
+   '''Gather data from the FITS files and run astrometry.net's solve-field.
+
+   Args:
+      files(list):  List of FITS filenames to work on
+      trim(str):  IRAF style region. Trim image to this region.
+      replace(bool):  If True, replace original FITS image with new
+      dir(str): Location of astronometry.net
+      other(list): List of other arguments to pass to solve-field
+      verbose(bool):  Be verbose?
+   Returns:
+      fits instance of WCS-solved image
+   '''
 
    bindir=os.path.join(dir, 'bin')
 
