@@ -475,7 +475,8 @@ class Pipeline:
             ZID,filt))
          h = fits.getheader(wcsimage)
          if 'TELESCOP' not in h or h['TELESCOP'] != 'SkyMapper':
-            new = WCStoImage(wcsimage, fil, angles=np.arange(-2,2.5,0.5))
+            new = WCStoImage(wcsimage, fil, angles=np.arange(-2,2.5,0.5),
+                  plotfile=fil.replace('.fits','_wcs.png'))
          else:
             new = None
          if new is None:
@@ -631,8 +632,8 @@ class Pipeline:
          mag = phot[idx]['ap0'] - 30 + zpt + apcor
          emag = np.sqrt(phot[idx]['ap0er']**2 + ezpt**2)
          with open(join(self.workdir,'SNphot.dat'), 'a') as fout:
-            fout.write("{:20s} {:2s} {:.3f} {:.3f} {:.3f}\n".format(
-               obj, filt, jd, mag, emag))
+            fout.write("{:20s} {:2s} {:.3f} {:.3f} {:.3f} {}\n".format(
+               obj, filt, jd, mag, emag, basename(fil)))
          if self.update_db:
             self.log("Updating CSP database with photometry for {},{}".format(
                obj,filt))
@@ -668,7 +669,7 @@ class Pipeline:
                   nord=3, match=True, subt=True, quick_convolve=True, 
                   do_sex=True, thresh=3., sexdir=sex_dir, diff_size=35, bs=True,
                   usewcs=True, xwin=[200,1848], ywin=[200,1848], vcut=1e8,
-                  magcat=magcat)
+                  magcat=magcat, magcol='rmag')
             if res != 0:
                self.log('Template subtraction failed for {}, skipping'.format(
                   fil))
@@ -706,7 +707,7 @@ class Pipeline:
          self.stopped = True
 
 
-   def run(self, poll_interval=10, wait_for_write=60):
+   def run(self, poll_interval=10, wait_for_write=2):
       '''Check for new files and process them as they come in. Only check
       when idle for poll_interval seconds. Also, we wait wait_for_write
       number of seconds before reading each file to avoid race conditions.'''
