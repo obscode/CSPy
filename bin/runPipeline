@@ -25,8 +25,9 @@ p.add_argument('-noupdate', default=False,
 
 args = p.parse_args()
 
-pipe = Pipeline(args.datadir, args.workdir, args.prefix, args.suffix,
-      args.calibrations, args.templates, fsize=args.fsize, 
+pipe = Pipeline(datadir=args.datadir, workdir=args.workdir, prefix=args.prefix,
+      suffix=args.suffix, calibrations=args.calibrations, 
+      templates=args.templates, fsize=args.fsize, 
       update_db=~args.noupdate)
 
 pipe.initialize()
