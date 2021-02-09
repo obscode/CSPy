@@ -6,8 +6,26 @@ from astropy.io import fits
 from numpy import *
 import os
 from glob import glob
+import re
 
 lco = EarthLocation.of_site('lco')
+
+secpat = re.compile(r"\[([0-9]+|\*):([0-9]+|\*),([0-9]+|\*):([0-9]+|\*)\]")
+
+def sec2slice(sec):
+   '''For an IRAF-like section, parse it and return a slice. Note that
+   IRAF slices are transposed from numpy slices. This function does that
+   transpose for you.'''
+   res = secpat.findall(sec)
+   if len(res) != 4:
+      return None
+   args = []
+   for i in [2,3,0,1]:     # transpose
+      if res[i] == '*':
+         args.append(None)
+      else:
+         args.append(int(res[i]))
+   return (slice(res[0],res[1]),slice(res[2],res[3]))
 
 def getInputList(l):
    '''Get an input list. Following this logic. l can be:
@@ -106,7 +124,8 @@ def computeCenter(cube, axis=0, mclip=False, exclude_ends=False, mask=None):
 
 def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
       gain=1, rdnoise=0, lsigma=3, hsigma=3, pclip=-0.5, nlow=0, nhigh=1,
-      nkeep=1, mclip=False, weight=None, verbose=False):
+      nkeep=1, mclip=False, weight=None, scale=None, 
+      expname='EXPTIME', verbose=False):
    '''Combine images, a la IRAF imcombine.
 
    Args:
@@ -124,6 +143,8 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
       nkeep (int): minimum number of pixels to keep after rejection
       mcplip (bool): use average (false)  or median (true) for sigma clipping
       weight (array): weight array to use in weighted average
+      scale (str): scale the images ('mode','median','mean','exposure')
+      expname (str): exposure keyader keyword
 
    Returns:
       FITS HDUList of combined image, with header copied from first input
@@ -136,6 +157,33 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
       cube = asarray([f[0].data for f in ftslist])
    except:
       raise ValueError("Cannot create a data cube. Not all consistent shape?")
+
+   if statsec is not None:
+      slc = sec2slice(statsec)
+      if slc is None:
+         raise ValueError("Cannot parse the statsec {}".format(statsec))
+   else:
+      slc = (slice(None,None),slice(None,None))
+
+   # Figure out the scales
+   if scale is None:
+      scales = ones(cube.shape[0])
+   elif scale == 'mode':
+      from scipy.stats import mode
+      scales = array([1.0/mode(cube[i][slc],axis=None).mode[0] \
+            for i in range(cube.shape[0])])
+   elif scale == 'median':
+      scales = array([1.0/median(cube[i][slc],axis=None) \
+            for i in range(cube.shape[0])])
+   elif scale == 'mean':
+      scales = array([1.0/mean(cube[i][slc],axis=None) \
+            for i in range(cube.shape[0])])
+   elif scale == 'exposure':
+      scales = array([1.0/f[0].header[expname] for f in flist])
+   else:
+      raise ValueError('Unrecognized scale method {}'.format(scale))
+
+   cube = cube * scales[:,newaxis,newaxis]
 
    # Make a mask for rejections
    if reject == 'minmax':
