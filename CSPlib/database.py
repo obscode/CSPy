@@ -30,7 +30,7 @@ else:
 if 'CSPdb' in os.environ:
    default_db = os.environ['CSPdb']
 else:
-   default_db = 'SBS'
+   default_db = 'LCO'
 
 def getConnection(db=default_db):
    global passwd, dbs
