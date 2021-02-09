@@ -205,12 +205,32 @@ class Pipeline:
       '''Get a list of files we've not dealt with yet.'''
       flist = glob(join(self.datadir, "{}*{}".format(
          self.prefix, self.suffix)))
+      flist.sort()
 
       new = [f for f in flist if not os.path.islink(f)]
       new = [f for f in new if os.path.getsize(f) == self.fsize]
       new = [f for f in new if f not in self.rawfiles+self.badfiles]
 
       return new
+
+   def makeFileName(self, fil, suffix=".fits"):
+      '''Given the file fil, determine a filename with prefix
+      and suffix using info in the header. It will have the 
+      format like  SN2010aaa_B01_SWO_NC_2021_02_02.fits'''
+      template = "{obj}_{filt}{idx:02d}_{tel}_{ins}_{YY}_{MM}_{DD}{suf}"
+      fts = fits.open(fil)
+      dateobs = fts[0].header['DATE-OBS']
+      YY,MM,DD = dateobs.split('-')
+      args = dict(YY=YY, MM=MM, DD=DD,
+                  obj=fts[0].header['OBJECT'],
+                  filt=fts[0].header['FILTER'],
+                  tel=fts[0].header['TELESCOP'],
+                  ins=fts[0].header['INSTRUM'],suf=suffix,idx=1)
+      fts.close()
+      while(isfile(template.format(**args))): args['idx'] += 1
+
+      
+      return template.format(**args)
 
    def getHeaderData(self, fil, key):
       f = basename(fil)
@@ -251,7 +271,7 @@ class Pipeline:
             self.biasFrame = fits.open(join(self.workdir, 
                'Zero{}'.format(self.suffix)), memmap=False)
          else:
-            cfile = join(calibrations_folder, "CAL", "Zero{}".format(
+            cfile = join(self.calibrations, "CAL", "Zero{}".format(
                self.suffix))
             self.biasFrame = fits.open(cfile)
             self.biasFrame.writeto(bfile, output_verify='ignore')
@@ -282,7 +302,7 @@ class Pipeline:
                      format(filt,self.suffix))
                self.flatFrame[filt] = fits.open(fname, memmap=False)
             else:
-               cfile = join(calibrations_folder, "CAL", 
+               cfile = join(self.calibrations, "CAL", 
                      "SFlat{}{}".format(filt, self.suffix))
                self.flatFrame[filt] = fits.open(cfile, memmap=False)
                self.flatFrame[filt].writeto(fname)
@@ -311,8 +331,7 @@ class Pipeline:
          # Get the correct shutter file
          opamp = self.getHeaderData(f,'OPAMP')
          if opamp not in self.shutterFrames:
-            shfile = join(calibrations_folder, 'CAL',
-                  "SH{}.fits".format(opamp))
+            shfile = join(self.calibrations, 'CAL', "SH{}.fits".format(opamp))
             self.shutterFrames[opamp] = fits.open(shfile, memmap=False)
          fts = ccdred.LinearityCorrect(fts)
          fts = ccdred.ShutterCorrect(fts, frame=self.shutterFrames[opamp])
@@ -457,11 +476,6 @@ class Pipeline:
             self.wcsSolved.append(fil)
             fts.close()
             continue
-         if 'ROTANG' not in fts[0].header:
-            fts[0].data = fts[0].data.T
-            fts[0].data = fts[0].data[:,::-1]
-            fts[0].header['ROTANG'] = 90
-            fts.writeto(fil, overwrite=True)
 
          # Now, we need to rotate 90 degrees to match up with the sky
          if 'ROTANG' not in fts[0].header:
@@ -482,7 +496,7 @@ class Pipeline:
          if new is None:
             self.log("Fast WCS failed... resorting to astrometry.net")
             new = do_astrometry.do_astrometry([fil], replace=True,
-                  verbose=True, other=['--overwrite'])
+                  verbose=True, other=['--overwrite'], dir='/usr/local')
             if new is None:
                self.log("astrometry.net failed for {}. No WCS coputed, "
                         "skipping...".format(fil))
@@ -492,6 +506,10 @@ class Pipeline:
          else:
             new.writeto(fil, overwrite=True)
             self.wcsSolved.append(fil)
+
+         # Make a link to a better name:
+         name = self.makeFileName(fil)
+         os.symlink(fil, name)
       return
 
    def photometry(self):
@@ -503,6 +521,10 @@ class Pipeline:
 
       for fil in todo:
          self.log('Working on photometry for {}'.format(fil))
+         # Check to see if we've done the photometry already
+         if isfile(fil.replace('.fits','.phot0')):
+            self.initialPhot.append(fil)
+            continue
          obj = self.ZIDs[fil]
          filt = self.getHeaderData(fil, 'FILTER')
          catfile = join(self.templates, '{}_LS.cat'.format(obj))
@@ -540,6 +562,7 @@ class Pipeline:
          phot.rename_column('OBJ','objID')
          phot = table.join(phot, allcat['objID',filt+'mag',filt+'err'],
                keys='objID')
+         phot.remove_column('id')
 
          # Just the good stuff
          gids = (~np.isnan(phot['ap2er']))*(~np.isnan(phot['ap2']))
@@ -548,6 +571,8 @@ class Pipeline:
             self.ignore.append(fil)
             continue
          phot = phot[gids]
+         
+         phot.sort('objID')
          phot.write(fil.replace('.fits','.phot0'), format='ascii.fixed_width',
                delimiter=' ')
          gids = np.greater(phot['objID'], 0)
@@ -617,10 +642,12 @@ class Pipeline:
          phot.rename_column('OBJ','objID')
          phot = table.join(phot, allcat['objID',filt+'mag',filt+'err'],
                keys='objID')
+         phot.remove_column('id')
 
          # Just the good stuff
          gids = (~np.isnan(phot['ap2er']))*(~np.isnan(phot['ap2']))
          phot = phot[gids]
+         phot.sort('objID')
          phot.write(fil.replace('.fits','.phot'), format='ascii.fixed_width',
                delimiter=' ')
          if 0 not in phot['objID']:
