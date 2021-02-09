@@ -17,15 +17,17 @@ def sec2slice(sec):
    IRAF slices are transposed from numpy slices. This function does that
    transpose for you.'''
    res = secpat.findall(sec)
-   if len(res) != 4:
+   if len(res) == 0:
+      return None
+   if len(res[0]) != 4:
       return None
    args = []
    for i in [2,3,0,1]:     # transpose
-      if res[i] == '*':
+      if res[0][i] == '*':
          args.append(None)
       else:
-         args.append(int(res[i]))
-   return (slice(res[0],res[1]),slice(res[2],res[3]))
+         args.append(int(res[0][i]))
+   return (slice(args[0],args[1]),slice(args[2],args[3]))
 
 def getInputList(l):
    '''Get an input list. Following this logic. l can be:
@@ -159,9 +161,12 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
       raise ValueError("Cannot create a data cube. Not all consistent shape?")
 
    if statsec is not None:
-      slc = sec2slice(statsec)
-      if slc is None:
-         raise ValueError("Cannot parse the statsec {}".format(statsec))
+      if isinstance(statsec,str) or isinstance(statsec,bytes):
+         slc = sec2slice(statsec)
+         if slc is None:
+            raise ValueError("Cannot parse the statsec {}".format(statsec))
+      else:
+         slc = (slice(statsec[2],statsec[3]),slice(statsec[0],statsec[1]))
    else:
       slc = (slice(None,None),slice(None,None))
 
