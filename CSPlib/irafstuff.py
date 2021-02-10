@@ -6,15 +6,43 @@ from astropy.io import fits
 from numpy import *
 import os
 from glob import glob
+import re
 
 lco = EarthLocation.of_site('lco')
+
+secpat = re.compile(r"\[([0-9]+|\*):([0-9]+|\*),([0-9]+|\*):([0-9]+|\*)\]")
+
+def sec2slice(sec):
+   '''For an IRAF-like section, parse it and return a slice. Note that
+   IRAF slices are transposed from numpy slices. This function does that
+   transpose for you.'''
+   res = secpat.findall(sec)
+   if len(res) == 0:
+      return None
+   if len(res[0]) != 4:
+      return None
+   args = []
+   for i in [2,3,0,1]:     # transpose
+      if res[0][i] == '*':
+         args.append(None)
+      else:
+         args.append(int(res[0][i]))
+   return (slice(args[0],args[1]),slice(args[2],args[3]))
 
 def getInputList(l):
    '''Get an input list. Following this logic. l can be:
    str:  treat as a glob pattern
    str prefixed with '@': get list from file
    list of str:  list of filenames
-   list of fits:  as is'''
+   list of fits:  as is
+   
+   Args:
+      l (multi):  input list. See text above
+      
+   Returns:
+      fitslist:  list of FITS files.
+   '''
+
    if isinstance(l,str):
       if l[0] == '@':
          if not os.path.isfile(l[1:]):
@@ -44,13 +72,13 @@ def wairmass_for_lco_images(ra, dec, equinox, dateobs, utstart, exptime,
    '''Compute the effective airmass for observations at LCO. 
 
    Args:
-      - ra(str):       Right-ascention in the format hh:mm:ss.s
-      - dec(str):      Declination in the format +dd:mm:ss.s
-      - equinox(float): Equinox in decimal years
-      - dateobs(str): Date of observation in the format yyyy-mm-dd
-      - utstart(str):    Start UT time in the format hh:mm:ss
-      - exptime(float): Exposure time in seconds
-      - scale (float): Scale hight of atmosphere
+      ra(str):       Right-ascention in the format hh:mm:ss.s
+      dec(str):      Declination in the format +dd:mm:ss.s
+      equinox(float): Equinox in decimal years
+      dateobs(str): Date of observation in the format yyyy-mm-dd
+      utstart(str):    Start UT time in the format hh:mm:ss
+      exptime(float): Exposure time in seconds
+      scale (float): Scale hight of atmosphere
 
    Returns:
       (AM, ST, UTmid):  Airmass (float), 
@@ -74,6 +102,19 @@ def wairmass_for_lco_images(ra, dec, equinox, dateobs, utstart, exptime,
    return(AM, tsid, utmid)
 
 def computeCenter(cube, axis=0, mclip=False, exclude_ends=False, mask=None):
+   '''Compute the center of an array. 
+
+   Args:
+      cube (array):  array to compute the center.
+      axis (int):  which axis to compute on
+      mclip (bool):  If true, compute median, otherwise mean
+      exclude_ends (bool):  If true, omit the ends of the array along axis
+      mask (array):  array of True/False for which values to keep
+
+   Returns:
+      center:  an array with one less dimension.
+   '''
+
    if mclip:
       if mask is not None:
          return ma.median(ma.masked_array(cube, ~mask))
@@ -85,7 +126,8 @@ def computeCenter(cube, axis=0, mclip=False, exclude_ends=False, mask=None):
 
 def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
       gain=1, rdnoise=0, lsigma=3, hsigma=3, pclip=-0.5, nlow=0, nhigh=1,
-      nkeep=1, mclip=False, weight=None, verbose=False):
+      nkeep=1, mclip=False, weight=None, scale=None, 
+      expname='EXPTIME', verbose=False):
    '''Combine images, a la IRAF imcombine.
 
    Args:
@@ -103,6 +145,8 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
       nkeep (int): minimum number of pixels to keep after rejection
       mcplip (bool): use average (false)  or median (true) for sigma clipping
       weight (array): weight array to use in weighted average
+      scale (str): scale the images ('mode','median','mean','exposure')
+      expname (str): exposure keyader keyword
 
    Returns:
       FITS HDUList of combined image, with header copied from first input
@@ -115,6 +159,36 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
       cube = asarray([f[0].data for f in ftslist])
    except:
       raise ValueError("Cannot create a data cube. Not all consistent shape?")
+
+   if statsec is not None:
+      if isinstance(statsec,str) or isinstance(statsec,bytes):
+         slc = sec2slice(statsec)
+         if slc is None:
+            raise ValueError("Cannot parse the statsec {}".format(statsec))
+      else:
+         slc = (slice(statsec[2],statsec[3]),slice(statsec[0],statsec[1]))
+   else:
+      slc = (slice(None,None),slice(None,None))
+
+   # Figure out the scales
+   if scale is None:
+      scales = ones(cube.shape[0])
+   elif scale == 'mode':
+      from scipy.stats import mode
+      scales = array([1.0/mode(cube[i][slc],axis=None).mode[0] \
+            for i in range(cube.shape[0])])
+   elif scale == 'median':
+      scales = array([1.0/median(cube[i][slc],axis=None) \
+            for i in range(cube.shape[0])])
+   elif scale == 'mean':
+      scales = array([1.0/mean(cube[i][slc],axis=None) \
+            for i in range(cube.shape[0])])
+   elif scale == 'exposure':
+      scales = array([1.0/f[0].header[expname] for f in flist])
+   else:
+      raise ValueError('Unrecognized scale method {}'.format(scale))
+
+   cube = cube * scales[:,newaxis,newaxis]
 
    # Make a mask for rejections
    if reject == 'minmax':

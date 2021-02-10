@@ -33,7 +33,10 @@ def getImages(ra, dec, size=0.125, filt='H', verbose=False):
    vot = votable.parse(baseurl)
    tab = vot.get_first_table()
 
-   urls = [x[1].decode('utf-8') for x in tab.array]
+   try:
+      urls = [x[1] for x in tab.array]
+   except:
+      urls = [x[1].decode('utf-8') for x in tab.array]
 
    return urls
    
@@ -99,7 +102,16 @@ def getFITS(ra, dec, size, filters, mosaic=False):
 
 
 def getStarCat(ra, dec, radius):
-   '''Get a list of SM stars plus their photometry.'''
+   '''Get a list of SM stars plus their photometry.
+   
+   Args:
+      ra(float): RA in decimal degrees.
+      dec(float):  DEC in decimal degrees.
+      radius(float):  Radius of search in decimal degrees.
+     
+   Returns:
+      astropy.table.Table instance with catalog.
+   ''' 
 
    templ = "http://skymapper.anu.edu.au/sm-cone/public/query?RA={}&DEC={}"\
           "&SR={}&VERB=3&RESPONSEFORMAT=CSV&CATALOG=dr1.fs_photometry"

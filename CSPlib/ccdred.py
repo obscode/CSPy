@@ -10,7 +10,7 @@ from . import fitsutils
 import re
 from .irafstuff import imcombine
 
-slice_pat = re.compile(r'\[([0-9]+):([0-9]+),([0-9]+):([0-9]+)\]')
+slice_pat = re.compile(r'\[([0-9]+|\*):([0-9]+|\*),([0-9]+|\*):([0-9]+|\*)\]')
 
 # Cache variables (we we don't open/close too much)
 shutters = {}
@@ -288,12 +288,13 @@ def makeFlatFrame(flist, outfile=None, tel='SWO', ins='NC'):
    '''
    specs = getTelIns(tel,ins)
 
+   # We'll use the median here as it's faster than the mode
    res = imcombine(flist, combine='median', reject='sigclip', 
-         lsigma=3, hsigma=3, nkeep=1)
+         lsigma=3, hsigma=3, nkeep=1, scale='median', statsec=specs['statsec'])
 
    # Determine the mode of the pixels
-   if 'statssec' in specs:
-      x0,x1,y0,y1 = specs['statssec']
+   if 'statsec' in specs:
+      x0,x1,y0,y1 = specs['statsec']
       y0 = y0 - 1   # FITS index from 1, not zero
       x0 = x0 - 1
       subdata = res[0].data[y0:y1,x0:x1]

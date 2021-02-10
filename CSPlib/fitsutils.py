@@ -4,6 +4,17 @@ simple CCD frames (one PrimaryHDU in and HDUList)'''
 from astropy.io import fits
 
 def qdump(filename, data, header=None):
+   '''quickly produce a FITS file with data and header from another FITS fits.
+   Args:
+      filename(str):  Name of output file
+      data(float arr): data to dump
+      header(str or header): Header to use or file with fits header
+   Returns:
+      None.
+   Effetcs:
+      fits file is created.
+   '''
+
    if header is None:
       header = fits.PrimaryHDU(data)
       header.writeto(filename, overwrite=True)

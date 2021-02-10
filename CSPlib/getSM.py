@@ -67,6 +67,7 @@ def getFITS(ra, dec, size, filters, mosaic=False):
          from reproject import reproject_interp
          from reproject.mosaicking import find_optimal_celestial_wcs
          from reproject.mosaicking import reproject_and_coadd
+         
          fts = [fits.open(url) for url in urls]
          wcs_out,shape_out = find_optimal_celestial_wcs([ft[0] for ft in fts])
          ar_out,footprint = reproject_and_coadd([ft[0] for ft in fts],
@@ -78,7 +79,7 @@ def getFITS(ra, dec, size, filters, mosaic=False):
                h_out.remove(key)
          h_out.update(wcs_out.to_header())
          newhdu = fits.PrimaryHDU(ar_out, header=h_out)
-         ret.append(fits.HDUList([newhdu]))
+         ret.append(fits.HDUList([newhdu])) 
       else:
          ret.append(fits.open(urls[0]))
 
@@ -96,7 +97,7 @@ def getStarCat(ra, dec, radius):
    if len(tab) == 0:
       return None
    
-   tab = tab[tab['star_class'] > 0.8]
+   tab = tab[tab['class_star'] > 0.8]
    tab = tab['object_id', 'raj2000','dej2000','g_psf','e_g_psf','r_psf',
          'e_r_psf', 'i_psf','e_i_psf']
    tab.rename_column('object_id','objID')
@@ -109,9 +110,16 @@ def getStarCat(ra, dec, radius):
    tab.rename_column('i_psf','imag')
    tab.rename_column('e_i_psf','ierr')
 
-   gids = greater(tab['gmag'], 0)*less(tab['gmag'],20)
-   gids = gids*greater(tab['rmag'], 0)*less(tab['rmag'],20)
-   gids = gids*greater(tab['imag'], 0)*less(tab['imag'],20)
+   tab = tab[~tab['rmag'].mask]
+   tab = tab[~tab['imag'].mask]
+   tab = tab[~tab['gmag'].mask]
+   tab = tab[~tab['rerr'].mask]
+   tab = tab[~tab['ierr'].mask]
+   tab = tab[~tab['gerr'].mask]
+
+   gids = np.greater(tab['gmag'], 0)*np.less(tab['gmag'],20)
+   gids = gids*np.greater(tab['rmag'], 0)*np.less(tab['rmag'],20)
+   gids = gids*np.greater(tab['imag'], 0)*np.less(tab['imag'],20)
 
    tab = tab[gids]
    return tab

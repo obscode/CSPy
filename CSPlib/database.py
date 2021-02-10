@@ -11,6 +11,10 @@ dbs = {'SBS': {
          'host':'sql.obs.carnegiescience.edu',
          'user':'CSP',
          'db':'CSP'},
+       'SBSpub':{
+         'host':'sql.obs.carnegiescience.edu',
+         'user':'CSP',
+         'db':'CSPpub'},
        'LCO': {
           'host':'csp2.lco.cl',
           'user':'cburns',
@@ -26,7 +30,7 @@ else:
 if 'CSPdb' in os.environ:
    default_db = os.environ['CSPdb']
 else:
-   default_db = 'SBS'
+   default_db = 'LCO'
 
 def getConnection(db=default_db):
    global passwd, dbs
@@ -119,7 +123,15 @@ def getStandardPhotometry(SN, filt, db=default_db):
 
 def getNameCoords(name, db=default_db):
    '''Given a name, return the coordinates or -1 if not found or -2 if
-   connection fails.'''
+   connection fails.
+   
+   Args:
+      name(str):  Name of the object
+      db(str):  Name of the database
+      
+   Returns:
+      (RA,DEC):  tuple of floats, both in degrees
+   '''
 
    try:
       db = getConnection(db)
@@ -135,7 +147,13 @@ def getNameCoords(name, db=default_db):
 
 def getCoordsName(ra, dec, db=default_db, tol=0.125):
    '''Given coordinates, find a name within tol degrees. Return -1 if nothing
-   found, -2 if database can't be reached.'''
+   found, -2 if database can't be reached.
+   
+   Args:
+      ra(float):  RA in decimal degrees
+      dec(float):  DEC in decimal degrees
+      db(str):  database code
+      tol(float):  maximum distance to consier match in degrees.'''
    try:
       db = getConnection(db)
    except:
@@ -155,6 +173,24 @@ def getCoordsName(ra, dec, db=default_db, tol=0.125):
    return l[0]
 
 def updateSNPhot(SN, JD, filt, fits, mag, emag, db=default_db):
+   '''Update the SN photometry in the database.
+
+   Args:
+      SN(str):  Name of the SN object
+      JD(float):  Julian day
+      filt(str):  Name of the filter
+      fits(str):  FITS file name.
+      mag(float):  magnitude
+      emag(float):  error in magnitude
+      db(str):  name of the database
+
+   Returns:
+      None
+
+   Effects:
+      Photometry is updated in the database.
+   '''
+
    try:
       db = getConnection(db)
    except:

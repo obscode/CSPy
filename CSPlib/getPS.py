@@ -115,18 +115,17 @@ def ps1cone(ra,dec,radius,table="mean",release="dr1",format="csv",columns=None,
     **kw):
    """Do a cone search of the PS1 catalog
    
-   Parameters
-   ----------
-   ra (float): (degrees) J2000 Right Ascension
-   dec (float): (degrees) J2000 Declination
-   radius (float): (degrees) Search radius (<= 0.5 degrees)
-   table (string): mean, stack, or detection
-   release (string): dr1 or dr2
-   format: csv, votable, json
-   columns: list of column names to include (None means use defaults)
-   baseurl: base URL for the request
-   verbose: print info about request
-   **kw: other parameters (e.g., 'nDetections.min':2)
+   Args:
+      ra (float): (degrees) J2000 Right Ascension
+      dec (float): (degrees) J2000 Declination
+      radius (float): (degrees) Search radius (<= 0.5 degrees)
+      table (string): mean, stack, or detection
+      release (string): dr1 or dr2
+      format: csv, votable, json
+      columns: list of column names to include (None means use defaults)
+      baseurl: base URL for the request
+      verbose: print info about request
+      **kw: other parameters (e.g., 'nDetections.min':2)
    """
    
    data = kw.copy()
@@ -141,15 +140,14 @@ def ps1search(table="mean",release="dr1",format="csv",columns=None,
    **kw):
    """Do a general search of the PS1 catalog (possibly without ra/dec/radius)
    
-   Parameters
-   ----------
-   table (string): mean, stack, or detection
-   release (string): dr1 or dr2
-   format: csv, votable, json
-   columns: list of column names to include (None means use defaults)
-   baseurl: base URL for the request
-   verbose: print info about request
-   **kw: other parameters (e.g., 'nDetections.min':2).  Note this is required!
+   Args:
+      table (string): mean, stack, or detection
+      release (string): dr1 or dr2
+      format: csv, votable, json
+      columns: list of column names to include (None means use defaults)
+      baseurl: base URL for the request
+      verbose: print info about request
+      **kw: other parameters (e.g., 'nDetections.min':2). Note this is required!
    """
    
    data = kw.copy()
@@ -192,7 +190,15 @@ def ps1search(table="mean",release="dr1",format="csv",columns=None,
 def checklegal(table,release):
    """Checks if this combination of table and release is acceptable
    
-   Raises a VelueError exception if there is problem
+   Args:
+      table (str): table to check
+      release (str): Data release (dr1, dr2)
+
+   Returns:
+      None
+      
+   Effects:
+      Raises a VelueError exception if there is problem
    """
 
    releaselist = ("dr1", "dr2")
@@ -211,13 +217,13 @@ def ps1metadata(table="mean",release="dr1",
        baseurl="https://catalogs.mast.stsci.edu/api/v0.1/panstarrs"):
    """Return metadata for the specified catalog and table
 
-   Parameters
-   ----------
-   table (string): mean, stack, or detection
-   release (string): dr1 or dr2
-   baseurl: base URL for the request
+   Args:
+      table (string): mean, stack, or detection
+      release (string): dr1 or dr2
+      baseurl: base URL for the request
 
-   Returns an astropy table with columns name, type, description
+   Returns:
+      An astropy table with columns name, type, description
    """
 
    checklegal(table,release)
@@ -233,12 +239,12 @@ def ps1metadata(table="mean",release="dr1",
 def mastQuery(request):
    """Perform a MAST query.
    
-   Parameters
-   ----------
-   request (dictionary): The MAST request json object
+   Args:
+      request (dictionary): The MAST request json object
    
-   Returns head,content where head is the response HTTP headers, and 
-   content is the returned data
+   Returns:
+      head,content where head is the response HTTP headers, and 
+      content is the returned data
    """
    
    server='mast.stsci.edu'
@@ -271,11 +277,11 @@ def mastQuery(request):
 def resolve(name):
    """Get the RA and Dec for an object using the MAST name resolver
 
-   Parameters
-   ----------
-   name (str): Name of object
+   Args:
+      name (str): Name of object
 
-   Returns RA, Dec tuple with position"""
+   Returns:
+      (RA, Dec) tuple with position"""
 
    resolverRequest = {'service':'Mast.Name.Lookup',
                       'params':{'input':name,
@@ -294,15 +300,26 @@ def resolve(name):
    return (objRa, objDec)
 
 def getStarCat(ra, dec, radius):
-   '''Get a list of PS stars plus their photometry.'''
+   '''Get a list of PS stars plus their photometry.
+   
+   Args:
+      ra (float): RA in decimal degrees.
+      dec (float): DEC in decimal degrees
+   
+   Returns:
+      astropy.table with catalog data.
+   '''
    columns = ['objID','raMean','decMean']
    for filt in ['g','r','i']:
       for col in ['MeanPSFMag','MeanPSFMagErr']:
          columns.append(filt+col)
    contraints = {'nDetections.gt':1,
                  'gMeanPSFMag.gt':0,
+                 'gMeanPSFMagErr.gt':0,
                  'rMeanPSFMag.gt':0,
-                 'iMeanPSFMag.gt':0}
+                 'rMeanPSFMagErr.gt':0,
+                 'iMeanPSFMag.gt':0,
+                 'iMeanPSFMagErr.gt':0}
    results = ps1cone(ra, dec, radius, release='dr2', columns=columns,
          table='mean', **contraints)
    if results == '':

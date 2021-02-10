@@ -1,0 +1,48 @@
+#!/usr/bin/env python
+
+from argparse import ArgumentParser
+import os,sys
+from astropy.io import fits
+
+parser = ArgumentParser(description="Edit a FITS header")
+parser.add_argument('key', help='Key to modify')
+parser.add_argument('files', help='List of FITS files to edit', nargs='*')
+parser.add_argument('-hdu', help='specify header data unit (default=0)',
+      type=int, default=0)
+parser.add_argument('-add', help='Add key with given value', nargs=1)
+parser.add_argument('-delete', help='Delete the given key and value',
+      action='store_true')
+parser.add_argument('-update', help='Update (modify) existing key value',
+      nargs=1)
+parser.add_argument('-nobackup', help='Do not make a backup of FITS',
+      action='store_true')
+
+args = parser.parse_args()
+
+for fil in args.files:
+   try:
+      fts = fits.open(fil)
+   except:
+      print("Error, {} not a valid FITS file, skipping".format(fil))
+      continue
+   if not args.nobackup:
+      fts.writeto(fil+'.backup', overwrite=True)
+
+   if args.delete:
+      if args.key not in fts[args.hdu].header:
+         print("Error, {} has no key {}, skipping".format(fil,args.key))
+      else:
+         del fts[args.hdu].header[args.key]
+
+   if args.add is not None:
+      fts[args.hdu].header[args.key] = args.add[0]
+
+   if args.update is not None:
+      if args.key not in fts[args.hdu].header:
+         print("Error, {} has no key {}, skipping".format(fil,args.key))
+      else:
+         fts[args.hdu].header[args.key] = args.update[0]
+
+   fts.writeto(fil, overwrite=True)
+   fts.close()
+

@@ -8,7 +8,17 @@ from astropy.io import fits
 import aplpy
 
 def normalcoord(ra, dec, rc, dc):
-   '''Given ra,dec in degrees, convert to normal coordinates'''
+   '''Given ra,dec in degrees, convert to normal coordinates.
+   
+   Args:
+      ra (float):  RA in decimal degrees
+      dec (float): DEC in decimal degrees
+      rc (float):  RA center in decimal degrees
+      dc (float):  DEC cneter in decimal degrees.
+   
+   Returns:
+      x,y:  float arrays of normal coordinates
+   '''
    ra = ra*pi/180
    dec = dec*pi/180
    rc = rc*pi/180
@@ -19,7 +29,17 @@ def normalcoord(ra, dec, rc, dc):
    return squ*180/pi, eta*180/pi
 
 def equicoord(u, v, rc, dc):
-   '''Given normal coordinates cetered at rc,dc, compute equitorial coords.'''
+   '''Given normal coordinates cetered at rc,dc, compute equitorial coords.
+   
+   Args:
+      u (float): normal x coordinate in degrees.
+      v (float): normal y coordinate in degrees
+      rc (float):  RA center in decimal degrees
+      dc (float):  DEC cneter in decimal degrees.
+
+   Returns:
+      RA,DEC:  float arrays of equitorial coordinates
+   '''
    rc = rc*pi/180
    dc = dc*pi/180
    u = u*pi/180
@@ -31,7 +51,22 @@ def equicoord(u, v, rc, dc):
    return ra*180/pi,dec*180/pi
 
 def fitscalerot(x0, y0, x1, y1):
-   '''compute a scale+rotation transformation.'''
+   '''compute a scale+rotation transformation.
+   
+   Args:
+      x0 (array):  ra for first set of positions.
+      y0 (array):  dec for first set of positions
+      x1 (array):  ra for second set of positions.
+      y1 (array):  dec for second set of positions
+   
+   Returns:
+      (xshift,yshift,scale,theta,ix,iy,sol)
+         xshift,yshift: shift in x/y
+         scale:  scale factor between images
+         theta:  rotation angle in radians
+         ix,iy:  transformed x0, y0
+         sol:  the full solution
+   '''
    basis = abasis(0, x0, y0, rot=1)
    sol = svdfit(basis, concatenate([x1,y1]))
    ixy = add.reduce(sol[newaxis,:]*basis,1)
@@ -42,15 +77,21 @@ def fitscalerot(x0, y0, x1, y1):
    return xshift,yshift,scale,theta,ix,iy,sol
 
 def fitpix2RADEC(i, j, x, y):
-   '''compute a WCS via CDn_n pixel matrix.'''
-
-   # Set the crpix values to the medians of the i,j
-   i0 = int(median(i))
-   j0 = int(median(j))
+   '''compute a WCS via CDn_n pixel matrix.i
+   
+   Args:
+      i (array):  pixel coordinates 1
+      j (array):  pixel coordinates 2
+      x (array):  world cooddinates 1
+      y (array):  world coordinates 2
+      
+   Returns:
+      (xshift,yshift, cd11, cd12, cd21, cd22)
+   '''
    I = ones(i.shape)
    Z = zeros(i.shape)
-   sb = [I, Z, -(i-i0), (j-j0)]
-   eb = [Z, I, (j-j0), (i-i0)]
+   sb = [I, Z, -i, j]
+   eb = [Z, I, j, i]
    sb = transpose(sb); eb = transpose(eb)
    basis = concatenate([sb,eb])
    sol = svdfit(basis, concatenate([x,y]))
@@ -58,11 +99,30 @@ def fitpix2RADEC(i, j, x, y):
    cd11 = -sol[2]
    cd12 = cd21 = sol[3]
    cd22 = sol[2]
-   return xshift,yshift,i0,j0,cd11, cd12, cd21, cd22
+   return xshift,yshift,cd11, cd12, cd21, cd22
 
 
 def objmatch(x1,y1,x2,y2, dtol, atol, scale1=1.0, scale2=1.0, 
       angles=[0], verb=False):
+   '''Given two sets of catalog positions, match the objects.
+
+   Args:
+      x1 (array):  x positions of catalog 1
+      y1 (array):  y positions of catalog 1
+      x2 (array):  x positions of catalog 2
+      y2 (array):  y positions of catalog 2
+      dtol (float):  distance tolerance for match
+      atol (float):  angular tolerance for match
+      scale1 (float): plate scale for catalog 1
+      scale2 (float): plate scale for catalog 2
+      angles (list):  list of angles to try
+      verb (bool):  verbose?
+
+   Returns:
+      (xshift,yshift,x1, y1, x2, y1):
+         xshift,yshift:  the offset from catalog 1 to 2
+         x1,y1,x2,y2:  x/y positions of both catalogs ordered to match
+   '''
 
    dx1 = (x1[newaxis,:] - x1[:,newaxis]).astype(float32)*scale1
    dx2 = (x2[newaxis,:] - x2[:,newaxis]).astype(float32)*scale2
@@ -269,7 +329,7 @@ def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO',
    nwcs = WCS(image[0])
    # predicted pixels
    pi,pj = nwcs.wcs_world2pix(x,y,1)
-   dists = np.sqrt(np.power(pi-ii,2) + np.power(pj-jj,2))
+   dists = sqrt(power(pi-ii,2) + power(pj-ij,2))
    sig = 1.5*median(dists)
    print("MAD dispersion in WCS determination: {}".format(sig))
 
