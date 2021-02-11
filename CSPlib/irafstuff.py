@@ -4,6 +4,7 @@ from astropy.time import Time
 from astropy.coordinates import SkyCoord, EarthLocation, AltAz
 from astropy.io import fits
 from numpy import *
+from .npextras import mode
 import os
 from glob import glob
 import re
@@ -11,6 +12,8 @@ import re
 lco = EarthLocation.of_site('lco')
 
 secpat = re.compile(r"\[([0-9]+|\*):([0-9]+|\*),([0-9]+|\*):([0-9]+|\*)\]")
+
+
 
 def sec2slice(sec):
    '''For an IRAF-like section, parse it and return a slice. Note that
@@ -174,8 +177,8 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
    if scale is None:
       scales = ones(cube.shape[0])
    elif scale == 'mode':
-      from scipy.stats import mode
-      scales = array([1.0/mode(cube[i][slc],axis=None).mode[0] \
+      #from scipy.stats import mode
+      scales = array([1.0/mode(cube[i][slc]) \
             for i in range(cube.shape[0])])
    elif scale == 'median':
       scales = array([1.0/median(cube[i][slc],axis=None) \
