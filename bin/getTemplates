@@ -108,10 +108,10 @@ for sn,ra,dec in l:
    fig = plt.figure(figsize=(9,9))
    ax = fig.add_subplot(111, projection=wcs)
    plt.subplots_adjust(left=0.2)
-   if skymap:
-      norm = simple_norm(fts[0].data, percent=99)
-   else:
-      norm=simple_norm(fts[0].data, min_cut=-300, max_cut=1000)
+   #if skymap:
+   norm = simple_norm(fts[0].data, percent=99.9)
+   #else:
+   #   norm=simple_norm(fts[0].data, min_cut=-300, max_cut=1000)
    ax.imshow(fts[0].data, origin='lower', norm=norm, cmap='gray_r')
    #ii,jj = wcs.wcs_world2pix(cat['RA'][pids], cat['DEC'][pids], 0)
    #ax.plot(ii, jj, 'o', mec='blue', mfc='none', ms=20)
