@@ -3,7 +3,8 @@
 import os
 from os.path import realpath,join,dirname,isfile,isdir
 import numpy as np
-from scipy.stats import mode
+#from scipy.stats import mode
+from .npextras import mode
 from astropy.io import fits
 from .tel_specs import getTelIns
 from . import fitsutils
@@ -301,11 +302,10 @@ def makeFlatFrame(flist, outfile=None, tel='SWO', ins='NC'):
    else:
       subdata = res[0].data
 
-   mod,cnt = mode(subdata.ravel()) 
-   mod = mod[0]
+   mod = mode(subdata.ravel()) 
    
-   # Re-scale flat by the mode
-   res[0].data = res[0].data/mod
+   ## Re-scale flat by the mode
+   res[0].data = (res[0].data/mod).astype(np.float32)
 
    res.writeto(outfile, overwrite=True)
    return res

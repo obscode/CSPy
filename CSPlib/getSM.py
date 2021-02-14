@@ -15,6 +15,7 @@ except:
 SMscale = 0.496/3600   # in degrees/pixel
 
 
+
 def getImages(ra, dec, size=0.125, filt='g', verbose=False):
    '''Query the SM data server to get a list of images for the given 
       coordinates, size and filter. We (maybe) check the corners to see if
@@ -29,16 +30,35 @@ def getImages(ra, dec, size=0.125, filt='g', verbose=False):
       Returns:
          list of filenames
    '''
+   # First, we look to see if we can find images that cover the area
+   # entirely and have image_type='main'
    templ = "http://api.skymapper.nci.org.au/public/siap/dr2/query?"\
            "POS={},{}&SIZE={}&BAND={}&FORMAT=image/fits&VERB=3&"\
-           "RESPONSEFORMAT=CSV"
-   baseurl = templ.format(ra, dec, size, filt)
+           "RESPONSEFORMAT=CSV&INTERSECT={}"
+   baseurl = templ.format(ra, dec, size, filt, 'COVERS')
    if verbose: print("About to query: " + baseurl)
    table = Table.read(baseurl, format='ascii')
+   gids = table['image_type'] == 'main'
+   if np.sometrue(gids):
+      # Pick out the deepest image
+      idx = np.argmax(table['zpapprox'])
+      return [table[idx]['get_fits']]
 
-   return list(table['get_fits'])
+   # Next, we look for images that contain the SN position
+   baseurl = templ.format(ra, dec, size, filt, 'CENTER')
+   table = Table.read(baseurl, format='ascii')
+   gids = table['image_type'] == 'main'
+   if np.sometrue(gids):
+      return list(table[gids]['get_fits'])
+
+   # Ugh, gotta settle for shorts I guess
+   if len(table) > 0:
+      return list(table['get_fits'])
+
+   # So if we get here, we have no coverage
+   return []
    
-def getFITS(ra, dec, size, filters, mosaic=False):
+def getFITS(ra, dec, size, filters, mosaic=False, retain=False):
    '''Retrieve the FITS files from SkyMapper server, centered on ra,dec
    and with given size.
 
@@ -49,9 +69,14 @@ def getFITS(ra, dec, size, filters, mosaic=False):
       filters (str):  filters to get:  e.g gri
       mosaic(bool): If more than one PS images is needed to tile the field,
                     do we mosaic them? Requires reproject module if True
+      retain(bool): If True, keep the individual FITS files 
 
    Returns:
-      list of FITS instances
+      list of 2-tupes of FITS instances one element for each filter.
+      The first of the 2-tuples is the mosaic, the 2nd is the single frame
+      with the largest overlap with the requested position. We do this 
+      because SkyMpapper doesn't calibrate their images to a common zero-
+      point, so a single image is better for template subtractions.
    '''
    if mosaic and reproject is None:
       raise ValueError("To use mosaic, you need to install reproject")
@@ -69,6 +94,16 @@ def getFITS(ra, dec, size, filters, mosaic=False):
          from reproject.mosaicking import reproject_and_coadd
          
          fts = [fits.open(url) for url in urls]
+
+         # Now we get the image with center closest to our position. Easy
+         # way is to find image with largest minimum distance to a corner
+         wcss = [WCS(ft[0]) for ft in fts]
+         feet = [w.calc_footprint() for w in wcss]
+         mindists2 = [(((f[:,0]-ra)*np.cos(dec*np.pi/180))**2+(f[:,1]-dec)**2).min() \
+               for f in feet]
+         idx = np.argmax(mindists2)
+         if retain:
+            [fts[i].writeto('temp{}.fits'.format(i)) for i in range(len(fts))]
          wcs_out,shape_out = find_optimal_celestial_wcs([ft[0] for ft in fts])
          ar_out,footprint = reproject_and_coadd([ft[0] for ft in fts],
              wcs_out, shape_out=shape_out, reproject_function=reproject_interp,
@@ -79,9 +114,10 @@ def getFITS(ra, dec, size, filters, mosaic=False):
                h_out.remove(key)
          h_out.update(wcs_out.to_header())
          newhdu = fits.PrimaryHDU(ar_out, header=h_out)
-         ret.append(fits.HDUList([newhdu])) 
+         ret.append((fits.HDUList([newhdu]),fts[idx])) 
       else:
-         ret.append(fits.open(urls[0]))
+         fts = fits.open(urls[0])
+         ret.append((fts,fts))
 
    return ret
 

@@ -7,6 +7,8 @@ from astropy.coordinates import SkyCoord
 from astropy import units as u
 from astropy.wcs import WCS
 from astropy import table
+from astropy.stats import sigma_clipped_stats
+from .npextras import between
 import numpy as np
 from .phot import ApPhot
 from . import ccdred
@@ -52,7 +54,7 @@ class Pipeline:
          prefix/suffix (str):  Prefix  and suffix for raw data. 
                          glob(prefix+'*'+suffix) should return all files.
          fsize (int):  Expected size of the CCD file. If it's not this size
-                       we skip (it could still be reading out)
+                       (plus n*2880), we skip (it could still be reading out)
          calibrations (str): location where older calibration files are located
          templates (str): location where templates are stored
          catalogs (str): location where catalog files are stored
@@ -66,7 +68,7 @@ class Pipeline:
       self.datadir = datadir
       self.prefix = prefix
       self.suffix = suffix
-      self.fsize = fsize
+      self.fsize = [fsize+i*2880 for i in range(3)]  # that should be enough!
       self.update_db = update_db
 
       # A list of all files we've dealt with so far
@@ -208,7 +210,7 @@ class Pipeline:
       flist.sort()
 
       new = [f for f in flist if not os.path.islink(f)]
-      new = [f for f in new if os.path.getsize(f) == self.fsize]
+      new = [f for f in new if os.path.getsize(f) in self.fsize]
       new = [f for f in new if f not in self.rawfiles+self.badfiles]
 
       return new
@@ -558,7 +560,13 @@ class Pipeline:
          ap.loadObjCatalog(table=cat, racol='RA', deccol='DEC', 
                objcol='objID')
          self.log('Doing aperture photometry...')
-         phot = ap.doPhotometry()
+         try:
+            phot = ap.doPhotometry()
+         except:
+            self.log("Doing aperture photometry failed for {}, "\
+                  "skipping...".format(fil))
+            self.ignore.append(fil)
+            continue
          phot.rename_column('OBJ','objID')
          phot = table.join(phot, allcat['objID',filt+'mag',filt+'err'],
                keys='objID')
@@ -576,19 +584,28 @@ class Pipeline:
          phot.write(fil.replace('.fits','.phot0'), format='ascii.fixed_width',
                delimiter=' ')
          gids = np.greater(phot['objID'], 0)
+         gids = gids*between(phot[filt+'mag'], 15, 20)
          if not np.sometrue(gids):
             self.log("Determining zero-point for frame {} failed, "\
                   "skipping...".format(fil))
             self.ignore.append(fil)
             continue
          diffs = phot[filt+'mag'][gids] - phot['ap2'][gids]
+         #mn,md,st = sigma_clipped_stats(diffs, sigma=3)
          wts = np.power(phot['ap2er'][gids]**2 + phot[filt+'err'][gids]**2,-1)
+
          # 30 is used internall in photometry code as arbitrary zero-point
          zp = np.sum(diffs*wts)/np.sum(wts) + 30
          ezp = np.sqrt(1.0/np.sum(wts))
-         self.log('Determined zero-point to be {} +/- {}'.format(
-            zp,ezp))
+         #zp = md + 30
+         #ezp = st/np.sqrt(sum(gids))
+         if np.isnan(zp) or np.isnan(ezp):
+            self.log("Determining zero-point for frame {} failed (NAN), "\
+                  "skipping...".format(fil))
+            self.ignore.append(fil)
+            continue
 
+         self.log('Determined zero-point to be {} +/- {}'.format(zp,ezp))
          fts = fits.open(fil, memmap=False)
          fts[0].header['ZP'] = zp
          fts[0].header['EZP'] = ezp
@@ -656,8 +673,12 @@ class Pipeline:
             self.ignore.append(fil)
             continue
          idx = list(phot['objID']).index(0)
-         mag = phot[idx]['ap0'] - 30 + zpt + apcor
-         emag = np.sqrt(phot[idx]['ap0er']**2 + ezpt**2)
+         if phot[idx]['flux0'] < 0:
+            mag = 25
+            emag = 1.0
+         else:
+            mag = phot[idx]['ap0'] - 30 + zpt + apcor
+            emag = np.sqrt(phot[idx]['ap0er']**2 + ezpt**2)
          with open(join(self.workdir,'SNphot.dat'), 'a') as fout:
             fout.write("{:20s} {:2s} {:.3f} {:.3f} {:.3f} {}\n".format(
                obj, filt, jd, mag, emag, basename(fil)))
@@ -707,11 +728,6 @@ class Pipeline:
             self.log('Template subtraction failed for {}, skipping'.format(
                 fil))
             self.ignore.append(fil)
-
-   def update_db(self):
-      '''For all images that are fully reduced, calibrated, and template-
-      subtracted, update photometry of the transient to the database.'''
-      return
 
    def initialize(self):
       '''Make a first run through the data and see if we have what we need

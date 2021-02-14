@@ -152,6 +152,9 @@ def do_astrometry(files, trim=None, replace=False, dir='/usr/local/astrometry',
          os.unlink(tmpfile)
       
       newfile = '.'.join(fil.split('.')[:-1])+'.new'
+      if not os.path.isfile(newfile):
+         print('solve-field failed for {}. Check {}.log'.format(fil,logfile))
+         return None
       if replace:
          os.system('mv {} {}'.format(newfile, fil))
          if have_pyfits:

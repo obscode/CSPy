@@ -72,17 +72,21 @@ def update_header(f, fout=None):
 
    # First, update the OBSTYPE, as per PREV_SWONC
    obj = h['OBJECT'].lower()
-   # Get rid of spaces!!!
-   obj = obj.replace(' ','_')
-   if obj not in obstypes:
-      if obj[-4:] == '_bad':
-         obstype = 'none'
-      elif obj.find('focus') >= 0:
-         obstype = 'focus'
-      else:
-         obstype = 'astro'
+   exptype = h['EXPTYPE'].lower()
+   if exptype == 'focus':
+      obstype = 'focus'
    else:
-      obstype = obstypes[obj]
+      # Get rid of spaces!!!
+      obj = obj.replace(' ','_')
+      if obj not in obstypes:
+         if obj[-4:] == '_bad':
+            obstype = 'none'
+         elif obj.find('focus') >= 0:
+            obstype = 'focus'
+         else:
+            obstype = 'astro'
+      else:
+         obstype = obstypes[obj]
    # udpate:
    h['OBSTYPE'] = (obstype, "Type of image.")
    

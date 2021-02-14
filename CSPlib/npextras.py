@@ -1,5 +1,7 @@
 '''A collection of numpy-based tools and statistical measures.'''
 from numpy import *
+from scipy.stats import gaussian_kde
+from scipy.optimize import minimize_scalar
 
 def between(x, l, h, inc=0):
    '''Return boolean array of values between bounds.
@@ -139,3 +141,17 @@ def bwt( x, iter=3):
             MAD = 0.6745*S
       else: M,S = mean(x),0.0
    return [M,S]
+
+def mode(arr):
+   '''Measure the mode of the array. The distribution is modeled by a
+   kernel density estimate, which is then used to find the mode.'''
+
+   X = arr.ravel()
+   kernel = gaussian_kde(X)
+
+   # Now minimize. As a bracket we'll go from -3*sigma to 3*sigma around
+   # the median
+   med = median(X)
+   sig = 1.49*median(absolute(X-med))
+   res = minimize_scalar(lambda x: -kernel(x)[0], bracket=[med-sig,med+sig])
+   return res.x

@@ -19,6 +19,7 @@ all values to numeric (int or float) if possible, or leave as strings.
 '''
 
 import configparser,os
+from os.path import isfile,dirname,join
 
 def guess_value(value):
    '''Try to guess the most likely type and return it typed, rather than
@@ -105,3 +106,20 @@ class config:
    def __dir__(self):
       '''implement this to get auto-complete in ipython.'''
       return self.__dict__['sections']
+
+def getconfig(filename=None):
+   '''Tries to find a config fig file and return it.'''
+
+   if filename is not None:
+      if not isfile(filename):
+         raise IOError('config file {} not found'.format(filename))
+      return config(filename)
+   
+   # Next, if no file is offered, try to find them
+   if 'CSPconf' in os.environ:
+      if isfile(os.environ['CSPconf']):
+         return config(os.environ['CSPconf'])
+
+   # Lastly, get the default
+   cfg = join(dirname(__file__), 'data', 'CSPconf.cfg')
+   return config(cfg)

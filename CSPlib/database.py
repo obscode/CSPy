@@ -19,6 +19,10 @@ dbs = {'SBS': {
           'host':'csp2.lco.cl',
           'user':'cburns',
           'db':'Phot'},
+       'SSH': {
+          'host':'localhost',
+          'user':'cburns',
+          'db':'Phot'},
        }
               
 
