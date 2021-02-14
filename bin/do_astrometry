@@ -8,6 +8,9 @@ import sys,os,re
 import argparse
 import subprocess
 from CSPlib.do_astrometry import do_astrometry
+from CSPlib.config import getconfig
+
+cfg = getconfig()
 
 parser = argparse.ArgumentParser(
       description="Wrapper for astrometry.net's solve-field")
@@ -18,7 +21,7 @@ parser.add_argument('-replace', action='store_true',
       help='Overwrite the original header with WCS?')
 parser.add_argument('-dir', 
    help='location of astrometry.net. Default:/usr/local/astrometry',
-   default='/usr/local/astrometry')
+   default=os.path.dirname(os.path.dirname(cfg.software.astrometry_bin)))
 parser.add_argument('other', nargs=argparse.REMAINDER, 
       help="Other arguments passwd to solve-field")
 parser.add_argument('-v', action='store_true', help='Produce verbose output')
