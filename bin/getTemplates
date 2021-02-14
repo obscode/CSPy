@@ -25,11 +25,11 @@ Nstars = 20
 lockfile = '/tmp/make_finders_lock'
 
 # First, check for lockfile
-if isfile(lockfile):
-   print("Lock file exists, exiting")
-   sys.exit(0)
-with open(lockfile, 'w') as fout:
-   fout.write('locked\n')
+#if isfile(lockfile):
+#   print("Lock file exists, exiting")
+#   sys.exit(0)
+#with open(lockfile, 'w') as fout:
+#   fout.write('locked\n')
 
 if len(sys.argv) == 4:
    forceRedo = True
@@ -53,6 +53,8 @@ for sn,ra,dec in l:
       flist = [fits.open(fname) for fname in fnames]
       skymap = 'TELESCOP' in flist[0][0].header and \
             flist[0][0].header['TELESCOP'] == 'SkyMapper'
+      if skymap:
+         flist = [(ft,ft) for ft in flist]
    else:
       skymap = False
       flist = getPS.getFITS(ra, dec, chart_size, 'gri', mosaic=True)
@@ -65,12 +67,20 @@ for sn,ra,dec in l:
             print("Error, could not download SM image data "
              "for {}({:.5f}{:.5f})".format(sn,ra,dec))
             continue
-      [flist[i].writeto(fnames[i], overwrite=True) for i in range(3)]
+         # Skymapper comes back with mosaic FITS (first) and template (second)
+         # We save the templates
+         [flist[i][1].writeto(fnames[i], overwrite=True) for i in range(3)]
+      else:
+         # PS comes with just the mosaic
+         [flist[i].writeto(fnames[i], overwrite=True) for i in range(3)]
 
    # Use r-band to make catalog and finder
    idx = ['g','r','i'].index(chart_filter)
    #      maxmag=19.0, outfile=join(templates, "{}.cat".format(sn)))
-   fts = flist[idx]
+   if skymap:
+      fts = flist[idx][0]
+   else:
+      fts = flist[idx]
    for key in fts[0].header.keys():
       if key[0:2] == 'PV':
          del fts[0].header[key]
@@ -184,4 +194,3 @@ for sn,ra,dec in l:
    fig.savefig(fchart) 
    plt.close(fig)
    
-unlink(lockfile)
