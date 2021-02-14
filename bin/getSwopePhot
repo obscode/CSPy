@@ -1,0 +1,22 @@
+#!/usr/bin/env python
+
+import argparse
+from CSPlib.database import getConnection
+
+parser = argparse.ArgumentParser(description="Get Swope photometry")
+parser.add_argument('SN', help='Name of the SN from the database')
+parser.add_argument('-db', help="Name of the database", default='SBS')
+args = parser.parse_args()
+
+db = getConnection(db=args.db)
+c = db.cursor()
+SN = args.SN
+
+N = c.execute('''select * from MAGSN where field=%s order by JD''', SN)
+data = c.fetchall()
+for dat in data:
+   dt,name,idx,filt,fits,mag,emag,_,_,JD = dat
+   dirs = "ut_{:02d}{:02d}{:02d}_{:02d}/".format(dt.year-2000,dt.month,dt.day,
+         dt.day+1)
+   print("{}   {:.3f} {:.3f} {}".format(filt,mag,emag,dirs+fits))
+
