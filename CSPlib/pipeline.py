@@ -43,7 +43,7 @@ class Pipeline:
 
    def __init__(self, datadir, workdir=None, prefix='ccd', suffix='.fits',
          calibrations=calibrations_folder, templates=templates_folder,
-         catalogs=templates_folder, fsize=9512640, update_db=True):
+         catalogs=templates_folder, fsize=9512640, tmin=0, update_db=True):
       '''
       Initialize the pipeline object.
 
@@ -69,6 +69,7 @@ class Pipeline:
       self.prefix = prefix
       self.suffix = suffix
       self.fsize = [fsize+i*2880 for i in range(3)]  # that should be enough!
+      self.tmin = tmin
       self.update_db = update_db
 
       # A list of all files we've dealt with so far
@@ -180,6 +181,12 @@ class Pipeline:
       self.headerData[fil] = {}
       for h in ['OBJECT','OBSTYPE','FILTER','EXPTIME','OPAMP','RA','DEC']:
          self.headerData[fil][h] = fts[0].header[h]
+
+      if fts[0].header['EXPTIME'] < self.tmin:
+         # Ignore short exposures
+         self.rawfiles.append(filename)
+         self.files['none'].append(fout)
+         return
       
       # Figure out what kind of file we're dealing with
       obstype = fts[0].header['OBSTYPE']
