@@ -66,8 +66,11 @@ def update_header(f, fout=None):
    fts = fits.open(f, memmap=False)
    h = fts[0].header
 
-   # Get rid of spaces!!
-   if h['OBJECT'].find(' ') >= 0:
+   # Get rid of spaces!!  First, leading/trailing spaces
+   if h['OBJECT'][0] == ' ' or h['OBJECT'][-1] == ' ':
+      h['OBJECT'] = h['OBJECT'].strip()
+   # Now spaces in the middle
+   if h['OBJECT'].find(' ') > 0:
       h['OBJECT'] = h['OBJECT'].replace(' ','_')
 
    # First, update the OBSTYPE, as per PREV_SWONC

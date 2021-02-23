@@ -42,6 +42,25 @@ data = {
             'date':'@JD',
             'ncombine':'@NCOMBINE',
             'airmass':'@WAIRMASS',
+            'object':'@OBJECT',
+         },
+      },
+      'SkyMapper': {
+         'CCD': {
+            'scale':0.4963,
+            'gain':1.,
+            'rnoise':0.0,
+            'overscan':{
+               1:[1300,1300],
+            },
+            'datasec':[1,1024,1,1024],
+            'statsec':[0,1024,0,1024],
+            'exposure':'@EXPTIME',
+            'filter':'@FILTER',
+            'date':'@MJD-OBS',
+            'ncombine':1,
+            'airmass':'@WAIRMASS',
+            'object':'@OBJECT',
          },
       },
    }

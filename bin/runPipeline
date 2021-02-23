@@ -2,9 +2,12 @@
 
 from CSPlib.pipeline import Pipeline,templates_folder,calibrations_folder
 import argparse
+import sys
 
 p = argparse.ArgumentParser(description='Run the CSP pipeline')
 p.add_argument('datadir', help='Folder where we can find the data')
+p.add_argument('-justcalib', help='Just make the calibrations',
+      action='store_true')
 p.add_argument('-workdir', default=None, type=str,
       help='Working folder with LOTS of space available')
 p.add_argument('-templates', default=templates_folder, type=str,
@@ -19,6 +22,9 @@ p.add_argument('-fsize', default=9512640, type=int,
       help="Expected CCD filesize")
 p.add_argument('-poll', default=10, 
    help="number of seconds between checks for new files")
+p.add_argument('-tmin', help="Minimum exposure time to consider a science"\
+      " exposure. Default: 0", type=float, default=0.0)
+
 p.add_argument('-noupdate', 
    help="Do not update the CSP database with final photometry",
    action="store_true")
@@ -27,10 +33,12 @@ args = p.parse_args()
 
 pipe = Pipeline(datadir=args.datadir, workdir=args.workdir, prefix=args.prefix,
       suffix=args.suffix, calibrations=args.calibrations, 
-      templates=args.templates, fsize=args.fsize, 
-      update_db=~args.noupdate)
+      templates=args.templates, fsize=args.fsize, tmin=args.tmin,
+      update_db=(not args.noupdate))
 
 pipe.initialize()
+if args.justcalib:
+   sys.exit(0)
 pipe.run()
 
 
