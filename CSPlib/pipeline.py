@@ -182,12 +182,6 @@ class Pipeline:
       for h in ['OBJECT','OBSTYPE','FILTER','EXPTIME','OPAMP','RA','DEC']:
          self.headerData[fil][h] = fts[0].header[h]
 
-      if fts[0].header['EXPTIME'] < self.tmin:
-         # Ignore short exposures
-         self.rawfiles.append(filename)
-         self.files['none'].append(fout)
-         return
-      
       # Figure out what kind of file we're dealing with
       obstype = fts[0].header['OBSTYPE']
       obj = fts[0].header['OBJECT']
@@ -199,6 +193,12 @@ class Pipeline:
          self.files['none'].append(fout)
          return
       obtype = headers.obstypes[obstype]
+      if obtype == 'astro' and fts[0].header['EXPTIME'] < self.tmin:
+         # Ignore short exposures
+         self.rawfiles.append(filename)
+         self.files['none'].append(fout)
+         return
+      
       self.rawfiles.append(filename)
       if obtype in ['zero','none']:
          self.files[obtype].append(fout)
@@ -340,7 +340,7 @@ class Pipeline:
          # Get the correct shutter file
          opamp = self.getHeaderData(f,'OPAMP')
          if opamp not in self.shutterFrames:
-            shfile = join(self.calibrations, 'CAL', "SH{}.fits".format(opamp))
+            shfile = join(self.calibrations, "SH{}.fits".format(opamp))
             self.shutterFrames[opamp] = fits.open(shfile, memmap=False)
          fts = ccdred.LinearityCorrect(fts)
          fts = ccdred.ShutterCorrect(fts, frame=self.shutterFrames[opamp])
