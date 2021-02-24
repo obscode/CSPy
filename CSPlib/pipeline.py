@@ -340,7 +340,7 @@ class Pipeline:
          # Get the correct shutter file
          opamp = self.getHeaderData(f,'OPAMP')
          if opamp not in self.shutterFrames:
-            shfile = join(self.calibrations, "SH{}.fits".format(opamp))
+            shfile = join(self.calibrations, 'CAL', "SH{}.fits".format(opamp))
             self.shutterFrames[opamp] = fits.open(shfile, memmap=False)
          fts = ccdred.LinearityCorrect(fts)
          fts = ccdred.ShutterCorrect(fts, frame=self.shutterFrames[opamp])
