@@ -125,6 +125,56 @@ def getStandardPhotometry(SN, filt, db=default_db):
       tab[col].info.format='%.3f'
    return tab
 
+def getDBName(name, db=default_db):
+   '''Given a name, return the DB primary name from the database. Return -1 if
+   name not found and -2 if connection fails.
+   
+   Args:
+      name(str):  Name of the object
+      db(str):  Name of the database
+      
+   Returns:
+      IAUName:  the IAU name
+   '''
+   try:
+      db = getConnection(db)
+   except:
+      return -2
+   c = db.cursor()
+   res = c.execute(
+         "select SN from SNList where (SN=%s or NAME_IAU=%s or NAME_CSP=%s "\
+         "or NAME_PSN=%s)", (name, name, name, name))
+   if res < 1:
+      return -1
+   return c.fetchall()[0]
+
+def getAllNames(name, db=default_db):
+   '''Given a name, return All names from the database. Return -1 if
+   name not found and -2 if connection fails.
+   
+   Args:
+      name(str):  Name of the object
+      db(str):  Name of the database
+      
+   Returns:
+      dict:  keyed by 'DB','CSP','IAU','PSN'
+   '''
+   try:
+      db = getConnection(db)
+   except:
+      return -2
+   c = db.cursor()
+   res = c.execute(
+         "select SN,NAME_CSP,NAME_IAU,NAME_PSN from SNList where (SN=%s "\
+         "or NAME_IAU=%s or NAME_CSP=%s or NAME_PSN=%s)", 
+         (name, name, name, name))
+
+   if res < 1:
+      return -1
+   res = c.fetchall()[0]
+   return dict(DB=res[0], CSP=res[1], IAU=res[2], PSN=res[3])
+
+
 def getNameCoords(name, db=default_db):
    '''Given a name, return the coordinates or -1 if not found or -2 if
    connection fails.
