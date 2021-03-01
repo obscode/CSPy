@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 
-from CSPlib.pipeline import Pipeline,templates_folder,calibrations_folder
+from CSPlib.pipeline import Pipeline
+from CSPlib.config import getconfig
 import argparse
 import sys
+
+cfg = getconfig()
 
 p = argparse.ArgumentParser(description='Run the CSP pipeline')
 p.add_argument('datadir', help='Folder where we can find the data')
@@ -10,20 +13,20 @@ p.add_argument('-justcalib', help='Just make the calibrations',
       action='store_true')
 p.add_argument('-workdir', default=None, type=str,
       help='Working folder with LOTS of space available')
-p.add_argument('-templates', default=templates_folder, type=str,
+p.add_argument('-templates', default=cfg.data.templates, type=str,
       help='Folder where galaxy host templates are found/stored')
-p.add_argument('-calibrations', default=calibrations_folder, type=str,
+p.add_argument('-calibrations', default=cfg.data.calibraions, type=str,
       help='Folder where photometric calibrations from previous nights are')
 p.add_argument('-prefix', default='ccd', 
       help='prefix for data files to process.')
 p.add_argument('-suffix', default='c3.fits', 
       help='suffix for datafiles to process')
-p.add_argument('-fsize', default=9512640, type=int, 
+p.add_argument('-fsize', default=cfg.data.fsize, type=int, 
       help="Expected CCD filesize")
 p.add_argument('-poll', default=10, 
    help="number of seconds between checks for new files")
 p.add_argument('-tmin', help="Minimum exposure time to consider a science"\
-      " exposure. Default: 0", type=float, default=0.0)
+      " exposure. Default: 0", type=float, default=cfg.data.tmin)
 
 p.add_argument('-noupdate', 
    help="Do not update the CSP database with final photometry",
