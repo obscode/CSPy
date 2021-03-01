@@ -22,28 +22,25 @@ from glob import glob
 import time
 import signal
 from . import database
+from .config import getconfig
 
 import sys
 if not sys.warnoptions:
     import warnings
     warnings.simplefilter("ignore")
 
-filtlist = ['u','g','r','i','B','V']
-#calibrations_folder = '/Users/cspuser/SWONC'
-calibrations_folder = '/csp21/csp2/software/SWONC'
-#templates_folder = '/Users/cspuser/templates'
-templates_folder = '/home/cspuser/reductions/templates'
-#sex_dir = '/Users/cspuser/sex'
-sex_dir = join(dirname(__file__), 'data', 'sex')
+cfg = getconfig()
 
+filtlist = cfg.data.filtlist
+sex_dir = join(dirname(__file__), 'data', 'sex')
 
 stopped = False
 
 class Pipeline:
 
    def __init__(self, datadir, workdir=None, prefix='ccd', suffix='.fits',
-         calibrations=calibrations_folder, templates=templates_folder,
-         catalogs=templates_folder, fsize=9512640, tmin=0, update_db=True):
+         calibrations=cfg.data.calibrations, templates=cfg.data.templates,
+         catalogs=cfg.data.templates, fsize=9512640, tmin=0, update_db=True):
       '''
       Initialize the pipeline object.
 
@@ -505,7 +502,8 @@ class Pipeline:
          if new is None:
             self.log("Fast WCS failed... resorting to astrometry.net")
             new = do_astrometry.do_astrometry([fil], replace=True,
-                  verbose=True, other=['--overwrite'], dir='/usr/local')
+                  verbose=True, other=['--overwrite'], 
+                  dir=cfg.software.astrometry)
             if new is None:
                self.log("astrometry.net failed for {}. No WCS coputed, "
                         "skipping...".format(fil))

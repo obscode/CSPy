@@ -6,6 +6,9 @@ import pymysql
 import os
 from numpy import argsort
 from datetime import date
+from .config import getconfig
+
+cfg = getconfig()
 
 dbs = {'SBS': {
          'host':'sql.obs.carnegiescience.edu',
@@ -29,12 +32,12 @@ dbs = {'SBS': {
 if 'CSPpasswd' in os.environ:
    passwd = os.environ['CSPpasswd']
 else:
-   passwd = None
+   passwd = cfg.remote.CSPpasswd
 
 if 'CSPdb' in os.environ:
    default_db = os.environ['CSPdb']
 else:
-   default_db = 'LCO'
+   default_db = cfg.remote.CSPdb
 
 def getConnection(db=default_db):
    global passwd, dbs
