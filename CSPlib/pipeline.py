@@ -597,9 +597,12 @@ class Pipeline:
                   "skipping...".format(fil))
             self.ignore.append(fil)
             continue
-         diffs = phot[filt+'mag'][gids] - phot['ap2'][gids]
-         #mn,md,st = sigma_clipped_stats(diffs, sigma=3)
-         wts = np.power(phot['ap2er'][gids]**2 + phot[filt+'err'][gids]**2,-1)
+         diffs = phot[filt+'mag']- phot['ap2']
+         mn,md,st = sigma_clipped_stats(diffs[gids], sigma=3)
+
+         # throw out 5-sigma outliers
+         gids = gids*np.less(np.absolute(diffs - md), 5*st)
+         wts = np.power(phot['ap2er']**2 + phot[filt+'err']**2,-1)*gids
 
          # 30 is used internall in photometry code as arbitrary zero-point
          zp = np.sum(diffs*wts)/np.sum(wts) + 30
