@@ -24,6 +24,8 @@ import signal
 from . import database
 from .config import getconfig
 
+from matplotlib import pyplot as plt
+
 import sys
 if not sys.warnoptions:
     import warnings
@@ -79,6 +81,8 @@ class Pipeline:
       self.ffiles = []
       # The ZTF designation for each identified object, indexed by ccd frame
       self.ZIDs = {}
+      # The standards
+      self.stdIDs = {}
       # These are files that are not identified or failed in some other way
       self.ignore = []
       # These are files that have WCS solved
@@ -195,7 +199,7 @@ class Pipeline:
          self.rawfiles.append(filename)
          self.files['none'].append(fout)
          return
-      
+
       self.rawfiles.append(filename)
       if obtype in ['zero','none']:
          self.files[obtype].append(fout)
@@ -388,6 +392,11 @@ class Pipeline:
             obj = self.getHeaderData(f,'OBJECT')
             self.log("OBJECT is {}".format(obj))
 
+            # First, if this is a standard, just leave it at taht
+            if obj.find('CSF') == 0 or obj.find('PS') == 0:
+               self.log("This is a standard, we're done (for now)")
+               self.stdIDs[f] = obj
+               continue
             # First, check to see if the catalog exists locally
             catfile = join(self.templates, obj+'.cat')
             if isfile(catfile):
@@ -618,8 +627,25 @@ class Pipeline:
          fts[0].header['ZP'] = zp
          fts[0].header['EZP'] = ezp
 
+         # make some diagnostic plots of aperture correction and zp determ.
+         fig,axes = plt.subplots(2,1, figsize=(6,6))
+         diffs = phot[filt+'mag']- phot['ap2']
+         x = phot[filt+'mag']
+         y = diffs + 30
+         axes[0].errorbar(x, y, fmt='o', xerr=phot[filt+'err'], 
+               yerr=np.sqrt(phot[filt+'err']**2 + phot['ap2er']**2))
+         axes[0].plot(x[~gids],y[~gids], 'o', mfc='red', label='rejected',
+               zorder=10)
+         axes[0].axhline(zp, color='k')
+         axes[0].set_xlim(12,20)
+         axes[0].set_ylim(zp-1,zp+1)
+         axes[0].legend()
+         axes[0].set_ylabel('m(std) - m(ins)')
+         axes[0].set_xlabel('m(std)')
+         self.initialPhot.append(fil)
+
          # Now aperture corrections
-         for i in ['0','1']:
+         for i,r in [('0',3.0),('1',5.0)]:
             ap = 'ap'+i
             aper = 'ap'+i+'er'
             gids = (~np.isnan(phot[ap]))*(~np.isnan(phot[aper]))*\
@@ -632,9 +658,19 @@ class Pipeline:
                i,apcor))
             fts[0].header['APCOR2'+i] = apcor
             fts[0].header['EAPCOR2'+i] = eapcor
+            xs = np.linspace(r-0.25,r+0.25, sum(gids))
+            axes[1].errorbar(xs, diffs[gids], yerr=np.power(wts[gids],-0.5),
+                  fmt='o')
+            axes[1].errorbar([r], [apcor], fmt='o', yerr=[eapcor],
+                  color='red')
 
+         axes[1].axhline(0, color='k', zorder=100)
+         axes[1].set_xlabel('apsize (arc-sec) + random')
+         axes[1].set_ylabel('mag(7") - mag(ap)')
+         axes[1].set_ylim(-1,1)
          fts[0].writeto(fil, overwrite=True)
-         self.initialPhot.append(fil)
+         fig.savefig(fil.replace('.fits','_zp.jpg'))
+
 
       return
 
