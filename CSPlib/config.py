@@ -120,6 +120,15 @@ def getconfig(filename=None):
       if isfile(os.environ['CSPconf']):
          return config(os.environ['CSPconf'])
 
-   # Lastly, get the default
+   # Check in current folder
+   if os.path.isfile('CSPconf.cfg'):
+      return config('CSPconf.cfg')
+
+   # Lastly, get the default, but make a copy to the current folder and
+   # notify the user
    cfg = join(dirname(__file__), 'data', 'CSPconf.cfg')
-   return config(cfg)
+   print("No configuration file found. Using defaults and saving as ")
+   print("CSPconf.cfg in the current folder. You may want to edit it.")
+   import shutil
+   shutil.copyfile(cfg, 'CSPconf.cfg')
+   return config('CSPconfig.cfg')
