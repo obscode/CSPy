@@ -524,8 +524,8 @@ class Pipeline:
             self.wcsSolved.append(fil)
 
          # Make a link to a better name:
-         name = self.makeFileName(fil)
-         os.symlink(fil, name)
+         #name = self.makeFileName(fil)
+         #os.symlink(fil, name)
       return
 
    def photometry(self):
@@ -607,8 +607,16 @@ class Pipeline:
          diffs = phot[filt+'mag']- phot['ap2']
          mn,md,st = sigma_clipped_stats(diffs[gids], sigma=3)
 
-         # throw out 5-sigma outliers
-         gids = gids*np.less(np.absolute(diffs - md), 5*st)
+         # throw out 5-sigma outliers with respect to MAD
+         mad = 1.5*np.median(np.asbolute(diffs - md))
+         gids = gids*np.less(np.absolute(diffs - md), 5*mad)
+         if not np.sometrue(gids):
+            self.log("Determining zero-point for frame {} failed, "\
+                  "skipping...".format(fil))
+            self.ignore.append(fil)
+            continue
+
+         # Weight by inverse variance
          wts = np.power(phot['ap2er']**2 + phot[filt+'err']**2,-1)*gids
 
          # 30 is used internall in photometry code as arbitrary zero-point
