@@ -3,15 +3,25 @@
 import os
 from glob import glob
 from astropy.io import fits
+from astropy.time import Time
 
 files = glob("fcd?*c3.fits")
 files.sort()
 
-template = "{obj}_{filt}{idx:02d}_{tel}_{ins}_{YY}_{MM}_{DD}{suf}"
+template = "{obj}_{filt}{idx:02d}_{tel}_{ins}_{YY}_{MM:02d}_{DD:02d}{suf}"
 
 for fil in files:
    fts = fits.open(fil)
-   YY,MM,DD = fts[0].header['DATE-OBS'].split('-')
+   #YY,MM,DD = fts[0].header['DATE-OBS'].split('-')
+   # Now, DATE-OBS changes at midnight. So the better way to get the "day"
+   # is to add 0.5 to JD (push it beyond change-over and get the year/month/day
+   jd = Time(fts[0].header['JD'] + 0.5, format='jd')
+   dt = jd.to_datetime()
+   YY,MM,DD = dt.year,dt.month,dt.day
+   YY = int(YY)
+   MM = int(MM)
+   DD = int(DD)
+
    args = dict(
        obj=fts[0].header['OBJECT'],
        filt=fts[0].header['FILTER'],
