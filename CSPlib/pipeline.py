@@ -608,7 +608,7 @@ class Pipeline:
          mn,md,st = sigma_clipped_stats(diffs[gids], sigma=3)
 
          # throw out 5-sigma outliers with respect to MAD
-         mad = 1.5*np.median(np.asbolute(diffs - md))
+         mad = 1.5*np.median(np.absolute(diffs - md))
          gids = gids*np.less(np.absolute(diffs - md), 5*mad)
          if not np.sometrue(gids):
             self.log("Determining zero-point for frame {} failed, "\
