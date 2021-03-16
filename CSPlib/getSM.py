@@ -146,12 +146,9 @@ def getStarCat(ra, dec, radius):
    tab.rename_column('i_psf','imag')
    tab.rename_column('e_i_psf','ierr')
 
-   tab = tab[~tab['rmag'].mask]
-   tab = tab[~tab['imag'].mask]
-   tab = tab[~tab['gmag'].mask]
-   tab = tab[~tab['rerr'].mask]
-   tab = tab[~tab['ierr'].mask]
-   tab = tab[~tab['gerr'].mask]
+   gids = ~np.isnan(tab['rmag'])
+   for tag in ['rmag','imag','gmag','rerr','ierr','gerr']:
+      gids = gids*getattr(tab[tag], 'mask', 1)
 
    gids = np.greater(tab['gmag'], 0)*np.less(tab['gmag'],20)
    gids = gids*np.greater(tab['rmag'], 0)*np.less(tab['rmag'],20)
