@@ -22,6 +22,7 @@ from astropy.visualization import simple_norm
 from warnings import warn
 import sys,os
 from numpy import *
+from .npextras import between
 from astropy.table import vstack
 
 def recenter(xs, ys, data, cutoutsize=40):
@@ -59,7 +60,7 @@ def recenter(xs, ys, data, cutoutsize=40):
 
 class ApPhot:
 
-   def __init__(self, ftsfile, tel='SWO', ins='NC'):
+   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None):
       '''Initialize this aperture photometry class with a tel/ins configuration
       and FITS file.
       
@@ -67,6 +68,7 @@ class ApPhot:
          ftsfile (str or FITS): The FITS file to deal with
          tel (str):  telescope code (e.g., SWO)
          ins (str):  instrument code (e.g., NC)
+         sigma (str or FITS): The FITS file with error (noise) map
       
       Returns:
          ApPhot instance.
@@ -89,11 +91,17 @@ class ApPhot:
       self.DEs = None
  
       self.parse_header()
-      self._makeErrorMap()
+      if sigma is None:
+         self._makeErrorMap()
+      else:
+         if isinstance(sigma, str):
+            sigma = fits.open(sigma)
+         self.error = sigma[0].data
 
       self.centroids = None
       self.apps = []
       self.skyap = None
+      self.phot = None
 
    def _parse_key(self, key, fallback=None):
       '''Given a key, we try to figure out what value it sould have. First,
@@ -288,6 +296,7 @@ class ApPhot:
       phot_table['airmass'].info.format = "%.3f"
       phot_table['OBJ'] = self.objs
       phot_table['fits'] = self.ftsfile
+      self.phot = phot_table
 
       return phot_table
 
@@ -305,10 +314,12 @@ class ApPhot:
       
       norm = simple_norm(self.data, 'linear', percent=99.)
 
-      bbs = self.apps[-1].bounding_boxes
+      bbs = self.apps[-1].bbox
 
       for p in range(Npages):
          fig,ax = plt.subplots(xcols, ycols, figsize=(8,8*figrat))
+         plt.subplots_adjust(left=0, right=1, bottom=0, top=1, hspace=0,
+               wspace=0)
          ax = ax.ravel()
          for i,idx in enumerate(range(p*NplotsPage,(1+p)*NplotsPage)):
             if idx > len(self.centroids) - 1: break
@@ -316,14 +327,143 @@ class ApPhot:
             ax[i].imshow(self.data[bb.slices], origin='lower', norm=norm)
             orig = (bb.ixmin, bb.iymin)
             self.apps[apindex].plot(origin=orig, indices=idx, color='white', 
-                  ax=ax[i])
-            self.apps[-1].plot(origin=orig, indices=idx, color='red', ax=ax[i],
-                  lw=1)
+                  axes=ax[i])
+            self.apps[-1].plot(origin=orig, indices=idx, color='red', 
+                  axes=ax[i], lw=1)
             ax[i].text(0.9, 0.9, str(self.objs[idx]), va='top', ha='right',
                   transform=ax[i].transAxes, color='white')
          for i in range(NplotsPage):
             ax[i].set_xticks([])
             ax[i].set_yticks([])
-         fig.tight_layout()
+         #fig.tight_layout()
          fig.savefig(self.ftsfile+"_cutout{}.png".format(p))
+
+def NN1(phot, std_key, inst_key='ap2', sigma=3, niter=3, fthresh=0.3):
+   '''Construct the N(N-1) combinations of differences between the instrumental
+   photometry and standard photometry. The idea is that, for star i and star
+   j, the differece m_inst(i) - m_inst(j) should be close to
+   m_stand(i) - m_stand(j).'''
+
+   idiff = phot[inst_key][newaxis,:] - phot[inst_key][:,newaxis]
+   sdiff = phot[std_key][newaxis,:] - phot[std_key][:,newaxis]
+   oids = indices(idiff.shape)
+
+   # Now we are only interested in the upper-triangular portion by symmetry
+   idiff = triu(idiff).ravel()
+   sdiff = triu(sdiff).ravel()
+   oid1 = triu(oids[0]).ravel()
+   oid2 = triu(oids[1]).ravel()
+
+   # Now raval() and take out the zeros lower triangular and diagonal as well
+   # as the supernova object
+   gids = greater(oid1, 0) & greater(oid2,0)
+   gids = gids*~equal(oid1,oid2)   # remove the trivial cases
+   idiff = idiff[gids]
+   sdiff = sdiff[gids]
+   oid1 = oid1[gids]
+   oid2 = oid2[gids]
+
+   bids = isnan(sdiff-idiff)   # should give all False
+   omit = []
+   thresh = int(len(phot)*fthresh)
+   # Now we look for outliers
+   for i in range(niter):
+      mad = 1.5*median(absolute(sdiff-idiff)[~bids])
+      bids = greater(absolute(sdiff-idiff), sigma*mad)
+      # These have the ids and counts of objects that produce large outliers
+      u1,c1 = unique(oid1[bids], return_counts=True)
+      u2,c2 = unique(oid1[bids], return_counts=True)
+
+      # Because 1 outlier can cause N discrepancies, we want counts that
+      # exceed some fraction of the whole (fthresh).
+      omit = omit + list(u1[c1 > thresh]) + list(u2[c2 > thresh])
+      omit = list(set(omit))
+
+   return idiff,sdiff,oid1,oid2,omit
+
+def compute_zpt(phot, std_key, stderr_key, inst_key='ap2', ierr_key='ap2er',
+      magmin=15, magmax=20, objkey='objID', zpins=30, plot=None):
+   '''Given a table of photometry, determine the zero-point as a weighted
+   offset between the standard photometry and instrumental photometry.
+
+   Args:
+      phot (astropy.Table):  Table of aperture photometry output from ApPhot
+      std_key (str):  the standard magnitude key in the table.
+      stderr_key (str):  the standard magnitude errors in the table
+      inst_key (str): The key for the aperture magnitudes in the table
+      ierr_key (str): The instrumental magnitude error in the table
+      magmin (float):  minimum standard magnitude mag < magmin are rejected
+      magmax (float0:  maximum standard magnitude mag > magmax are rejected
+      objkey (str):  The object designation column in the table
+      zpins (float):  The approximate zero-point initially used to compute
+                     instrumental magntiudes
+      plot (None|str|Axes):  Plot the zp and ap-corr residuals? if not None
+                     and a string, output plot to file. If Axes, plot into that
+                     Axes instance.
+
+   Returns:
+      (zp,ezp,flags,mesg)
+      zp (float):  the zero-point
+      ezp (float):  the error in zero-point
+      flags (array):  integers denoting issues: 1- NN rejection
+                                                2- min/max rejection
+                                                4- sigma-clipped
+      mesg (str):  Useful message
+
+      These are set to None,None,None,error-mesg if an error occurs
+
+   Effects:
+      if plot is a filename, a plot is made with that filename
+   '''
+   flags = zeros((len(phot),), dtype=int)
+
+   # First, we're going to look for objects with inconsistent differentials
+   idiff,sdiff,oid1,oid2,omit = NN1(phot, std_key, inst_key)
+   flags[omit] += 1
+
+   gids = greater(phot[objkey], 0)
+   gids = gids*between(phot[std_key], magmin, magmax)
+   flags[~between(phot[std_key], magmin, magmax)] += 2
+   gids[omit] = False   # get rid of objects found above
+   if not sometrue(gids):
+      mesg = "Not enough good photometric points to solve for zp"
+      return None,None,None,mesg
+   diffs = phot[std_key]- phot[inst_key]
+   mn,md,st = sigma_clipped_stats(diffs[gids], sigma=3)
+
+   # throw out 5-sigma outliers with respect to MAD
+   mad = 1.5*median(absolute(diffs - md))
+   gids = gids*less(absolute(diffs - md), 5*mad)
+   flags[~less(absolute(diffs - md), 5*mad)] += 4
+   if not sometrue(gids):
+      mesg = "Too many outliers in the photometry, can't solve for zp"
+      return None,None,None,mesg
+
+   # Weight by inverse variance
+   wts = power(phot[ierr_key]**2 + phot[stderr_key]**2,-1)*gids
+
+   # zpins is used internall in photometry code as arbitrary zero-point
+   zp = sum(diffs*wts)/sum(wts) + zpins
+   ezp = sqrt(1.0/sum(wts))
+
+   if plot is not None:
+      if isinstance(plot, plt.Axes):
+         ax = plot
+         fig = None
+      else:
+         fig,ax = plt.subplots()
+      ax.errorbar(phot[std_key], diffs + zpins - zp, fmt='o', 
+            xerr=phot[stderr_key], 
+            yerr=sqrt(phot[ierr_key]**2 + phot[stderr_key]**2))
+      ax.plot(phot[std_key][~gids], diffs[~gids] + zpins - zp, 'o', mfc='red',
+            zorder=100)
+      ax.axhline(0, color='k')
+      ax.set_xlim(12,20)
+      ax.set_ylim(-1,1)
+      ax.set_xlabel('m(std)')
+      ax.set_ylabel('m(std) - m(ins)')
+      if fig is not None:
+         fig.savefig(plot)
+
+   return zp,ezp,flags,"ok"
 

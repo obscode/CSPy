@@ -7,6 +7,10 @@ from astropy.table import Table
 from astropy import units as u
 from CSPlib import sextractor,getPS
 from numpy import sqrt, newaxis, sum, greater, less, arange, argsort
+from os.path import join,dirname
+import pickle
+
+datadir = join(dirname(__file__),'data')
 
 def make_ls_catalog(fil, minsep=10, minmag=None, maxmag=None, outfile=None,
       minstar=-1, Nmax=None, field=None, RAd=None, DECd=None, verbose=False):
