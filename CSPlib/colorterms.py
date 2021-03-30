@@ -1,11 +1,16 @@
 '''A python module that deals with photometric transformations between
-CSP natural and standard systems. Mostly this deals with color-terms.'''
+CSP natural and standard systems. Mostly this deals with color-terms.
+
+2021/03/12:  Added in color terms and transformations to go from
+             panstarrs and skymapper mags to CSP mags'''
 from numpy import *
 from astropy.io import ascii
 from astropy.table import Table
 from astropy.coordinates import SkyCoord
+from scipy.interpolate import splev
 from astropy import units as u
 import os
+import pickle
 basedir = os.path.join(os.path.realpath(os.path.dirname(__file__)),'data')
 
 optstd = ascii.read(os.path.join(basedir, 'opt.std.cat'), 
@@ -268,3 +273,63 @@ def getNIRNaturalMag(filt, names=None, tel='SWO', ins='RC'):
    
    return Table([objs[idx], res[idx], emags[idx]],
          names=['OBJ','mag','emag'])
+
+with open(os.path.join(basedir, 'PS_tcks.pkl'), 'rb') as fin:
+   PS_tcks = pickle.load(fin)
+def PSstand2nat(gp,rp,ip, tel='SWO', ins='NC'):
+   '''Take standard panstarrs g,r,i and convert to CSP ugriBV. This is
+   done either through color terms (if sufficiently linear) or
+   through a lookup table.'''
+   gmr = gp - rp
+   Bcsp = splev(gmr, PS_tcks['B']) + gp
+   eBcsp = splev(gmr, PS_tcks['eB'])
+   Vcsp = -0.411*(gmr) - 0.0336 + gp
+   eVcsp = 0.0207 + gmr*0
+   ucsp = splev(gmr, PS_tcks['u']) + gp
+   eucsp = splev(gmr, PS_tcks['eu']) + gp
+   gcsp = 0.0865*(gmr) + 0.027 + gp
+   egcsp = 0.0213 + gmr*0
+   rcsp = 0.0085*(gmr) - 0.0158 + rp
+   ercsp = 0.022 + gmr*0
+   icsp = -0.0344*(gmr) - 0.0166 + ip
+   eicsp = 0.023 + gmr*0
+   tab = Table([Bcsp,eBcsp,Vcsp,eVcsp,ucsp,eucsp,gcsp,egcsp,rcsp,ercsp,
+               icsp,eicsp], names=['B','eB','V','eV','u','eu','g','eg','r','er',
+                                   'i','ei'], masked=True)
+   for col in tab.colnames:   
+      # format and apply mask based on range of g-r from CSP LS sample
+      tab[col].info.format='%.3f'
+      tab[col].mask = less(gmr, -0.35) | greater(gmr, 1.56)
+   return tab
+
+with open(os.path.join(basedir, 'SM_tcks.pkl'),'rb') as fin:
+   SM_tcks = pickle.load(fin)
+def SMstand2nat(gp,rp,ip, tel='SWO', ins='NC'):
+   '''Take standard skymapper g,r,i and convert to CSP ugriBV. This is
+   done either through color terms (if sufficiently linear) or
+   through a lookup table.'''
+   gmr = gp - rp
+   Bcsp = 0.8994*gmr + 0.206
+   eBcsp = 0.044 + gmr*0
+   Vcsp = splev(gmr, SM_tcks['V']) + gp
+   eVcsp = splev(gmr, SM_tcks['eV'])
+   eVcsp = 0.0207 + gmr*0
+   ucsp = splev(gmr, SM_tcks['u']) + gp
+   eucsp = 0.115 + gmr*0
+   gcsp = 0.410*(gmr) + 0.0378 + gp
+   egcsp = 0.0287 + gmr*0
+   rcsp = -0.051*(gmr) - 0.015 + rp
+   ercsp = 0.024 + gmr*0
+   icsp = -0.0473*(gmr) - 0.0166 + ip
+   eicsp = 0.024 + gmr*0
+   tab = Table([Bcsp,eBcsp,Vcsp,eVcsp,ucsp,eucsp,gcsp,egcsp,rcsp,ercsp,
+               icsp,eicsp], names=['B','eB','V','eV','u','eu','g','eg','r','er',
+                                   'i','ei'], masked=True)
+   for col in tab.colnames:   
+      # format and apply mask based on range of g-r from CSP LS sample
+      tab[col].info.format='%.3f'
+      tab[col].mask = less(gmr, -0.15) | greater(gmr, 1.05)
+
+   return tab
+   
+
