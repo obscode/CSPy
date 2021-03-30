@@ -189,7 +189,30 @@ def biasCorrect(image, overscan=True, frame=None, outfile=None, tel='SWO',
       newfts.writeto(outfile, overwrite=True)
    return newfts
 
-def LinearityCorrect(fts, copy=False, tel='SWO',ins='NC', chip='@OPAMP'):
+def makeSigmaMap(fts, tel='SWO', ins='NC', outfile=None):
+   '''Use Poisson statistics and CCD properties to turn an image map into
+   a noise map. This should be done before things like dark and flat 
+   correcting as the image statistics depend on raw counts (e-)
+
+   Args:
+      fts (fts object):  Data frame
+      tel (str): Telescope code
+      ins (str): Instrument code
+   '''
+   specs = getTelIns(tel,ins)
+   gain = specs['gain']
+   rnois = specs['rnoise']
+
+   sigma = np.sqrt(fts[0].data/gain + (rnois/gain)**2)
+
+   phdu = fits.PrimaryHDU(sigma.astype(np.float32), header=fts[0].header)
+   nfts = fits.HDUList([phdu])
+   if outfile is not None:
+      nfts.writeto(outfile, overwrite=True)
+   return nfts
+
+def LinearityCorrect(fts, copy=False, tel='SWO',ins='NC', chip='@OPAMP', 
+      sigma=None):
    '''Perform linearity correction on the data. 
 
    Args:
@@ -201,12 +224,17 @@ def LinearityCorrect(fts, copy=False, tel='SWO',ins='NC', chip='@OPAMP'):
       chop (str, int, or None):  If None, there is only one chip, so not needed,
                   if int, use that as chip number, if string starting with @,
                   use as header keyword
+      sigma (fits object): If supplied, fts is used for linearity calcution,
+                           but is applied to sigma map and returned.
 
    Returns:
       fts object.  The original (with comment added) or new object'''
 
    if copy:
-      fts = fitsutils.copyFits(fts)
+      if sigma is not None:
+         sigma = fitsutils.copyFits(sigma)
+      else:
+         fts = fitsutils.copyFits(fts)
 
    lincors = getTelIns(tel,ins)['lincorr']
    if chip is not None:
@@ -223,12 +251,19 @@ def LinearityCorrect(fts, copy=False, tel='SWO',ins='NC', chip='@OPAMP'):
 
    spix = fts[0].data/32000.0
    fcor = alpha*(1.0 + c2*spix + c3*np.power(spix,2))
-   fts[0].data = fts[0].data*fcor
+   if sigma is not None:
+      sigma[0].data = fts[0].data*fcor
+      sigma[0].header['COMMENT'] = "Linearity correction applied with:"
+      sigma[0].header['COMMENT'] = \
+          "   c1={:.5f},c2={:.5f},c3={:.5f},alpha={:.5f}".format(c1,c2,c3,alpha)
+      return sigma
+   else:
+      fts[0].data = fts[0].data*fcor
 
-   fts[0].header['COMMENT'] = "Linearity correction applied with:"
-   fts[0].header['COMMENT'] = \
-         "   c1={:.5f},c2={:.5f},c3={:.5f},alpha={:.5f}".format(c1,c2,c3,alpha)
-   return fts
+      fts[0].header['COMMENT'] = "Linearity correction applied with:"
+      fts[0].header['COMMENT'] = \
+          "   c1={:.5f},c2={:.5f},c3={:.5f},alpha={:.5f}".format(c1,c2,c3,alpha)
+      return fts
 
 def ShutterCorrect(fts, frame=None, copy=False, tel='SWO',ins='NC', 
       chip='@OPAMP', exptime='@EXPTIME'):

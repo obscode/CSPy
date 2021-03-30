@@ -338,15 +338,19 @@ class Pipeline:
       for f in todo:
          self.log('Bias correcting CCD frames...')
          fts = ccdred.biasCorrect(f, overscan=True, frame=self.biasFrame)
+         err = ccdred.makeSigmaMap(fts)
          # Get the correct shutter file
          opamp = self.getHeaderData(f,'OPAMP')
          if opamp not in self.shutterFrames:
             shfile = join(self.calibrations, 'CAL', "SH{}.fits".format(opamp))
             self.shutterFrames[opamp] = fits.open(shfile, memmap=False)
          fts = ccdred.LinearityCorrect(fts)
+         err = ccdred.LinearityCorrect(fts, sigma=err)
          fts = ccdred.ShutterCorrect(fts, frame=self.shutterFrames[opamp])
+         err = ccdred.ShutterCorrect(err, frame=self.shutterFrames[opamp])
          bfile = self.getWorkName(f, 'b')
          fts.writeto(bfile, overwrite=True)
+         err.writeto(bfile.replace('.fits','_sigma.fits'), overwrite=True)
          self.bfiles.append(bfile)
          self.log('   Corrected file saved to {}'.format(bfile))
 
@@ -370,11 +374,15 @@ class Pipeline:
          filt = self.getHeaderData(f,'FILTER')
          bfile = self.getWorkName(f, 'b')
          ffile = self.getWorkName(f, 'f')
+         sfile1 = bfile.replace('.fits','_sigma.fits')
+         sfile2 = ffile.replace('.fits','_sigma.fits')
          if filt not in self.flatFrame:
             raise RuntimeError("No flat for filter {}. Abort!".format(filt))
          self.log("Flat field correcting {} --> {}".format(bfile,ffile))
          fts = ccdred.flatCorrect(bfile, self.flatFrame[filt],
                outfile=ffile)
+         # Copying should be fine, since flat is scaled to have mode = 1.0
+         os.system('cp {} {}'.format(sfile1,sfile2))
          self.ffiles.append(ffile)
 
    def identify(self):
@@ -500,6 +508,14 @@ class Pipeline:
             fts.writeto(fil, overwrite=True)
          fts.close()
 
+         if isfile(fil.replace('.fits','_sigma.fits')):
+            # Do the same transformation to the noise map
+            fts = fits.open(fil.replace('.fits','_sigma.fits'))
+            fts[0].data = fts[0].data.T
+            fts[0].data = fts[0].data[:,::-1]
+            fts[0].header['ROTANG'] = 90
+            fts.writeto(fil.replace('.fits','_sigma.fits'), overwrite=True)
+
          wcsimage = join(self.templates, "{}_{}.fits".format(
             ZID,filt))
          h = fits.getheader(wcsimage)
@@ -563,6 +579,7 @@ class Pipeline:
                gids[idx] = True
             cat = allcat[gids]
             cat = cat['objID','RA','DEC']
+            cat['id'] = arange(len(cat))
             cat['RA'].info.format="%10.6f"
             cat['DEC'].info.format="%10.6f"
             self.log('Creating LS catalog with {} objets'.format(len(cat)))
@@ -593,8 +610,8 @@ class Pipeline:
             self.ignore.append(fil)
             continue
          phot = phot[gids]
-         
          phot.sort('objID')
+         
          phot.write(fil.replace('.fits','.phot0'), format='ascii.fixed_width',
                delimiter=' ')
          gids = np.greater(phot['objID'], 0)
