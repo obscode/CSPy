@@ -511,7 +511,7 @@ class Pipeline:
          if new is None:
             self.log("Fast WCS failed... resorting to astrometry.net")
             new = do_astrometry.do_astrometry([fil], replace=True,
-                  verbose=True, other=['--overwrite'], 
+                  verbose=True, other=['--overwrite','-p'], 
                   dir=cfg.software.astrometry)
             if new is None:
                self.log("astrometry.net failed for {}. No WCS coputed, "
