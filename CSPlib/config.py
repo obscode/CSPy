@@ -130,5 +130,5 @@ def getconfig(filename=None):
    print("No configuration file found. Using defaults and saving as ")
    print("CSPconf.cfg in the current folder. You may want to edit it.")
    import shutil
-   shutil.copyfile(cfg, 'CSPconf.cfg')
-   return config('CSPconfig.cfg')
+   shutil.copyfile(cfg, './CSPconf.cfg')
+   return config('./CSPconf.cfg')
