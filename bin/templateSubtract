@@ -1,0 +1,82 @@
+#!/usr/bin/env python
+
+import argparse
+from imagematch import ImageMatching_scalerot as ImageMatch
+from imagematch.fitsutils import qdump
+from astropy.io import fits
+from CSPlib.config import getconfig
+import CSPlib
+from os.path import join,isfile, dirname
+from astropy.wcs import WCS
+
+cfg = getconfig()
+
+
+parser = argparse.ArgumentParser(
+      description='Simplified template subtraction script for Swope pipeline')
+parser.add_argument('image', help='Image to subtract')
+parser.add_argument('-R', help='Reverse the subtraction', action='store_true')
+parser.add_argument('-p', help='Set the kernel width', type=int, default=11)
+parser.add_argument('-o', help='Set the order of geometric transformation',
+      type=int, default=3)
+parser.add_argument('-m', help='Specify template image. Defaut:  search',
+      default=None)
+parser.add_argument('-imax', help='Maximum magnitude for image', type=float,
+      default=22)
+parser.add_argument('-imin', help='Minimum magnitude for image', type=float,
+      default=11)
+parser.add_argument('-mmax', help='Maximum magnitude for template', type=float,
+      default=22)
+parser.add_argument('-mmin', help='Minimum magnitude for template', type=float,
+      default=11)
+parser.add_argument('-X', help="range of X pixels")
+parser.add_argument('-Y', help="range of Y pixels")
+args = parser.parse_args()
+
+obs = ImageMatch.Observation(args.image, scale=0.435, saturate=4e4, reject=True,
+      snx='SNRA', sny='SNDEC', magmax=args.imax, magmin=args.imin)
+
+ifts = fits.open(args.image)
+obj = ifts[0].header['OBJECT']
+filt = ifts[0].header['FILTER']
+
+if args.m is not None:
+   reffile = args.m
+else:
+   reffile = join(cfg.data.templates, "{}_{}.fits".format(obj,filt))
+if not isfile(reffile):
+   raise IOError('Template file {} not found'.format(reffile))
+magcat = join(cfg.data.templates, "{}.cat".format(obj))
+if not isfile(magcat):
+   raise IOError('Catalog file {} not found'.format(magcat))
+
+if args.X is not None:
+   xwin = list(map(int, args.X.split(',')))
+else:
+   xwin = [200,1848]
+if args.Y is not None:
+   ywin = list(map(int, args.Y.split(',')))
+else:
+   ywin = [200,1848]
+
+mfts = fits.open(reffile)
+wcs = WCS(mfts[0])
+scale = abs(wcs.pixel_scale_matrix[0,0])*3600
+ref = ImageMatch.Observation(reffile, scale=scale, saturate=6e4, reject=True,
+      magmax=args.mmax, magmin=args.mmin)
+
+sexdir = join(dirname(CSPlib.__file__),'data','sex')
+
+res = obs.GoCatGo(ref, skyoff=True, pwid=args.p, perr=3.0, nmax=100, 
+      nord=args.o, match=True, subt=True, quick_convolve=True, do_sex=True,
+      thresh=3., sexdir=sexdir, diff_size=35, bs=True, usewcs=True,
+      xwin=xwin, ywin=ywin, vcut=1e8, magcat=magcat, magcol='rmag',
+      rev=args.R, preserve=args.R)
+
+# Output the full difference image too.
+if args.R:
+   diff = (obs.match-obs.timage)/obs.fluxrat
+else:
+   diff = obs.data - obs.match
+
+qdump(args.image.replace('.fits','fulldiff.fits'), diff, obs.image)
