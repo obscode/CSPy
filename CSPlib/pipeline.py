@@ -2,6 +2,8 @@
 work of classifying images types, do the calibrations, and watching for
 new files.'''
 
+import matplotlib
+matplotlib.use('Agg')
 from astropy.io import fits,ascii
 from astropy.coordinates import SkyCoord
 from astropy import units as u
