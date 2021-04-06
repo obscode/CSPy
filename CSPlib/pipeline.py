@@ -11,9 +11,11 @@ from astropy.stats import sigma_clipped_stats
 from .npextras import between
 import numpy as np
 from .phot import ApPhot
+from .colorterms import getOptNaturalMag
 from . import ccdred
 from . import headers
 from . import do_astrometry
+from . import calibration
 from imagematch import ImageMatching_scalerot as ImageMatch
 from .objmatch import WCStoImage
 import os
@@ -390,21 +392,32 @@ class Pipeline:
       we can.'''
       todo = [f for f in self.ffiles if f not in self.ignore]
       for f in todo:
-         if f in self.ZIDs:  continue   # done it already
+         if f in self.ZIDs or f in self.stdIDs:  continue   # done it already
          filt = self.getHeaderData(f, 'FILTER')
-         if filt not in ['g','r','i']:
-            self.log('Skipping {} with filter {}'.format(f,filt))
-            self.ignore.append(f)
-            continue
-         if f not in self.ZIDs and f not in self.ignore:
-            obj = self.getHeaderData(f,'OBJECT')
-            self.log("OBJECT is {}".format(obj))
+         obj = self.getHeaderData(f,'OBJECT')
+         self.log("OBJECT is {}, FILTER = {}".format(obj,filt))
 
-            # First, if this is a standard, just leave it at taht
-            if obj.find('CSF') == 0 or obj.find('PS') == 0:
-               self.log("This is a standard, we're done (for now)")
-               self.stdIDs[f] = obj
-               continue
+         # First, if this is a standard, and keep in different list
+         if obj.find('CSF') == 0 or obj.find('PS') == 0:
+            self.log("This is a standard star field")
+            ref = join(self.templates, "{}_r.fits".format(obj))
+            if not isfile(ref):
+               cmd = 'rclone copy CSP:Swope/templates/{}_r.fits {}'.format(
+                     obj,self.templates)
+               ret = os.system(cmd)
+               if ret != 0:
+                  self.log("Can't get reference image from gdrive. skipping")
+                  self.ignore.append(f)
+                  continue
+            # All's good, we'll consider it
+            self.stdIDs[f] = obj
+
+         else:
+            # Figure out the science object
+            #if filt not in ['g','r','i']:
+            #   self.log('Skipping science {} with filter {}'.format(f,filt))
+            #   self.ignore.append(f)
+            #   continue
             # First, check to see if the catalog exists locally
             catfile = join(self.templates, obj+'.cat')
             if isfile(catfile):
@@ -416,7 +429,6 @@ class Pipeline:
                   self.log('Could not contact csp2 database, trying gdrive...')
                   cmd = 'rclone copy CSP:Swope/templates/{}.cat {}'.format(
                         obj,self.templates)
-                  print(cmd)
                   ret = os.system(cmd)
                   if ret != 0:
                      self.log("Can't contact csp2 or gdrive, giving up!")
@@ -432,64 +444,75 @@ class Pipeline:
                   c = SkyCoord(ra, dec, unit=(u.hourangle, u.degree))
                   res = database.getCoordsName(c.ra.value, c.dec.value)
                   if res == -1 or res == -2:
-                     self.log('Coordinate lookup failed, assuming standard...')
+                     self.log('Coordinate lookup failed, assuming other...')
                      self.ignore.append(f)
                      continue
- 
+         
                   self.log('Found {} {} degrees from frame center'.format(
                      res[0], res[3]))
                   ra,dec = res[1],res[2]
                   self.ZIDs[f] = res[0]
                else:
                   self.ZIDs[f] = obj
-         # At this point, self.ZIDS[f] is the ZTF ID
-         tmpname = "{}_{}.fits".format(self.ZIDs[f], filt)
-         if not isfile(join(self.templates, tmpname)):
-            cmd = 'rclone copy CSP:Swope/templates/{}_{}.fits {}'.format(
-                    self.ZIDs[f], filt, self.templates)
-            res = os.system(cmd)
-            if res == 0:
-                self.log('Retrieved template file {}'.format(tmpname))
+            # At this point, self.ZIDS[f] is the ZTF ID
+            if filt in ['B','V']:
+               tmpname = "{}_g.fits".format(self.ZIDs[f])
             else:
-                self.log('Failed to get template from gdrive: {}'.format(
-                    tmpname))
-                self.ignore.append(f)
-         # Get the catalog file
-         catfile = "{}.cat".format(self.ZIDs[f])
-         if not isfile(join(self.templates, catfile)):
-            cmd = 'rclone copy CSP:Swope/templates/{} {}'.format(
-                    catfile, self.templates)
-            res = os.system(cmd)
-            if res == 0:
-                self.log('Retrieved catalog file {}'.format(catfile))
+               tmpname = "{}_{}.fits".format(self.ZIDs[f], filt)
+            if not isfile(join(self.templates, tmpname)):
+               cmd = 'rclone copy CSP:Swope/templates/{} {}'.format(tmpname, 
+                     self.templates)
+               res = os.system(cmd)
+               if res == 0:
+                   self.log('Retrieved template file {}'.format(tmpname))
+               else:
+                   self.log('Failed to get template from gdrive: {}'.format(
+                       tmpname))
+                   self.ignore.append(f)
+                   continue
+            # Get the catalog file
+            catfile = "{}.cat".format(self.ZIDs[f])
+            if not isfile(join(self.templates, catfile)):
+               cmd = 'rclone copy CSP:Swope/templates/{} {}'.format(
+                       catfile, self.templates)
+               res = os.system(cmd)
+               if res == 0:
+                   self.log('Retrieved catalog file {}'.format(catfile))
+               else:
+                   self.log('Failed to get catalog file from gdrive: {}'.format(
+                       catfile))
+                   self.ignore.append(f)
+                   continue
+            tab = ascii.read(join(self.templates,"{}.cat".format(self.ZIDs[f])))
+            if 0 not in tab['objID']:
+               self.log('No SN object in catalog file, skipping...')
+               self.ignore.append(f)
+               continue
             else:
-                self.log('Failed to get catalog file from gdrive: {}.'.format(
-                    catfile))
-                self.ignore.append(f)
-                continue
-         tab = ascii.read(join(self.templates,"{}.cat".format(self.ZIDs[f])))
-         if 0 not in tab['objID']:
-            self.log('No SN object in catalog file, skipping...')
-            self.ignore.append(f)
-         else:
-            # Update FITS header with SN position
-            idx = list(tab['objID']).index(0)
-            ra = tab[idx]['RA']
-            dec = tab[idx]['DEC']
-            fts = fits.open(f,memmap=False)
-            fts[0].header['SNRA'] = "{:.6f}d".format(ra)
-            fts[0].header['SNDEC'] = "{:.6f}d".format(dec)
-            fts.writeto(f, overwrite=True)
+               # Update FITS header with SN position
+               idx = list(tab['objID']).index(0)
+               ra = tab[idx]['RA']
+               dec = tab[idx]['DEC']
+               fts = fits.open(f,memmap=False)
+               fts[0].header['SNRA'] = "{:.6f}d".format(ra)
+               fts[0].header['SNDEC'] = "{:.6f}d".format(dec)
+               fts.writeto(f, overwrite=True)
 
    def solve_wcs(self):
       '''Go through the astro files and solve for the WCS. This can go
       one of two ways:  either we get a quick solution from catalog
       matching, or if that fails, use astrometry.net (slower).'''
-      todo = [fil for fil in self.ZIDs if fil not in self.wcsSolved \
-            and fil not in self.ignore]
+      todo = [fil for fil in list(self.ZIDs.keys())+list(self.stdIDs.keys()) \
+            if fil not in self.wcsSolved and fil not in self.ignore]
 
       for fil in todo:
-         ZID = self.ZIDs[fil]
+         self.log("Solving WCS for {}".format(fil))
+         if fil in self.ZIDs:
+            ZID = self.ZIDs[fil]
+            standard = False
+         else:
+            ZID = self.stdIDs[fil]
+            standard = True
          filt = self.getHeaderData(fil, 'FILTER')
       
          # check to see if we have a wcs already
@@ -516,8 +539,16 @@ class Pipeline:
             fts[0].header['ROTANG'] = 90
             fts.writeto(fil.replace('.fits','_sigma.fits'), overwrite=True)
 
-         wcsimage = join(self.templates, "{}_{}.fits".format(
-            ZID,filt))
+         if standard:
+            wcsimage = join(self.templates, "{}_r.fits".format(
+               ZID,filt))
+         else:
+            if filt in ['u','B','V']:
+               wcsimage = join(self.templates, "{}_{}.fits".format(
+                  ZID,'g'))
+            else:
+               wcsimage = join(self.templates, "{}_{}.fits".format(
+                  ZID,filt))
          h = fits.getheader(wcsimage)
          if 'TELESCOP' not in h or h['TELESCOP'] != 'SkyMapper':
             new = WCStoImage(wcsimage, fil, angles=np.arange(-2,2.5,0.5),
@@ -538,34 +569,52 @@ class Pipeline:
          else:
             new.writeto(fil, overwrite=True)
             self.wcsSolved.append(fil)
-
-         # Make a link to a better name:
-         #name = self.makeFileName(fil)
-         #os.symlink(fil, name)
       return
 
    def photometry(self):
       '''Using the PanSTARRS catalog, we do initial photometry on the field
-      and determine a zero-point.'''
+      and determine a zero-point. Or, if we have stanard fields, we do
+      the aperture photometry on them and determine a zero-point.'''
 
       todo = [fil for fil in self.wcsSolved if fil not in self.initialPhot \
             and fil not in self.ignore]
 
+      # If we have standards, keep a record for zero-pointing later
+      if len(list(self.stdIDs.keys())) > 0:
+         if not (isfile('standards.phot')):
+            stdf = open('standards.phot','w')
+            stdf.write('{:12s} {:2s} {:7s} {:6s} {:7s} {:6s} '\
+                 '{:5s} {:6sf} {:s}\n'.format('Field','filt','mins','emins',
+                    'mag','emag','airm','expt','fits'))
+         else:
+            stdf = open('standards.phot','a')
+      else:
+         stdf = None
+
       for fil in todo:
+         standard = fil in self.stdIDs
          self.log('Working on photometry for {}'.format(fil))
          # Check to see if we've done the photometry already
          if isfile(fil.replace('.fits','.phot0')):
             self.initialPhot.append(fil)
             continue
-         obj = self.ZIDs[fil]
          filt = self.getHeaderData(fil, 'FILTER')
-         catfile = join(self.templates, '{}_LS.cat'.format(obj))
-         allcat = ascii.read(join(self.templates, '{}.cat'.format(obj)))
+         if not standard:
+            obj = self.ZIDs[fil]
+            catfile = join(self.templates, '{}_LS.cat'.format(obj))
+            allcat = ascii.read(join(self.templates, '{}.nat'.format(obj)),
+                  fill_values=[('...',0)])
+         else:
+            obj = self.stdIDs[fil]
+            catfile = join(self.templates, '{}_LS.cat'.format(obj))
+            allcat = getOptNaturalMag(filt)
+            allcat.rename_column('OBJ','objID')
+
          if not isfile(catfile):
             # Now remove stars below/above thresholds
-            gids = allcat['rmag'] < 20
-            gids = gids*(allcat['rmag'] > 12)
-            gids = gids*np.greater(allcat['rerr'], 0)
+            gids = allcat['r'] < 20
+            gids = gids*(allcat['r'] > 12)
+            gids = gids*np.greater(allcat['er'], 0)
             # make sure well-separated
             ra = allcat['RA'];  dec = allcat['DEC']
             dists = np.sqrt(np.power(dec[np.newaxis,:]-dec[:,np.newaxis],2) +\
@@ -599,21 +648,49 @@ class Pipeline:
             self.ignore.append(fil)
             continue
          phot.rename_column('OBJ','objID')
-         phot = table.join(phot, allcat['objID',filt+'mag',filt+'err'],
-               keys='objID')
+         if not standard:
+            phot = table.join(phot, allcat['objID',filt,'e'+filt], keys='objID')
+            phot.rename_column(filt,filt+'mag')
+            phot.rename_column('e'+filt, filt+'err')
+
+            #phot = table.join(phot, allcat['objID',filt+'mag',filt+'err'],
+            #      keys='objID')
+            phot[filt+'mag'].info.format='%.4f'
+            phot[filt+'err'].info.format='%.4f'
+         else:
+            phot = table.join(phot, allcat['objID','mag','emag'], keys='objID')
+            phot['mag'].info.format='%.4f'
+            phot['emag'].info.format='%.4f'
+
          phot.remove_column('id')
 
          # Just the good stuff
          gids = (~np.isnan(phot['ap2er']))*(~np.isnan(phot['ap2']))
          if not np.sometrue(gids):
-            self.log("Initial photomery failed for {}, skipping...".format(fil))
+            self.log("Initial photomery failed for {}, skipping...".format(
+               fil))
             self.ignore.append(fil)
             continue
          phot = phot[gids]
          phot.sort('objID')
+         phot['exptime'] = self.getHeaderData(fil, 'EXPTIME')
          
          phot.write(fil.replace('.fits','.phot0'), format='ascii.fixed_width',
-               delimiter=' ')
+               delimiter=' ', fill_values=[(ascii.masked, '...')])
+         if standard:
+            # We're done for now.
+            self.initialPhot.append(fil)
+
+            # Update standard photomery
+            for i in range(len(phot)):
+               if phot['mag'].mask[i]: continue
+               if phot['flags'][i] > 0: continue
+               stdf.write('{:12s} {:.2s} {:7.4f} {:6.4f} {:7.4f} {:6.4f} '\
+                 '{:5.3f} {:6.1f} {:s}\n'.format(obj,filt, 
+                 *phot[i]['ap2','ap2er','mag','emag','airmass','exptime',
+                          'fits']))
+
+            continue
          gids = np.greater(phot['objID'], 0)
          gids = gids*between(phot[filt+'mag'], 15, 20)
          if not np.sometrue(gids):
@@ -695,6 +772,7 @@ class Pipeline:
          axes[1].set_ylim(-1,1)
          fts[0].writeto(fil, overwrite=True)
          fig.savefig(fil.replace('.fits','_zp.jpg'))
+      if stdf is not None: stdf.close()
 
 
       return
@@ -706,13 +784,18 @@ class Pipeline:
       todo = [fil for fil in self.subtracted if \
             fil not in self.finalPhot and fil not in self.ignore]
 
+
       for fil in todo:
          self.log('Working on final photometry for {}'.format(fil))
+         if isfile(fil.replace('.fits','.phot')):
+            self.finalPhot.append(fil)
+            continue
          obj = self.ZIDs[fil]
          filt = self.getHeaderData(fil, 'FILTER')
          catfile = join(self.templates, '{}_LS.cat'.format(obj))
          cat = ascii.read(catfile)
-         allcat = ascii.read(join(self.templates, '{}.cat'.format(obj)))
+         allcat = ascii.read(join(self.templates, '{}.nat'.format(obj)),
+                  fill_values=[('...',0)])
          fts = fits.open(fil, memmap=False)
          zpt = fts[0].header['ZP']
          ezpt = fts[0].header['EZP']
@@ -726,9 +809,11 @@ class Pipeline:
          self.log('Doing aperture photometry...')
          phot = ap.doPhotometry()
          phot.rename_column('OBJ','objID')
-         phot = table.join(phot, allcat['objID',filt+'mag',filt+'err'],
+         phot = table.join(phot, allcat['objID',filt,'e'+filt],
                keys='objID')
          phot.remove_column('id')
+         phot.rename_column(filt,filt+'mag')
+         phot.rename_column('e'+filt,filt+'err')
 
          # Just the good stuff
          gids = (~np.isnan(phot['ap2er']))*(~np.isnan(phot['ap2']))
@@ -765,7 +850,7 @@ class Pipeline:
       and then redo the photometry for the SN object'''
 
       todo = [fil for fil in self.initialPhot if fil not in self.subtracted \
-            and fil not in self.ignore]
+            and fil not in self.ignore and fil not in self.stdIDs]
       for fil in todo:
          obj = self.ZIDs[fil]
          diff = fil.replace('.fits','diff.fits')
@@ -775,7 +860,10 @@ class Pipeline:
             self.subtracted.append(fil)
             continue
          filt = self.getHeaderData(fil, 'FILTER')
-         template = join(self.templates, '{}_{}.fits'.format(obj,filt))
+         if filt in ['B','V']:
+            template = join(self.templates, '{}_g.fits'.format(obj,filt))
+         else:
+            template = join(self.templates, '{}_{}.fits'.format(obj,filt))
          obs = ImageMatch.Observation(fil, scale=0.435, saturate=4e4, 
                reject=True, snx='SNRA', sny='SNDEC', magmax=22,
                magmin=11)
@@ -841,6 +929,9 @@ class Pipeline:
          self.template_subtract()
          self.subphotometry()
 
+         if poll_interval < 0:
+            # only once through
+            break
          time.sleep(poll_interval)
 
       self.log("Pipeline stopped normally at {}".format(
