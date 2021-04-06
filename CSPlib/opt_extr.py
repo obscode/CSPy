@@ -75,6 +75,8 @@ Here follows original comments:
         was not calculated properly when the sky was negative, and the 
         clipped mean wasn't done properly either.
 '''
+import matplotlib
+matplotlib.use('Agg')
 import sys,os,string
 import numpy as np
 from .tel_specs import getTelIns
