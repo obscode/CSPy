@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# Tidy things up, removing un-needed intermediate files, once we're sure things
+# went well.
+
+# First, we'll zip up the ccd* frames.
+echo "gzip'ing raw ccd frames..."
+gzip ccd*.fits
+
+echo "Removing intermediate FITS products..."
+# Next, the bias corrected, but not flat-field corrected
+rm bcd*.fits
+
+# The products of WCS and astrometry.net's solution
+rm *_wcs.png
+rm *-ngc.png
+rm *-objs.png
+rm *-indx.png
+
+echo "Removing un-needed template subtraction products..."
+rm *SN.fits
+rm *db.txt
+rm *master.fits
+rm *_nonan.fits
+rm *bases.fits
+rm *grid.fits
+rm *mask.fits
+rm *master.fits
+rm *rdv.fits
+rm *seg.fits
+rm *weight.fits

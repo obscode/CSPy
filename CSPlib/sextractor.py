@@ -16,7 +16,7 @@ ANALYSIS_THRESH {thresh:.2f}
 FILTER          N
 FILTER_NAME     {tmpdir}/sextractor.conv
 DEBLEND_NTHRESH 32
-DEBLEND_MINCONT 0.005
+DEBLEND_MINCONT {deblend_mc:.3f}
 CLEAN           Y
 CLEAN_PARAM     1.0
 MASK_TYPE       CORRECT
@@ -52,7 +52,7 @@ class SexTractor:
       if gain is not None: self.gain = gain
       self.tmpdir = tempfile.mkdtemp(dir='.')
 
-   def makeSexFiles(self, aper, datamax, fwhm, thresh):
+   def makeSexFiles(self, aper, datamax, fwhm, thresh, deblend_mc=0.005):
       '''Output a sextractor config file.
 
       Args: 
@@ -93,11 +93,11 @@ class SexTractor:
       os.rmdir(self.tmpdir)
 
    def run(self, fwmin=0.7, fwmax=2.5, thresh=3, datamax=30000,
-         Nmax=None):
+         Nmax=None, deblend_mc=0.005):
 
       aper = fwmin+fwmax
       fwhm = fwmin+(fwmin+fwmax)/4
-      self.makeSexFiles(aper, datamax, fwhm, thresh)
+      self.makeSexFiles(aper, datamax, fwhm, thresh, deblend_mc)
       if not isinstance(self.image, str):
          image = os.path.join(self.tmpdir, 'image.fits')
          self.image.writeto(image, overwrite=True)

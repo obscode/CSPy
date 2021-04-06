@@ -1,0 +1,25 @@
+#!/usr/bin/env python
+
+from astropy.io import ascii,fits
+from astropy.table import hstack
+import sys
+from CSPlib.calibration import PSstand2nat,SMstand2nat
+
+for fil in sys.argv[1:]:
+   tab = ascii.read(fil)
+   ftsfile = fil.replace('.cat','_g.fits')
+   fts = fits.open(ftsfile)
+   if 'TELESCOP' in fts[0].header and fts[0].header['TELESCOP'] == 'SkyMapper':
+      nats = SMstand2nat(tab['gmag'],tab['rmag'],tab['imag'])
+   else:
+      nats = PSstand2nat(tab['gmag'],tab['rmag'],tab['imag'])
+   newtab = hstack([tab,nats])
+   newtab.remove_columns(['gmag','gerr','rmag','rerr','imag','ierr'])
+   idx = list(newtab['objID']).index(0)
+   for filt in ['u','g','r','i','B','V']:
+      newtab[idx][filt] = -1
+      newtab[idx]['e'+filt] = -1
+   newtab.write(fil.replace('.cat','.nat'), format='ascii.fixed_width',
+         delimiter=' ', fill_values=[(ascii.masked,'...')], overwrite=True)
+      
+

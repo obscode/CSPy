@@ -3,6 +3,7 @@ from numpy import *
 from .npextras import bwt 
 from .basis import svdfit,abasis
 from .sextractor import SexTractor
+from .phot import recenter
 from astropy.wcs import WCS
 from astropy.io import fits
 import aplpy
@@ -332,6 +333,9 @@ def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO',
    dists = sqrt(power(pi-ii,2) + power(pj-ij,2))
    sig = 1.5*median(dists)
    print("MAD dispersion in WCS determination: {}".format(sig))
+   if sig > 5.0:
+      print("MAD > 5.0, looks like we failed to converge")
+      return None
 
    if plotfile is not None:
       fig = aplpy.FITSFigure(image)
@@ -340,3 +344,79 @@ def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO',
       fig.savefig(plotfile)
 
    return image
+
+def TweakWCS(wcsimage, image, tel='SWO', ins='NC', Nstars=100, verbose=False,
+      tol=5):
+   '''Given an image with wcs info and another image from the same instrument
+   and pointing (next filter, repeated observation, etc), do a WCS solution.
+   The expectation is that the stars will not have moved by more than a few
+   FWHM in between observations.
+
+   Input:
+      wcsimage (fits,str):  The image (or file) with the valid WCS
+      image (fits,str):  The image that needs a WCS
+      tel,ins (str,str):  The Telescope and instrument codes
+      Nstars (int):  Maximum number of stars to solve
+      verbose(bool):  Be verbose?
+      tol (float):  Tolerance for the std-dev of residuals'''
+
+   # Convert to FITS if needed
+   if isinstance(wcsimage, str):
+      wcsimage = fits.open(wcsimage)
+   if isinstance(image, str):
+      image = fits.open(image)
+
+   # Make sure we have rotated
+   if 'ROTANG' not in image[0].header:
+      image[0].data = image[0].data.T
+      image[0].data = image[0].data[:,::-1]
+      image[0].header['ROTANG'] = 90
+
+   # First, we get the sources from the wcsimage and their world coords
+   s = SexTractor(wcsimage, tel, ins)
+   s.run(deblend_mc=1.0)
+   wcat = s.parseCatFile()
+   wcs = WCS(wcsimage[0])
+   wi,wj = wcat['X_IMAGE'],wcat['Y_IMAGE']
+   wx,wy = wcs.wcs_pix2world(wi,wj, 1)
+
+   # Now recenter on the target image
+   ii,ij,flags = recenter(wi, wj, image[0].data, method='com')
+
+   gids = equal(flags, 0)
+   if sum(gids) < 5:
+      print("Not enough good stars")
+      return None
+
+   i0 = image[0].data.shape[1]//2
+   j0 = image[0].data.shape[0]//2
+   xc,yc = median(wx[gids]),median(wy[gids])
+   u,v = normalcoord(wx[gids], wy[gids], xc, yc)
+
+   u0,v0,cd11,cd12,cd21,cd22 = fitpix2RADEC(ii[gids]-i0, ij[gids]-j0, u, v)
+   ra0,dec0 = equicoord(u0, v0, xc, yc)
+
+   image[0].header['CTYPE1'] = 'RA---TAN'
+   image[0].header['CTYPE2'] = 'DEC--TAN'
+   image[0].header['CRPIX1'] = i0
+   image[0].header['CRPIX2'] = j0
+   image[0].header['CRVAL1'] = ra0
+   image[0].header['CRVAL2'] = dec0
+   image[0].header['CD1_1'] = cd11
+   image[0].header['CD1_2'] = cd12
+   image[0].header['CD2_1'] = cd21
+   image[0].header['CD2_2'] = cd22
+
+   # Estimate how good we're doing
+   nwcs = WCS(image[0])
+   # predicted pixels
+   pi,pj = nwcs.wcs_world2pix(wx[gids],wy[gids],1)
+   dists = sqrt(power(pi-ii[gids],2) + power(pj-ij[gids],2))
+   sig = 1.5*median(dists)
+   print("MAD dispersion in WCS determination: {}".format(sig))
+   if sig > tol:
+      print("MAD > {} looks like we failed to converge".format(tol))
+      return None
+
+   return image
+

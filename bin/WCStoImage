@@ -1,0 +1,28 @@
+#!/usr/bin/env python
+
+from CSPlib.objmatch import WCStoImage
+import argparse
+
+parser = argparse.ArgumentParser(description='Transfer a WCS from one image to'\                                             ' another.')
+parser.add_argument('wcsimage', help='Image with a valid WCS')
+parser.add_argument('images', help='Image(s) to transfer the WCS to', nargs='+')
+parser.add_argument('-scale', help='The image scale of the targets. Either a'\
+                                   ' number or header keyword. Default: SCALE')
+parser.add_argument('-Nstars', help='Maximum number of stars to consider. The '\
+                                    'problem scales as N^2', type=int)
+parser.add_argument('-plotfile', help='If given as a filename, plot the WCS')
+parser.add_argument('-tel', help='Telescope code (default SWO)', default='SWO')
+parser.add_argument('-ins', help='Instrument code (default NC)', default='NC')
+
+args = parser.parse_args()
+
+for fil in args.images:
+   newfts = WCStoImage(args.wcsimage, fil, scale=args.scale, tel=args.tel,
+         ins=args.ins, Nstars=args.Nstars, plotfile=args.plotfile)
+   if newfts is None:
+      print("Error, could not compute WCS for {}, skipping...".format(fil))
+      continue
+
+   print("Updating {}'s WCS".format(fil))
+   newfts.writeto(fil, overwrite=True)
+

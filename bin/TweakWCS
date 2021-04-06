@@ -1,0 +1,28 @@
+#!/usr/bin/env python
+
+from CSPlib.objmatch import TweakWCS
+import argparse
+
+parser = argparse.ArgumentParser(description='Tweak a WCS from one image to'\
+                                 ' another from the same field')
+parser.add_argument('wcsimage', help='Image with a valid WCS')
+parser.add_argument('images', help='Image(s) to transfer the WCS to', nargs='+')
+parser.add_argument('-Nstars', help='Maximum number of stars to consider. The '\
+                                    'problem scales as N^2', type=int)
+parser.add_argument('-tel', help='Telescope code (default SWO)', default='SWO')
+parser.add_argument('-ins', help='Instrument code (default NC)', default='NC')
+parser.add_argument('-tol', help='tolerance in std-dev of residuals', 
+      type=float, default=5.0)
+
+args = parser.parse_args()
+
+for fil in args.images:
+   newfts = TweakWCS(args.wcsimage, fil, tel=args.tel, ins=args.ins, 
+         Nstars=args.Nstars, tol=args.tol)
+   if newfts is None:
+      print("Error, could not compute WCS for {}, skipping...".format(fil))
+      continue
+
+   print("Updating {}'s WCS".format(fil))
+   newfts.writeto(fil, overwrite=True)
+

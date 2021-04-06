@@ -138,11 +138,6 @@ for fil in tqdm(args.fits):
    # Start with a guess of FWHM = 1 arcsec
    this_fwhm = 1.0/opt.scale
 
-   try:
-      zmag = float(args.zmag)
-   except:
-      zmag = opt._parse_key(args.zmag, fallback=30.0)
-
    opt.log("HEADER INFO")
    opt.log("   gain = {}".format(opt.gain))
    opt.log("   fwhm = {}".format( this_fwhm))

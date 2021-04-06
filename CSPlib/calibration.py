@@ -1,16 +1,21 @@
-'''A python module that deals with photometric transformations between
-CSP natural and standard systems. Mostly this deals with color-terms.
+'''A python module that deals with calibration and photometric transformations 
+between CSP natural and standard systems. Mostly this deals with color-terms.
 
 2021/03/12:  Added in color terms and transformations to go from
-             panstarrs and skymapper mags to CSP mags'''
+             panstarrs and skymapper mags to CSP mags
+
+2021/04/02:  Renamed to calibration.py. Putting all zp-related stuff here too'''
 from numpy import *
 from astropy.io import ascii
-from astropy.table import Table
+from astropy.table import Table,join
 from astropy.coordinates import SkyCoord
 from scipy.interpolate import splev
 from astropy import units as u
 import os
 import pickle
+import matplotlib.pyplot as plt
+from matplotlib import transforms
+import re
 basedir = os.path.join(os.path.realpath(os.path.dirname(__file__)),'data')
 
 optstd = ascii.read(os.path.join(basedir, 'opt.std.cat'), 
@@ -18,6 +23,8 @@ optstd = ascii.read(os.path.join(basedir, 'opt.std.cat'),
       names=['OBJ','RAh','RAm','RAs','DECd','DECm','DECs','V','BV','UB',
              'VR','RI','VI','eV','eBV','eUB','eVR','eRI','eVI',
              'r','ug','gr','ri','iz','er','eug','egr','eri','eiz'])
+optcoord = ascii.read(os.path.join(basedir, 'STDS.txt'))
+optstd = join(optstd,optcoord, keys='OBJ')
 nirstd = ascii.read(os.path.join(basedir, 'nir.std.cat'),
       fill_values=('INDEF', -99),
       names=['OBJ','index','RA','DEC','epoch','Y','eY','J','eJ','H','eH','K',
@@ -86,7 +93,13 @@ colors = {'B':('B','V'),
           'r':('r','i'),
           'i':('r','i')}
 
-kX = {'u':0.51, 'g':0.19, 'r':0.11, 'i':0.07, 'B':0.24, 'V':0.14}
+kX = {('SWO','DC'):{
+         'u':0.504, 'g':0.193, 'r':0.103, 'i':0.06, 'B':0.244, 'V':0.141},
+      ('SWO','NC'):{
+         'u':0.507, 'g':0.186, 'r':0.090, 'i':0.051, 'B':0.231, 'V':0.136}
+      }
+
+
 
 
 def stand2nat(up,gp,rp,ip,B,V, tel='SWO', ins='DC'):
@@ -184,23 +197,23 @@ def getOptStandardMag(filt, names=None):
       tab = optstd[:]
 
    if filt == 'V':
-      tab = tab['OBJ','V','eV']
+      tab = tab['OBJ','RA','DEC','V','eV']
    elif filt == 'r':
-      tab = tab['OBJ','r','er']
+      tab = tab['OBJ','RA','DEC','r','er']
    elif filt == 'B':
-      tab = Table([tab['OBJ'], tab['BV']+tab['V'],
+      tab = Table([tab['OBJ'],tab['RA'],tab['DEC'], tab['BV']+tab['V'],
          sqrt(power(tab['eBV'],2)+power(tab['eV'],2))])
    elif filt == 'g':
-      tab = Table([tab['OBJ'], tab['gr']+tab['r'],
+      tab = Table([tab['OBJ'],tab['RA'],tab['DEC'], tab['gr']+tab['r'],
          sqrt(power(tab['egr'],2)+power(tab['er'],2))])
    elif filt == 'i':
-      tab = Table([tab['OBJ'], tab['r']-tab['ri'],
+      tab = Table([tab['OBJ'],tab['RA'],tab['DEC'], tab['r']-tab['ri'],
          sqrt(power(tab['eri'],2)+power(tab['er'],2))])
    elif filt == 'u':
-      tab = Table([tab['OBJ'], tab['r']+tab['gr']+tab['ug'],
+      tab = Table([tab['OBJ'],tab['RA'],tab['DEC'],tab['r']+tab['gr']+tab['ug'],
          sqrt(power(tab['egr'],2)+power(tab['eug'],2) + power(tab['er'],2))])
-   tab.rename_column(tab.colnames[1], 'mag')
-   tab.rename_column(tab.colnames[2], 'emag')
+   tab.rename_column(tab.colnames[3], 'mag')
+   tab.rename_column(tab.colnames[4], 'emag')
    return tab
 
 def getOptNaturalMag(filt, names=None, tel='SWO', ins='DC'):
@@ -217,15 +230,18 @@ def getOptNaturalMag(filt, names=None, tel='SWO', ins='DC'):
       tab (astropy.table):  table with OBJ, mag, emag
       '''
    bands = ['u','g','r','i','B','V']
-   objs = [getOptStandardMag(band, names)['OBJ'] for band in bands]
-   mags = [getOptStandardMag(band, names)['mag'] for band in bands]
-   emags = [getOptStandardMag(band, names)['emag'] for band in bands]
+   tabs = [getOptStandardMag(band, names) for band in bands]
+   mags = [t['mag'] for t in tabs]
+   emags = [t['emag'] for t in tabs]
+   objs = tabs[0]['OBJ']
+   RAs = tabs[0]['RA']
+   DECs = tabs[0]['DEC']
 
    res = stand2nat(*mags, tel=tel, ins=ins)
    idx = bands.index(filt)
    
-   return Table([objs[idx], res[idx], emags[idx]],
-         names=['OBJ','mag','emag'])
+   return Table([objs, RAs, DECs, res[idx], emags[idx]],
+         names=['OBJ','RA','DEC','mag','emag'])
 
 def getNIRStandardMag(filt, names=None):
    '''Returns a table of NIR standard magnitudes. If `names` is supplied, only
@@ -245,9 +261,11 @@ def getNIRStandardMag(filt, names=None):
    else:
       tab = nirstd[:]
 
-   tab = Table([tab['OBJ'], tab[filt], tab['e'+filt]])
-   tab.rename_column(tab.colnames[1], 'mag')
-   tab.rename_column(tab.colnames[2], 'emag')
+   tab = tab['OBJ','RAd','DECd',filt,'e'+filt]
+   tab.rename_column('RAd','RA')
+   tab.rename_column('DECd','DEC')
+   tab.rename_column(tab.colnames[3], 'mag')
+   tab.rename_column(tab.colnames[4], 'emag')
    return tab
 
 def getNIRNaturalMag(filt, names=None, tel='SWO', ins='RC'):
@@ -264,15 +282,18 @@ def getNIRNaturalMag(filt, names=None, tel='SWO', ins='RC'):
       tab (astropy.table):  table with OBJ, mag, emag
       '''
    bands = ['Y','J','H']
-   objs = [getNIRStandardMag(band, names)['OBJ'] for band in bands]
-   mags = [getNIRStandardMag(band, names)['mag'] for band in bands]
-   emags = [getNIRStandardMag(band, names)['emag'] for band in bands]
+   tabs = [getNIRStandardMag(band, names) for band in bands]
+   objs = tabs[0]['OBJ']
+   RAs = tabs[0]['RA']
+   DECs = tabs[0]['DEC']
+   mags = [t['mag'] for t in tabs]
+   emags = [t['emag'] for t in tabs]
 
    res = NIRstand2nat(*mags, tel=tel, ins=ins)
    idx = bands.index(filt)
    
-   return Table([objs[idx], res[idx], emags[idx]],
-         names=['OBJ','mag','emag'])
+   return Table([objs, RAs, DECs, res[idx], emags[idx]],
+         names=['OBJ','RA','DEC','mag','emag'])
 
 with open(os.path.join(basedir, 'PS_tcks.pkl'), 'rb') as fin:
    PS_tcks = pickle.load(fin)
@@ -332,4 +353,107 @@ def SMstand2nat(gp,rp,ip, tel='SWO', ins='NC'):
 
    return tab
    
+def ComputeZptsFromNat(stdphot, sigclip=2, tel='SWO', ins='NC', plot=None):
+   '''Given the standards.phot photometry using natural magnitudes, output by the 
+   pipeline, compute the zero-point per filter, per fits file, and per night.'''
 
+   if isinstance(stdphot, str):
+      tab = ascii.read(stdphot)
+   else:
+      tab = stdphot
+
+   # First, get the list of filters
+   filts = list(set(tab['filt']))
+
+
+   # Row:  filt, ZP, eZP, NZP, nRej, comm
+   rows = []
+   for filt in filts:
+      stab = tab[tab['filt'] == filt] 
+      # Now list of images with this filter
+      fits = list(set(stab['fits']))
+      zps = []
+      ezps = []
+      airms = []
+      if plot is not None:
+         fig,axes = plt.subplots(1,3, figsize=(12,5), sharey=True)
+      # Plot if requested
+      for k,fit in enumerate(fits):
+         gids = stab['fits'] == fit
+         sstab = stab[gids]
+         airms.append(sstab['airm'][0])
+         zp = sstab['mag'] - sstab['mins'] + kX[(tel,ins)][filt]*sstab['airm']
+         ezp = sqrt(sstab['emag']**2 + sstab['emins']**2)
+
+         avg = sum(zp*power(ezp,-2))/sum(power(ezp,-2))
+         err = power(sum(power(ezp,-2)),-0.5)
+         zps.append(avg)
+         ezps.append(err)
+         axes[0].errorbar(sstab['mag'], zp, yerr=ezp, fmt='o')
+         axes[1].errorbar(sstab['airm'], zp, yerr=ezp, fmt='o', label=fit)
+         axes[2].errorbar([k],[avg], yerr=[err], fmt='s')
+         trans = transforms.blended_transform_factory(axes[2].transData,
+               axes[2].transAxes)
+         res = re.search(r'([0-9]+)', fit)
+         if res is not None:
+            lab = res.groups()[0]
+         else:
+            lab = fit
+         axes[2].text(k+0.25, 0.1, lab, rotation=90, va='bottom', ha='right',
+               transform=trans, color='C{}'.format(k))
+         axes[0].set_xlabel('${}_{{std}}$ (mag)'.format(filt), fontsize=16)
+         axes[0].set_ylabel('${}_{{ins}} - {}_{{std}} + k*airm$ (mag)'.format(
+            filt,filt), fontsize=16)
+         axes[1].set_xlabel('$Airmass$')
+         axes[2].set_xlabel('FITS file')
+         axes[2].set_xticklabels([])
+      zps = array(zps)
+      ezps = array(ezps)
+
+      if len(zps) < 3:  
+         rows.append([filt,None,None,len(zps),0,"N-"])
+         if plot is not None:
+            fig.tight_layout()
+            fig.savefig('ZP_{}.pdf'.format(filt))
+         continue
+   
+      # Some stats
+      avg = mean(zps)
+      med = median(zps)
+      sig = std(zps)
+      mad = 1.49*median(absolute(zps-med))
+      print(filt,avg,med,sig,mad)
+
+      if sig > 0.03 and len(zps) > 3:
+         # Do some sigma-clipping
+         for i in range(2):
+            bids = greater(absolute(avg-zps),2*sig)
+            avg = mean(zps[~bids])
+            sig = std(zps[~bids])
+         nRej = sum(bids)
+      else:
+         bids = None
+         nRej = 0
+      if plot is not None:
+         # Plot the rejects
+         if bids is not None:
+            axes[2].plot(arange(len(zps))[bids], zps[bids], 'x', color='red',
+                  zorder=100)
+         for i in range(3):
+            axes[i].axhline(avg, color='k')
+            axes[i].axhline(avg-sig, color='k', linestyle='--', alpha=0.5)
+            axes[i].axhline(avg+sig, color='k', linestyle='--', alpha=0.5)
+         fig.tight_layout()
+         fig.savefig('ZP_{}.pdf'.format(filt))
+      # Reject non-photometric (this is Carlos' criterion)
+      if (filt != 'u' and sig > 0.04) or (filt == 'u' and sig > 0.06):
+         rows.append(filt,None,None,len(zps),nRej,"NP")
+         continue
+
+      rows.append([filt,avg,sig,len(zps)-nRej,nRej,'Ok'])
+      table = Table(rows=rows, names=['filter','ZP','eZP','NZP','NRej','comm'])
+      table['ZP'].info.format = "%.4f"
+      table['eZP'].info.format = "%.4f"
+
+   return table
+      

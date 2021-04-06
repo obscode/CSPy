@@ -3,7 +3,7 @@
 from astropy.io import ascii
 from astropy.table import Table
 import sys
-from CSPlib import colorterms
+from CSPlib import calibration as colorterms
 from CSPlib.database import getConnection
 
 import argparse

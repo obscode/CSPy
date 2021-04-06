@@ -27,6 +27,7 @@ p.add_argument('-poll', default=10,
    help="number of seconds between checks for new files")
 p.add_argument('-tmin', help="Minimum exposure time to consider a science"\
       " exposure. Default: 0", type=float, default=cfg.data.tmin)
+p.add_argument('-once', help="Only run through once.", action='store_true')
 
 p.add_argument('-noupdate', 
    help="Do not update the CSP database with final photometry",
@@ -42,6 +43,9 @@ pipe = Pipeline(datadir=args.datadir, workdir=args.workdir, prefix=args.prefix,
 pipe.initialize()
 if args.justcalib:
    sys.exit(0)
-pipe.run()
+if args.once:
+   pipe.run(poll_interval=-1)
+else:
+   pipe.run()
 
 
