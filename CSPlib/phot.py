@@ -25,8 +25,19 @@ from numpy import *
 from .npextras import between
 from astropy.table import vstack
 
-def recenter(xs, ys, data, cutoutsize=40):
-   '''Given initial guesses for star positions, re-center.'''
+def recenter(xs, ys, data, cutoutsize=40, method='1dg'):
+   '''Given initial guesses for star positions, re-center.
+
+   Input:
+      xs,ys (arrays):  the inital x,y pixel guesses
+      data (2d array):  The data with centroids
+      cutoutsize(int):  the boxsize of the data to cut out and centroid
+      method (str):  which centroiding method:  'com','1dg','2dg'
+   Returns:
+      x,y,flag (arrays):   x,y: output centroid coordinates
+                          flag:  array of flags
+                                 (0-OK, 1-Off frame, 2-no convergence)
+   '''
    flags = []; xout = []; yout = []
    if cutoutsize % 2 == 0: cutoutsize += 1   # make sure odd
    interv = cutoutsize//2                    # integer division!!!
@@ -42,7 +53,14 @@ def recenter(xs, ys, data, cutoutsize=40):
          y = int(ys[i])
          sdata = data[y-interv:y+interv+1, x-interv:x+interv+1]
          mn,md,st = sigma_clipped_stats(sdata, sigma=2.)
-         xx,yy = centroid_1dg(sdata - md)
+         if method == 'com':
+            xx,yy = centroid_com(sdata - md)
+         elif method == '1dg':
+            xx,yy = centroid_1dg(sdata - md)
+         elif method == '2dg':
+            xx,yy = centroid_1dg(sdata - md)
+         elif method == 'quad':
+            xx,yy = centroid_quadratic(sdata - md)
          if not (0 < xx < cutoutsize and 0 < yy < cutoutsize):
             xout.append(xs[i])
             yout.append(ys[i])
@@ -296,6 +314,19 @@ class ApPhot:
       phot_table['airmass'].info.format = "%.3f"
       phot_table['OBJ'] = self.objs
       phot_table['fits'] = self.ftsfile
+
+      # Do some flags
+      flags = zeros(len(phot_table), dtype=int)
+      flags = where(phot_table['xcenter'].value < 5, flags|1, flags)
+      flags = where(phot_table['xcenter'].value > self.data.shape[1]-5, flags|1,flags)
+      flags = where(phot_table['ycenter'].value < 5, flags|11, flags)
+      flags = where(phot_table['ycenter'].value > self.data.shape[0]-5, flags|1,flags)
+      for i in range(len(self.apps)-1):
+         flags = where(isnan(phot_table['ap{}'.format(i)]),
+                       flags | 2, flags)
+         flags = where(isnan(phot_table['ap{}er'.format(i)]),
+                       flags | 4, flags)
+      phot_table['flags'] = flags
       self.phot = phot_table
 
       return phot_table
