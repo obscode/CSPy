@@ -1,0 +1,69 @@
+#!/usr/bin/env python
+
+from CSPlib.calibration import ComputeZptsFromNat,kX
+import argparse
+from astropy.table import Table,vstack
+from astropy.io import ascii
+from matplotlib import pyplot as plt
+import numpy as np
+
+parser = argparse.ArgumentParser(description="Compute the zero-point for a"\
+      " photometric evening")
+
+parser.add_argument('phot', help='Standards photometry file output by the'\
+      ' pipeline')
+parser.add_argument('-nsigma', help='For sigma-clipping, how many sigma to'\
+      ' clip', type=float)
+parser.add_argument('-tel', default='SWO', help="Telescope code, default=SWO")
+parser.add_argument('-ins', default='NC', help='Instrument code", default=NC')
+parser.add_argument('-out', default='ZP.dat', help="output of ZP table")
+parser.add_argument('-lsphot', nargs='*', help='Photometry files to correct')
+
+args = parser.parse_args()
+
+tab = ComputeZptsFromNat(args.phot, tel=args.tel,
+      ins=args.ins, sigclip=args.nsigma, plot=True)
+
+tab.write(args.out, format='ascii.fixed_width', delimiter=' ', 
+      fill_values=[(None,'...')], overwrite=True)
+
+# Next, we load up the phot files and determine natural magnitudes
+notdone = []
+stack = []
+fig,axes = plt.subplots(3,2, figsize=(6,10))
+axes = axes.ravel()
+for fil in args.lsphot:
+   t1 = ascii.read(fil, fill_values=[('...',0)])
+   filt = t1[0]['filter']
+   if filt not in tab['filter']:
+      # No zero-point for this filter, skip
+      notdone.append(fil)
+      continue
+   row = tab[tab['filter'] == filt]
+   t1['mnat'] = t1['ap2'] - kX[(args.tel,args.ins)][filt]*t1['airmass'] + \
+         row['ZP']
+   t1['enat'] = t1['ap2er']
+   t1['ezp'] = row['eZP']
+   t2 = t1['objID','filter','mnat','enat','ezp']
+   t2['mnat'].info.format='%.4f'
+   t2['enat'].info.format='%.4f'
+   t2.write('.'.join(fil.split('.')[:-1]+['nat']), format='ascii.fixed_width',
+         delimiter=' ', overwrite=True)
+   for i,f in enumerate(['u','g','r','i','B','V']):
+      if f+'mag' in t1.colnames:
+         t1.rename_column(f+'mag','mstd')
+         t1.rename_column(f+'err','emstd')
+         stack.append(t1)
+         break
+tt = vstack(stack)
+for i,f in enumerate(['u','g','r','i','B','V']):
+   ttt = tt[(tt['filter'] == f)&(tt['objID'] > 0)&(tt['flags'] == 0)]
+   axes[i].plot(ttt['mstd'], ttt['mstd']-ttt['mnat'], 'o', alpha=0.2)
+   axes[i].axhline(0, color='k')
+   axes[i].text(0.95, 0.95, 
+         'offset = {:.3f}'.format(np.median(ttt['mstd']-ttt['mnat'])),
+         ha='right', va='top', transform=axes[i].transAxes)
+   axes[i].set_ylabel('$\Delta {}$ (mag)'.format(f))
+   axes[i].set_xlabel('${}_{{std}}$ (mag)'.format(f))
+fig.tight_layout()
+fig.savefig('ZP_resids.pdf')
