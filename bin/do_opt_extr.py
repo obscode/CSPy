@@ -125,7 +125,10 @@ for fil in tqdm(args.fits):
 
    # Get the catalog
    LScatfile = os.path.join(args.catdir, opt.obj_name+"_LS.cat")
-   allcatfile = os.path.join(args.catdir, opt.obj_name+".cat")
+   if os.path.isfile(os.path.join(args.catdir, opt.obj_name+".nat")):
+      allcatfile = os.path.join(args.catdir, opt.obj_name+".nat")
+   else:
+      allcatfile = os.path.join(args.catdir, opt.obj_name+".cat")
    if not os.path.isfile(LScatfile):
       if not os.path.isfile(allcatfile):
          opt.log("Error! Catalog not found for {}({})".format(fil,opt.obj_name))
@@ -256,12 +259,22 @@ for fil in tqdm(args.fits):
    mkey = '{}mag'.format(opt.filter)
    ekey = '{}err'.format(opt.filter)
    if mkey not in allcat.colnames or ekey not in allcat.colnames:
-      opt.log("Warning! No standard magnitudes found for filter {}. No"\
-            " standard magnitudes computed for {}".format(opt.filter,fil))
-      tab['mag'] = -1
-      tab['emag'] = -1
-      tab['mstd'] = 0
-      tab['emstd'] = 0
+      # Try just the mags
+      mkey = opt.filter
+      ekey = 'e'+opt.filter
+      if mkey not in allcat.colnames or ekey not in allcat.colnames:
+         opt.log("Warning! No standard magnitudes found for filter {}. No"\
+               " standard magnitudes computed for {}".format(opt.filter,fil))
+         tab['mag'] = -1
+         tab['emag'] = -1
+         tab['mstd'] = 0
+         tab['emstd'] = 0
+      else:
+         tab = join(tab, allcat['objID',mkey,ekey], keys='objID')
+         tab.rename_column(mkey, 'mstd')
+         tab.rename_column(ekey, 'emstd')
+         zp,ezp,flags,mesg = compute_zpt(tab, 'mstd','emstd','magins','emagins',
+               zpins=0)
 
    else:
       tab = join(tab, allcat['objID',mkey,ekey], keys='objID')
