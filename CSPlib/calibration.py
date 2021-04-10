@@ -330,7 +330,7 @@ def SMstand2nat(gp,rp,ip, tel='SWO', ins='NC'):
    done either through color terms (if sufficiently linear) or
    through a lookup table.'''
    gmr = gp - rp
-   Bcsp = 0.8994*gmr + 0.206
+   Bcsp = 0.8994*gmr + 0.206 + gp
    eBcsp = 0.044 + gmr*0
    Vcsp = splev(gmr, SM_tcks['V']) + gp
    eVcsp = splev(gmr, SM_tcks['eV'])
