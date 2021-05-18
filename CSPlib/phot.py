@@ -25,6 +25,11 @@ from numpy import *
 from .npextras import between
 from astropy.table import vstack
 
+try:
+   import pymc3 as pymc
+except:
+   pymc = None
+
 def recenter(xs, ys, data, cutoutsize=40, method='1dg'):
    '''Given initial guesses for star positions, re-center.
 
@@ -413,7 +418,8 @@ def NN1(phot, std_key, inst_key='ap2', sigma=3, niter=3, fthresh=0.3):
    return idiff,sdiff,oid1,oid2,omit
 
 def compute_zpt(phot, std_key, stderr_key, inst_key='ap2', ierr_key='ap2er',
-      magmin=15, magmax=20, objkey='objID', zpins=30, plot=None):
+      magmin=15, magmax=20, objkey='objID', zpins=30, plot=None, emagmax=0.5,
+      use_pymc=False):
    '''Given a table of photometry, determine the zero-point as a weighted
    offset between the standard photometry and instrumental photometry.
 
@@ -431,6 +437,8 @@ def compute_zpt(phot, std_key, stderr_key, inst_key='ap2', ierr_key='ap2er',
       plot (None|str|Axes):  Plot the zp and ap-corr residuals? if not None
                      and a string, output plot to file. If Axes, plot into that
                      Axes instance.
+      emagmax (float): Maximum error in std mag or inst mag to consider
+      use_pymc (bool): If true, use pymc3 to compute a more robust error in zp.
 
    Returns:
       (zp,ezp,flags,mesg)
@@ -439,6 +447,7 @@ def compute_zpt(phot, std_key, stderr_key, inst_key='ap2', ierr_key='ap2er',
       flags (array):  integers denoting issues: 1- NN rejection
                                                 2- min/max rejection
                                                 4- sigma-clipped
+                                                8- error too large
       mesg (str):  Useful message
 
       These are set to None,None,None,error-mesg if an error occurs
@@ -454,6 +463,8 @@ def compute_zpt(phot, std_key, stderr_key, inst_key='ap2', ierr_key='ap2er',
 
    gids = greater(phot[objkey], 0)
    gids = gids*between(phot[std_key], magmin, magmax)
+   gids = gids*less(phot[stderr_key], emagmax)*less(phot[ierr_key],emagmax)
+   flags[greater(phot[stderr_key],emagmax)+greater(phot[ierr_key],emagmax)] += 8
    flags[~between(phot[std_key], magmin, magmax)] += 2
    gids[omit] = False   # get rid of objects found above
    if not sometrue(gids):
@@ -470,12 +481,24 @@ def compute_zpt(phot, std_key, stderr_key, inst_key='ap2', ierr_key='ap2er',
       mesg = "Too many outliers in the photometry, can't solve for zp"
       return None,None,None,mesg
 
-   # Weight by inverse variance
-   wts = power(phot[ierr_key]**2 + phot[stderr_key]**2,-1)*gids
+   if use_pymc and pymc is not None:
+      mvar = array(phot[gids][ierr_key]**2 + phot[gids][stderr_key]**2)
+      with pymc.Model() as model:
+         zp = pymc.Uniform('zp', -10, 10)
+         sigma = pymc.Uniform('sigma', 0, 5)
+         sigtot = sqrt(mvar + sigma**2)
+         mod = pymc.Normal('obs', mu=zp, sd=sigtot, observed=array(diffs[gids]))
+         trace = pymc.sample(5000, chains=4, cores=4, tune=1000, 
+               progressbar=False)
+      zp = median(trace['zp'])
+      ezp = std(trace['zp'])
+   else:
+      # Weight by inverse variance
+      wts = power(phot[ierr_key]**2 + phot[stderr_key]**2,-1)*gids
 
-   # zpins is used internall in photometry code as arbitrary zero-point
-   zp = sum(diffs*wts)/sum(wts) + zpins
-   ezp = sqrt(1.0/sum(wts))
+      # zpins is used internall in photometry code as arbitrary zero-point
+      zp = sum(diffs*wts)/sum(wts) + zpins
+      ezp = sqrt(1.0/sum(wts))
 
    if plot is not None:
       if isinstance(plot, plt.Axes):
@@ -489,6 +512,10 @@ def compute_zpt(phot, std_key, stderr_key, inst_key='ap2', ierr_key='ap2er',
       ax.plot(phot[std_key][~gids], diffs[~gids] + zpins - zp, 'o', mfc='red',
             zorder=100)
       ax.axhline(0, color='k')
+      if use_pymc:
+         ax.axhline(median(trace['sigma']), color='k', linestyle='--')
+         ax.axhline(median(-trace['sigma']), color='k', linestyle='--')
+
       ax.set_xlim(12,20)
       ax.set_ylim(-1,1)
       ax.set_xlabel('m(std)')
