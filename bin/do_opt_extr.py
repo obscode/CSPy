@@ -88,8 +88,8 @@ parser.add_argument("-logsuff", help="Logfile suffix for copius output",
       default='.optextr.log')
 parser.add_argument("-cliprad", help="Clip radius for for profile mask",
       type=float, default=2.0)
-parser.add_argument("-zmag", help="Zero-point, as a number or header key",
-      default='ZP')
+#parser.add_argument("-zmag", help="Zero-point, as a number or header key",
+#      default='ZP')
 parser.add_argument("-dpos", help="Centroiding limit in pixels", type=float,
       default=3.0)
 parser.add_argument("-sndpos", help="Centroiding limit in pixels for SN", 
@@ -127,8 +127,10 @@ for fil in tqdm(args.fits):
    LScatfile = os.path.join(args.catdir, opt.obj_name+"_LS.cat")
    if os.path.isfile(os.path.join(args.catdir, opt.obj_name+".nat")):
       allcatfile = os.path.join(args.catdir, opt.obj_name+".nat")
+      opt.log("Using natural LS photometry")
    else:
       allcatfile = os.path.join(args.catdir, opt.obj_name+".cat")
+      opt.log("Using standard LS photometry")
    if not os.path.isfile(LScatfile):
       if not os.path.isfile(allcatfile):
          opt.log("Error! Catalog not found for {}({})".format(fil,opt.obj_name))
@@ -136,7 +138,7 @@ for fil in tqdm(args.fits):
       LScatfile = allcatfile
    opt.loadObjCatalog(filename=LScatfile, racol='RA',deccol='DEC', 
          objcol='objID')
-   allcat = ascii.read(allcatfile)
+   allcat = ascii.read(allcatfile, fill_values=[('...',0)])
 
    # Start with a guess of FWHM = 1 arcsec
    this_fwhm = 1.0/opt.scale
@@ -144,7 +146,7 @@ for fil in tqdm(args.fits):
    opt.log("HEADER INFO")
    opt.log("   gain = {}".format(opt.gain))
    opt.log("   fwhm = {}".format( this_fwhm))
-   opt.log("   zmag = {}".format( zmag))
+#   opt.log("   zmag = {}".format( zmag))
    opt.log("   JD = {}".format( opt.date))
    opt.log("   filter = {}".format(opt.filter))
 
@@ -152,6 +154,9 @@ for fil in tqdm(args.fits):
    #  object 0 (the SN)
    opt.log("PSF-CALC:")
    shape_par,ipsf,nfit, rchi = opt.psf_calc(args.dpos, this_fwhm)
+   if shape_par is None:
+      opt.log("PSF Fit failed, abort.")
+      continue
 
    (fwhm1,fwhm2) = opt.get_fwhm(shape_par)
    opt.log("   FWHM's = {},{}".format(fwhm1,fwhm2))
@@ -256,62 +261,72 @@ for fil in tqdm(args.fits):
    tab['JD'] = opt.date
 
    # Join with the standards catalog and solve for a zp
-   mkey = '{}mag'.format(opt.filter)
-   ekey = '{}err'.format(opt.filter)
-   if mkey not in allcat.colnames or ekey not in allcat.colnames:
-      # Try just the mags
+   if opt.filter+'mag' in allcat.colnames:
+      mkey = opt.filter + 'mag'
+      ekey = opt.filter + 'err'
+   else:
       mkey = opt.filter
       ekey = 'e'+opt.filter
-      if mkey not in allcat.colnames or ekey not in allcat.colnames:
-         opt.log("Warning! No standard magnitudes found for filter {}. No"\
-               " standard magnitudes computed for {}".format(opt.filter,fil))
-         tab['mag'] = -1
-         tab['emag'] = -1
-         tab['mstd'] = 0
-         tab['emstd'] = 0
-      else:
-         tab = join(tab, allcat['objID',mkey,ekey], keys='objID')
-         tab.rename_column(mkey, 'mstd')
-         tab.rename_column(ekey, 'emstd')
-         zp,ezp,flags,mesg = compute_zpt(tab, 'mstd','emstd','magins','emagins',
-               zpins=0)
+     
+   if mkey not in allcat.colnames or ekey not in allcat.colnames:
+      tab['mag'] = -1
+      tab['emag'] = -1
+      tab['mstd'] = 0
+      tab['emstd'] = 0
 
    else:
       tab = join(tab, allcat['objID',mkey,ekey], keys='objID')
       tab.rename_column(mkey,'mstd')
       tab.rename_column(ekey,'emstd')
+      if hasattr(tab['mstd'], 'mask'):
+         tab = tab[~tab['mstd'].mask]
 
-      zp,ezp,flags,mesg = compute_zpt(tab, 'mstd','emstd','magins','emagins',
+      zp1,ezp1,flags1,mesg1 = compute_zpt(tab, 'mstd','emstd','magins','emagins',
             zpins=0)
+      zp2,ezp2,flags2,mesg2 = compute_zpt(tab, 'mstd','emstd','magins','emagins',
+            zpins=0, plot=fil.replace(args.outpat, "_zp.png"), use_pymc=True)
 
-      tab['mag'] = tab['magins'] + zp
-      tab['emag'] = np.sqrt(tab['emagins']**2 + ezp**2)
+      if zp1 is None:
+         print("Failed to compute a zero-point for {}".format(fil))
+         print("Message is {}".format(mesg))
+         tab['mag1'] = -1
+         tab['emag1'] = -1
+         tab['mag2'] = -1
+         tab['emag2'] = -1
+      else:
+         tab['mag1'] = tab['magins'] + zp1
+         tab['emag1'] = np.sqrt(tab['emagins']**2 + ezp1**2)
+         tab['mag2'] = tab['magins'] + zp2
+         tab['emag2'] = np.sqrt(tab['emagins']**2 + ezp2**2)
 
       for col in ['flux','eflux','xfit','yfit','xerr','yerr','peak','skynos',
-            'rchi','magins','emagins','mstd','emstd','mag','emag']:
+            'rchi','magins','emagins','mstd','emstd','mag1','emag1','mag2',
+            'emag2']:
          tab[col].info.format = "%.4f"
       tab = tab['objID','filt','JD','xfit','yfit','xerr','yerr','flux',
             'eflux','peak', 'cflag','sky','skynos','rchi','magins','emagins',
-            'mstd','emstd', 'mag','emag']
+            'mstd','emstd', 'mag1','emag1','mag2','emag2']
 
       # We've got good magnitudes to get the SN data
       idx = np.nonzero(tab['objID'] == 0)[0][0]
-      sndata.append([opt.obj_name, opt.filter, opt.date, 
-         tab['mag'][idx], tab['emag'][idx],fil])
+      if tab['mag1'][idx] > 0:
+         sndata.append([opt.obj_name, opt.filter, opt.date, 
+            tab['mag1'][idx], tab['emag1'][idx],
+            tab['mag2'][idx], tab['emag2'][idx],fil])
 
-      # Now, let's try to get a reliable measure of the disersions
-      # First get rid of the outliers
-      gids = np.greater(tab['objID'], 0)*np.less(tab['magins'], 90)
-      for i in range(3):
-         med = np.median(tab[gids]['mstd']-tab[gids]['mag'])
-         mad = 1.49*np.median(np.absolute(tab[gids]['mstd']-\
-               tab[gids]['mag']-med))
-         gids = gids*np.less(np.absolute(tab['mstd']-tab['mag']), 5*mad)
-      # next consider the 20 objects with mag closest to the SN
-      ids = np.argsort(tab[gids]['mag']-tab[idx]['mag'])[:20]
-      shift = np.mean(tab[gids][ids]['mstd']-tab[gids][ids]['mag'])
-      stddev = np.std(tab[gids][ids]['mstd']-tab[gids][ids]['mag']-shift)
-      sndata[-1] = sndata[-1] + [mad,shift,stddev]
+         ## Now, let's try to get a reliable measure of the disersions
+         ## First get rid of the outliers
+         #gids = np.greater(tab['objID'], 0)*np.less(tab['magins'], 90)
+         #for i in range(3):
+         #   med = np.median(tab[gids]['mstd']-tab[gids]['mag'])
+         #   mad = 1.49*np.median(np.absolute(tab[gids]['mstd']-\
+         #         tab[gids]['mag']-med))
+         #   gids = gids*np.less(np.absolute(tab['mstd']-tab['mag']), 5*mad)
+         ## next consider the 20 objects with mag closest to the SN
+         #ids = np.argsort(tab[gids]['mag']-tab[idx]['mag'])[:20]
+         #shift = np.mean(tab[gids][ids]['mstd']-tab[gids][ids]['mag'])
+         #stddev = np.std(tab[gids][ids]['mstd']-tab[gids][ids]['mag']-shift)
+         #sndata[-1] = sndata[-1] + [mad,shift,stddev]
 
    tab.write(fil.replace(args.outpat, args.outsuff), format='ascii.fixed_width',
          delimiter=' ', overwrite=True)
@@ -338,12 +353,11 @@ for fil in tqdm(args.fits):
 
 
 sntab = Table(rows=sndata, 
-      names=['SN','filter','JD','mag','emag','fits','mad','shift','std'])
+      names=['SN','filter','JD','mag1','emag1','mag2','emag2','fits'])
 sntab['JD'].info.format = "%.5f"
-sntab['mag'].info.format = "%.4f"
-sntab['emag'].info.format = "%.4f"
-sntab['mad'].info.format = "%.4f"
-sntab['shift'].info.format = "%.4f"
-sntab['std'].info.format = "%.4f"
+sntab['mag1'].info.format = "%.4f"
+sntab['emag1'].info.format = "%.4f"
+sntab['mag2'].info.format = "%.4f"
+sntab['emag2'].info.format = "%.4f"
 sntab.write(args.snout, format='ascii.fixed_width', delimiter=' ', 
       overwrite=True)

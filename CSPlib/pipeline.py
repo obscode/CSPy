@@ -6,6 +6,8 @@ import matplotlib
 matplotlib.use('Agg')
 from astropy.io import fits,ascii
 from astropy.coordinates import SkyCoord
+from astropy.time import Time
+import datetime
 from astropy import units as u
 from astropy.wcs import WCS
 from astropy import table
@@ -20,10 +22,11 @@ from . import do_astrometry
 from . import calibration
 from imagematch import ImageMatching_scalerot as ImageMatch
 from .objmatch import WCStoImage
-import os
+import os, subprocess
 from os.path import join,basename,isfile,dirname,isdir
 from glob import glob
 import time
+import re
 import signal
 from . import database
 from .config import getconfig
@@ -36,6 +39,22 @@ if not sys.warnoptions:
     warnings.simplefilter("ignore")
 
 cfg = getconfig()
+
+def night2JD(night):
+   '''Given a night code (e.g., ut210427_28), give a JD'''
+   res = re.search('ut([0-9][0-9])([0-9][0-9])([0-9][0-9])_([0-9][0-9])',night)
+   if res is not None:
+      yy,mm,dd1,dd2 = res.groups()
+      dt = datetime.datetime(2000+int(yy), int(mm), int(dd1), 12,0,0)
+      return Time(dt).jd
+   else:
+      return None
+
+def closestNight(jd, nights):
+   '''Given a list of nights, find the night closest in time.
+   nights are in the form utyymmdd_dd'''
+   jds = np.array([night2JD(n) for n in nights])
+   return nights[np.argmin(np.absolute(jds-jd))]
 
 filtlist = cfg.data.filtlist
 sex_dir = join(dirname(__file__), 'data', 'sex')
@@ -160,6 +179,13 @@ class Pipeline:
       self.logfile.write(message+"\n")
       self.logfile.flush()
 
+   def Rclone(self, location, target='.'):
+      '''Use rclone to get a file specified by "location" and put it
+      in "target".'''
+      cmd = "{} copy {} {}".format(cfg.software.rclone, location, target)
+      res = os.system(cmd)
+      return res
+
    def addFile(self, filename):
       '''Add a new file to the pipeline. We need to do some initial fixing
       of header info, then figure out what kind of file it is, then add
@@ -277,9 +303,9 @@ class Pipeline:
          self.log("BIAS frame saved to {}".format(bfile))
       else:
          # We need a backup BIAS frame
-         cmd = 'rclone copy CSP:Swope/Calibrations/latest/Zero{} {}'.format(
-               self.suffix, self.workdir)
-         res = os.system(cmd)
+         res = self.Rclone(
+               "CSP:Swope/Calibrations/latest/Zero{}".format(self.suffix),
+               self.workdir)
          if res == 0:
             self.log("Retrieved BIAS frame from latest reductions")
             self.biasFrame = fits.open(join(self.workdir, 
@@ -308,10 +334,23 @@ class Pipeline:
             self.flatFrame[filt] = ccdred.makeFlatFrame(files, outfile=fname)
             self.log("Flat field saved to {}".format(fname))
          else:
-            cmd = "rclone copy CSP:Swope/Calibrations/latest/SFlat{}{} {}".\
-                  format(filt,self.suffix,self.workdir)
-            ret = os.system(cmd)
-            if ret == 0:
+            # Find the best flat based on date
+            # First, we need the current date JD
+            fts = fits.open(self.rawfiles[0])
+            jd = Time(fts[0].header['EPOCH'], format='decimalyear').jd
+
+            # Now get list of Flats we have in the database
+            res = subprocess.run([cfg.software.rclone, 'ls','--include',
+               'ut*/SFlat{}{}'.format(filt,self.suffix),
+               'CSP:Swope/Calibrations'], stdout=subprocess.PIPE)
+            lines = res.stdout.decode('utf-8').split('\n')
+            lines = [line for line in lines if len(line) > 0]
+            flats = [line.split()[1] for line in lines]
+            # Pick the closest
+            flat = closestNight(jd, flats)
+            res = self.Rclone("CSP:Swope/Calibrations/{}".format(flat),
+                     self.workdir)
+            if res == 0:
                self.log("Retrieved Flat SFlat{}{} from latest reductions".\
                      format(filt,self.suffix))
                self.flatFrame[filt] = fits.open(fname, memmap=False)
@@ -404,9 +443,8 @@ class Pipeline:
             self.log("This is a standard star field")
             ref = join(self.templates, "{}_r.fits".format(obj))
             if not isfile(ref):
-               cmd = 'rclone copy CSP:Swope/templates/{}_r.fits {}'.format(
-                     obj,self.templates)
-               ret = os.system(cmd)
+               ret = self.Rclone('CSP:Swope/templates/{}_r.fits'.format(obj),
+                     self.templates)
                if ret != 0:
                   self.log("Can't get reference image from gdrive. skipping")
                   self.ignore.append(f)
@@ -421,7 +459,7 @@ class Pipeline:
             #   self.ignore.append(f)
             #   continue
             # First, check to see if the catalog exists locally
-            catfile = join(self.templates, obj+'.cat')
+            catfile = join(self.templates, obj+'.nat')
             if isfile(catfile):
                self.ZIDs[f] = obj
             else:
@@ -429,9 +467,8 @@ class Pipeline:
                res = database.getNameCoords(obj)
                if res == -2:
                   self.log('Could not contact csp2 database, trying gdrive...')
-                  cmd = 'rclone copy CSP:Swope/templates/{}.cat {}'.format(
-                        obj,self.templates)
-                  ret = os.system(cmd)
+                  ret = self.Rclone('CSP:Swope/templates/{}.nat'.format(obj),
+                        self.templates)
                   if ret != 0:
                      self.log("Can't contact csp2 or gdrive, giving up!")
                      self.ignore.append(f)
@@ -462,9 +499,8 @@ class Pipeline:
             else:
                tmpname = "{}_{}.fits".format(self.ZIDs[f], filt)
             if not isfile(join(self.templates, tmpname)):
-               cmd = 'rclone copy CSP:Swope/templates/{} {}'.format(tmpname, 
+               res = self.Rclone('CSP:Swope/templates/{}'.format(tmpname),
                      self.templates)
-               res = os.system(cmd)
                if res == 0:
                    self.log('Retrieved template file {}'.format(tmpname))
                else:
@@ -473,11 +509,10 @@ class Pipeline:
                    self.ignore.append(f)
                    continue
             # Get the catalog file
-            catfile = "{}.cat".format(self.ZIDs[f])
+            catfile = "{}.nat".format(self.ZIDs[f])
             if not isfile(join(self.templates, catfile)):
-               cmd = 'rclone copy CSP:Swope/templates/{} {}'.format(
-                       catfile, self.templates)
-               res = os.system(cmd)
+               res = self.Rclone('CSP:Swope/templates/{}'.format(catfile),
+                     self.templates)
                if res == 0:
                    self.log('Retrieved catalog file {}'.format(catfile))
                else:
@@ -485,7 +520,7 @@ class Pipeline:
                        catfile))
                    self.ignore.append(f)
                    continue
-            tab = ascii.read(join(self.templates,"{}.cat".format(self.ZIDs[f])))
+            tab = ascii.read(join(self.templates,"{}.nat".format(self.ZIDs[f])))
             if 0 not in tab['objID']:
                self.log('No SN object in catalog file, skipping...')
                self.ignore.append(f)
@@ -553,7 +588,7 @@ class Pipeline:
                   ZID,filt))
          h = fits.getheader(wcsimage)
          if 'TELESCOP' not in h or h['TELESCOP'] != 'SkyMapper':
-            new = WCStoImage(wcsimage, fil, angles=np.arange(-2,2.5,0.5),
+            new = WCStoImage(wcsimage, fil, angles=[0],
                   plotfile=fil.replace('.fits','_wcs.png'))
          else:
             new = None
@@ -586,7 +621,7 @@ class Pipeline:
          if not (isfile('standards.phot')):
             stdf = open('standards.phot','w')
             stdf.write('{:12s} {:2s} {:7s} {:6s} {:7s} {:6s} '\
-                 '{:5s} {:6sf} {:s}\n'.format('Field','filt','mins','emins',
+                 '{:5s} {:6s} {:s}\n'.format('Field','filt','mins','emins',
                     'mag','emag','airm','expt','fits'))
          else:
             stdf = open('standards.phot','a')
@@ -613,28 +648,40 @@ class Pipeline:
             allcat.rename_column('OBJ','objID')
 
          if not isfile(catfile):
-            # Now remove stars below/above thresholds
-            gids = allcat['r'] < 20
-            gids = gids*(allcat['r'] > 12)
-            gids = gids*np.greater(allcat['er'], 0)
-            # make sure well-separated
-            ra = allcat['RA'];  dec = allcat['DEC']
-            dists = np.sqrt(np.power(dec[np.newaxis,:]-dec[:,np.newaxis],2) +\
-               np.power((ra[np.newaxis,:]-ra[:,np.newaxis])*\
-               np.cos(dec*np.pi/180), 2))
-            Nnn = np.sum(np.less(dists, 11.0/3600), axis=0)
-            gids = gids*np.equal(Nnn,1)
-            if 0 in allcat['objID']:
-               # make sure SN is kept!
-               idx = list(allcat['objID']).index(0)
-               gids[idx] = True
-            cat = allcat[gids]
-            cat = cat['objID','RA','DEC']
-            cat['id'] = arange(len(cat))
-            cat['RA'].info.format="%10.6f"
-            cat['DEC'].info.format="%10.6f"
-            self.log('Creating LS catalog with {} objets'.format(len(cat)))
-            cat.write(catfile, format='ascii.fixed_width', delimiter=' ')
+            if standard:
+               # It should be there. Maybe standard name misspelled?
+               self.log("Unrecognized standard name {}, maybe "\
+                     "misspelled? Skipping...".format(obj))
+               self.ignore.append(fil)
+               continue
+            # First, see if we can retrieve it:
+            res = self.Rclone('CSP:Swope/templates/{}_LS.cat'.format(obj),
+               self.templates)
+            if res > 0:
+               # Now remove stars below/above thresholds
+               gids = allcat['r'] < 20
+               gids = gids*(allcat['r'] > 12)
+               gids = gids*np.greater(allcat['er'], 0)
+               # make sure well-separated
+               ra = allcat['RA'];  dec = allcat['DEC']
+               dists = np.sqrt(np.power(dec[np.newaxis,:]-dec[:,np.newaxis],2)\
+                     + np.power((ra[np.newaxis,:]-ra[:,np.newaxis])*\
+                     np.cos(dec*np.pi/180), 2))
+               Nnn = np.sum(np.less(dists, 11.0/3600), axis=0)
+               gids = gids*np.equal(Nnn,1)
+               if 0 in allcat['objID']:
+                  # make sure SN is kept!
+                  idx = list(allcat['objID']).index(0)
+                  gids[idx] = True
+               cat = allcat[gids]
+               cat = cat['objID','RA','DEC']
+               cat['id'] = np.arange(len(cat))
+               cat['RA'].info.format="%10.6f"
+               cat['DEC'].info.format="%10.6f"
+               self.log('Creating LS catalog with {} objets'.format(len(cat)))
+               cat.write(catfile, format='ascii.fixed_width', delimiter=' ')
+            else:
+               cat = ascii.read(catfile)
          else:
             cat = ascii.read(catfile)
 
@@ -790,8 +837,12 @@ class Pipeline:
       for fil in todo:
          self.log('Working on final photometry for {}'.format(fil))
          if isfile(fil.replace('.fits','.phot')):
-            self.finalPhot.append(fil)
-            continue
+            try:
+               test = ascii.read(fil.replace('.fits','.phot'))
+               self.finalPhot.append(fil)
+               continue
+            except:
+               pass
          obj = self.ZIDs[fil]
          filt = self.getHeaderData(fil, 'FILTER')
          catfile = join(self.templates, '{}_LS.cat'.format(obj))
@@ -799,6 +850,10 @@ class Pipeline:
          allcat = ascii.read(join(self.templates, '{}.nat'.format(obj)),
                   fill_values=[('...',0)])
          fts = fits.open(fil, memmap=False)
+         if 'ZP' not in fts[0].header:
+            self.log('No zero-point. Skipping...')
+            self.ignore.append(fil)
+            continue
          zpt = fts[0].header['ZP']
          ezpt = fts[0].header['EZP']
          apcor = fts[0].header['APCOR20']
@@ -822,7 +877,7 @@ class Pipeline:
          phot = phot[gids]
          phot.sort('objID')
          phot.write(fil.replace('.fits','.phot'), format='ascii.fixed_width',
-               delimiter=' ')
+               delimiter=' ', fill_values=[(ascii.masked, '...')])
          if 0 not in phot['objID']:
             self.log("object photometry failed for {}, skipping...".format(
                fil))
@@ -856,7 +911,7 @@ class Pipeline:
       for fil in todo:
          obj = self.ZIDs[fil]
          diff = fil.replace('.fits','diff.fits')
-         magcat = join(self.templates, "{}.cat".format(obj))
+         magcat = join(self.templates, "{}.nat".format(obj))
          # Check to see if we've done it already
          if isfile(diff): 
             self.subtracted.append(fil)
@@ -871,22 +926,22 @@ class Pipeline:
                magmin=11)
          ref = ImageMatch.Observation(template, scale=0.25, saturate=6e4,
                reject=True, magmax=22, magmin=11)
-         try:
-            res = obs.GoCatGo(ref, skyoff=True, pwid=11, perr=3.0, nmax=100, 
+         #try:
+         res = obs.GoCatGo(ref, skyoff=True, pwid=11, perr=3.0, nmax=100, 
                   nord=3, match=True, subt=True, quick_convolve=True, 
                   do_sex=True, thresh=3., sexdir=sex_dir, diff_size=35, bs=True,
                   usewcs=True, xwin=[200,1848], ywin=[200,1848], vcut=1e8,
-                  magcat=magcat, magcol='rmag')
-            if res != 0:
-               self.log('Template subtraction failed for {}, skipping'.format(
-                  fil))
-               self.ignore.append(fil)
-               continue
-            self.subtracted.append(fil)
-         except:
+                  magcat=magcat, magcol='r')
+         if res != 0:
             self.log('Template subtraction failed for {}, skipping'.format(
-                fil))
+                  fil))
             self.ignore.append(fil)
+            continue
+         self.subtracted.append(fil)
+         #except:
+         #   self.log('Template subtraction failed for {}, skipping'.format(
+         #       fil))
+         #   self.ignore.append(fil)
 
    def initialize(self):
       '''Make a first run through the data and see if we have what we need
