@@ -43,7 +43,8 @@ for fil in files:
          break
 
    if not done: os.symlink(fil, template.format(**args))
-   for suf in ['SN.fits','temp.fits','diff.fits','SN_diff.jpg','_zp.jpg']:
+   for suf in ['SN.fits','temp.fits','diff.fits','SN_diff.jpg','_zp.jpg',
+         '.phot0','.phot','diff.opt']:
       newf = fil.replace('.fits',suf)
       if os.path.isfile(newf):
          args['suf'] = suf
