@@ -307,7 +307,7 @@ def PSstand2nat(gp,rp,ip, tel='SWO', ins='NC'):
    Vcsp = -0.411*(gmr) - 0.0336 + gp
    eVcsp = 0.0207 + gmr*0
    ucsp = splev(gmr, PS_tcks['u']) + gp
-   eucsp = splev(gmr, PS_tcks['eu']) + gp
+   eucsp = splev(gmr, PS_tcks['eu'])
    gcsp = 0.0865*(gmr) + 0.027 + gp
    egcsp = 0.0213 + gmr*0
    rcsp = 0.0085*(gmr) - 0.0158 + rp
