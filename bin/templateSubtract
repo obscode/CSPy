@@ -29,6 +29,8 @@ parser.add_argument('-mmax', help='Maximum magnitude for template', type=float,
       default=22)
 parser.add_argument('-mmin', help='Minimum magnitude for template', type=float,
       default=11)
+parser.add_argument('-mfilt', help="Template filter to use if not the same"\
+      "as image")
 parser.add_argument('-X', help="range of X pixels")
 parser.add_argument('-Y', help="range of Y pixels")
 args = parser.parse_args()
@@ -39,11 +41,15 @@ obs = ImageMatch.Observation(args.image, scale=0.435, saturate=4e4, reject=True,
 ifts = fits.open(args.image)
 obj = ifts[0].header['OBJECT']
 filt = ifts[0].header['FILTER']
+if args.mfilt:
+   mfilt = args.mfilt
+else:
+   mfilt = filt
 
 if args.m is not None:
    reffile = args.m
 else:
-   reffile = join(cfg.data.templates, "{}_{}.fits".format(obj,filt))
+   reffile = join(cfg.data.templates, "{}_{}.fits".format(obj,mfilt))
 if not isfile(reffile):
    raise IOError('Template file {} not found'.format(reffile))
 magcat = join(cfg.data.templates, "{}.cat".format(obj))
