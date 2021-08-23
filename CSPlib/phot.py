@@ -512,7 +512,7 @@ def compute_zpt(phot, std_key, stderr_key, inst_key='ap2', ierr_key='ap2er',
       ax.plot(phot[std_key][~gids], diffs[~gids] + zpins - zp, 'o', mfc='red',
             zorder=100)
       ax.axhline(0, color='k')
-      if use_pymc:
+      if use_pymc and pymc is not None:
          ax.axhline(median(trace['sigma']), color='k', linestyle='--')
          ax.axhline(median(-trace['sigma']), color='k', linestyle='--')
 
