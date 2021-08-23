@@ -19,7 +19,7 @@ from urllib import request
 from json import loads
 
 parser = argparse.ArgumentParser(description=\
-      'Make a finder chart using panSTARRs data by specifing CSP nane,'\
+      'Make a finder chart using panSTARRs data by specifing CSP name,'\
       ' Alerce name or RA/DEC')
 parser.add_argument('-SN', 
       help="Supernova name. It must exist in the CSP database",
