@@ -15,6 +15,7 @@ for fil in sys.argv[1:]:
       nats = PSstand2nat(tab['gmag'],tab['rmag'],tab['imag'])
    newtab = hstack([tab,nats])
    newtab.remove_columns(['gmag','gerr','rmag','rerr','imag','ierr'])
+   if 0 not in newtab['objID']: continue
    idx = list(newtab['objID']).index(0)
    for filt in ['u','g','r','i','B','V']:
       newtab[idx][filt] = -1
