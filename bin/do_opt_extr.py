@@ -153,7 +153,8 @@ for fil in tqdm(args.fits):
    # Now, let's model the PSF.  If psfstar is given, use it, otherwise all but
    #  object 0 (the SN)
    opt.log("PSF-CALC:")
-   shape_par,ipsf,nfit, rchi = opt.psf_calc(args.dpos, this_fwhm)
+   shape_par,ipsf,nfit, rchi = opt.psf_calc(args.dpos, this_fwhm,
+         plotfile=fil.replace('.fits','_psf.png'))
    if shape_par is None:
       opt.log("PSF Fit failed, abort.")
       continue

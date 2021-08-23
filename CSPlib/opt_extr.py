@@ -84,9 +84,10 @@ from astropy.modeling import models,fitting
 from astropy.stats import sigma_clipped_stats
 from astropy.io import fits,ascii
 from astropy.wcs import WCS
-from astropy.stats import sigma_clipped_stats
+from astropy.stats import sigma_clipped_stats, scott_bin_width
 from .npextras import between
 from matplotlib import pyplot as plt
+from matplotlib.patches import Ellipse
 
 import warnings
 warnings.simplefilter('ignore', UserWarning)
@@ -440,6 +441,8 @@ class OptExtrPhot:
       noise
           If you have a noise map for the data, specify it with this optional
           keyword.
+      plotfile
+          Optional output plot of the best-fit psf star.
             
       Outputs.
       -------
@@ -451,6 +454,17 @@ class OptExtrPhot:
          star could be found.
       integer :: nfit
          The number of stars used when deciding which star to fit.'''
+
+      # Setup the plot if requested
+      if plotfile is not None:
+         fig = plt.figure(constrained_layout=True)
+         gs = fig.add_gridspec(2,2)
+         ax1 = fig.add_subplot(gs[:,0])
+         ax1.set_title('PSF star')
+         ax2 = fig.add_subplot(gs[0,1])
+         ax2.set_title('Sky fit')
+         ax3 = fig.add_subplot(gs[1,1])
+         ax3.set_title('PSF fit')
 
       # Set it up so that if no psf star is found, this is signalled.
       ipsf = -1
@@ -469,6 +483,7 @@ class OptExtrPhot:
             continue
          
          # The sky box size is determined in the way described in the paper
+         # The 453.2 comes from Ns > 100*fwhm**2/(2 log(2)), eqn 16.
          ibox=int(np.sqrt(453.2*fwhm*fwhm+ 4.0*fwhm*fwhm))
          skycnt, skyerr, skynos, cflag = self.skyfit(self.xpsf[i], 
                self.ypsf[i], fwhm, ibox)
@@ -532,6 +547,17 @@ class OptExtrPhot:
             self.log("   beta's  {}".format(a_par[:,-1]))
          shape_par = [a_par[i,0], a_par[i,1], a_par[i,2], a_par[i,-1]]
          ipsf=idstar[i]
+         if plotfile is not None:
+            skycnt, skyerr, skynos, cflag = self.skyfit(a_par[i,4], 
+                  a_par[i,5], fwhm, ibox, ax=ax2)
+
+            #this_apar = [w,w, 0.0, 1.0, a_par[i,4], a_par[i,5], 2]
+            #this_apar[3] = max(self.data[int(a_par[i,5]),int(a_par[i,4])]\
+            #   - skycnt, skynos)
+            dummy = self.gfit(1, dpsf, 0, skycnt, skynos, a_par[i], 
+                  noise=noise, axes=[ax1,ax3])
+            fig.tight_layout()
+            fig.savefig(plotfile)
       else:
          shape_par = None; ipsf=-1; nfit=0; rchi=-1
       return (shape_par, ipsf, nfit, rchi)
@@ -696,7 +722,6 @@ class OptExtrPhot:
                a_par[5] = ypos + dys[i]
                this_flux,this_error,this_cflag = self.sum_flux(skycnt, 
                      skyerr, skynos, a_par, cliprad, optnrm, noise=noise)
-               print(dxs[i], dys[i], this_flux)
                if this_flux > flux:
                   flux = this_flux  
                   error = this_error  
@@ -712,7 +737,7 @@ class OptExtrPhot:
             skynos_r, rchi)
    
       
-   def skyfit(self, xpos, ypos, seeing, ibox, maxbin=100):
+   def skyfit(self, xpos, ypos, seeing, ibox, maxbin=100, ax=None):
       ''' returns (skycnt, skyerr, skynos, cflag):
        This subroutine fits a skewed Gaussian to the pixel distribution
        in an area of sky.
@@ -725,6 +750,8 @@ class OptExtrPhot:
             The FWHM seeing.
         ibox
            The length of the side of the sky box.
+        ax
+           Optional matplotlib axes instance to plot the fit
        
         Outputs
         -------
@@ -794,7 +821,13 @@ class OptExtrPhot:
    
       # Make a histogram of the sky pixel value distribution from
       # mean-6sigma to mean+6sigma.
-      yhst, xhst = np.histogram(clip_array, bins=maxbin,
+      # Actually, let's use Scott's rule for figuring out the bins.
+      # Otherwise the histogram can be noisy and the trick below goes
+      # terribly wrong.
+      ggids = np.greater(clip_array, skymen-6*skydev)*\
+              np.less(clip_array, skymen+6*skydev)
+      bin_width,bins = scott_bin_width(clip_array[ggids], return_bins=True)
+      yhst, xhst = np.histogram(clip_array, bins=bins,
             range=(skymen - 6*skydev, skymen + 6*skydev))
       xhst = (xhst[1:] + xhst[0:-1])/2
       hstep = xhst[1] - xhst[0]
@@ -827,8 +860,8 @@ class OptExtrPhot:
       else:
          # Otherwise fit it.
          skynos=skydev
-         (jflag, skyerr, skynos, sky_chi,sky_par) = skwfit(xhst, yhst, maxbin,
-               skynos)
+         (jflag, skyerr, skynos, sky_chi,sky_par) = skwfit(xhst, yhst, 
+               len(bins), skynos)
          skycnt = sky_par[1]
          # Practically, the best the sky fitting routine can do is 0.1 of a 
          # bin.
@@ -841,6 +874,14 @@ class OptExtrPhot:
       # too great to be reliable.
       #if (sky_chi    > bad_sky_chi and bad_sky_chi > 0.0 ):  cflag = 'I'
       #if (sky_par[0] > bad_sky_skw and bad_sky_skw > 0.0 ):  cflag = 'I'
+      if ax is not None:
+         ax.step(xhst, yhst)
+         ax.axvline(skycnt, color='red')
+         ax.axvline(skycnt-skyerr, color='red', linestyle='--')
+         ax.axvline(skycnt+skyerr, color='red', linestyle='--')
+         ax.text(0.95, 0.95,"sky count = ${:.2f} \pm {:.2f}$\n"\
+                          "sky stddev = {:.2f}".format(skycnt, skyerr, skynos),
+                 transform=ax.transAxes, ha='right', va='top', fontsize=10)
       return(skycnt, skyerr, skynos, cflag)
 
 
@@ -953,7 +994,7 @@ class OptExtrPhot:
    
    
    def gfit(self, fix_shape, dpos, fit_sub, skycnt, skynos, a_par, 
-         noise=None, symm=False):
+         noise=None, symm=False, axes=None):
       '''  returns (a_par, e_pos, cflag):
        Fits a profile to a star in the array data.  The first guess of the
        parameters is in a_par.  The subroutine returns a_par, the parameters of
@@ -977,6 +1018,7 @@ class OptExtrPhot:
                   (amp, x0, y0, std_x, std_y, theta)
        noise:     noise map for the input data
        symm:     force a symmetric PSF
+       axes:     optional 2-tuple of MPL axes on which to plot diagnostics
        
        Output.
        -------
@@ -1006,6 +1048,7 @@ class OptExtrPhot:
    
       subdata = self.data[iybeg:iyend, ixbeg:ixend]
       subflg = self.pix_flg[iybeg:iyend, ixbeg:ixend]
+
       if noise is not None:
          subnoise = noise[iybeg:iyend, ixbeg:ixend]
       if self.debug:  self.log("skynos = {} skycnt={} gain={}".format(
@@ -1047,17 +1090,6 @@ class OptExtrPhot:
       counts=counts/norm_fac
       w=w*norm_fac
 
-      # See what this looks like
-      #if self.debug:
-      #   fig,axes = plt.subplots(1,2, figsize=(10,5))
-      #   axes[0].imshow(counts, origin='lower')
-      #   text1 = axes[0].text(0.95,0.95, "counts", va='top', ha='right',
-      #         transform=axes[0].transAxes)
-      #   axes[1].imshow(w, origin='lower')
-      #   text2 = axes[1].text(0.95,0.95, "weights", va='top', ha='right',
-      #         transform=axes[1].transAxes)
-      #   plt.draw()
-      #   pause = input('Press key to continue...')
       # And change any initial guesses of the flux we have (note, this was in 
       # ADU, not counts, so we need to take this into account as well).
       modi.amplitude = a_par[3]/norm_fac
@@ -1151,14 +1183,6 @@ class OptExtrPhot:
       if self.debug:
          for par in modi.param_names:
             print(par,getattr(modi,par).value)
-      #   img = axes[0].imshow(modi(x,y), origin='lower')
-      #   text1.set_text('model')
-      #   vmin,vmax = img.get_clim()
-      #   axes[1].imshow(resids, origin='lower', vmin=vmin, vmax=vmax)
-      #   text2.set_text('resids')
-      #   plt.draw()
-      #   pause = input('Press key to continue...')
-      #   plt.close(fig)
       # Let's figure out reduced chi-sqr:
       if self.debug:
          self.log("sum^2 resids is {}".format(
@@ -1185,6 +1209,20 @@ class OptExtrPhot:
         e_pos = [perr[1],perr[2]]
       else:
         e_pos=[0.0,0.0]
+
+      if axes is not None:
+         axes[0].imshow(counts, origin='lower', vmin=0, vmax=1)
+         el = Ellipse((modi.x_mean.value, modi.y_mean.value),
+               width=modi.x_stddev.value, height=modi.y_stddev.value,
+               angle=modi.theta.value*360/np.pi, facecolor='none',
+               edgecolor='red')
+         axes[0].add_patch(el)
+         r = np.sqrt((x - modi.x_mean.value)**2 + (y - modi.y_mean.value)**2)
+         axes[1].plot(r.ravel(), counts.ravel(), '.')
+         sids = np.argsort(r)
+         mod = modi(x, y)
+         axes[1].plot(r[sids].ravel(), mod[sids].ravel(), '-', color='red', 
+               alpha=0.5, zorder=10)
                     
       return(a_par, e_pos, cflag, rchisq)
 
