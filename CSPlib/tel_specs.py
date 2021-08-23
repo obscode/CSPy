@@ -63,6 +63,24 @@ data = {
             'object':'@OBJECT',
          },
       },
+      'LCOGT': {
+         'CCD': {
+            'scale':'@PIXSCALE',
+            'gain':'@GAIN',
+            'rnoise':'@RDNOISE',
+            'overscan':{
+               1:None,
+            },
+            'datasec':[1,4096,1,4096],
+            'statsec':[0,4096,0,4096],
+            'exposure':'@EXPTIME',
+            'filter':'@FILTER',
+            'date':'@JD',
+            'ncombine':1,
+            'airmass':'@AIRMASS',
+            'object':'@OBJECT',
+         },
+      },
    }
 
 def getTelIns(tel, ins):
