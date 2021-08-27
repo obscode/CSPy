@@ -27,6 +27,8 @@ parser.add_argument('-cutout', help="cutout size in pixels", type=int,
       default=50)
 parser.add_argument('-output', help='Final output LS catalog',
       default='LS.cat')
+parser.add_argument('-cspoutput', help='Final output LS catalog in CSP format',
+      default='mycat.cat')
 parser.add_argument('-n', help='number of rows/columns to show', default=10,
       type=int)
 parser.add_argument('-scale', help='Image scale arc-sec/pix', default=0.435)
@@ -35,10 +37,14 @@ parser.add_argument('-aps', help='list of aperture radii in arc-sec',
 args = parser.parse_args()
 
 fts = fits.open(args.FITS)
+obj = fts[0].header['OBJECT']
 wcs = WCS(fts[0])
 cat = ascii.read(args.cat)
 cat['good'] = False
 cut = args.cutout
+
+outf = open(args.cspoutput, 'a')
+outfmt = "{:20s} {:3d} {:10.6f}    {:10.6f}\n"
 
 norm = simple_norm(fts[0].data, percent=99)
 
@@ -72,3 +78,6 @@ for i in range(nplots):
 cat = cat[cat['good']]
 cat.remove_column('good')
 cat.write(args.output, format='ascii.fixed_width', delimiter=' ', overwrite=True)
+for i in range(len(cat)):
+   outf.write(outfmt.format(obj, i, cat['RA'][i], cat['DEC'][i]))
+outf.close()
