@@ -277,6 +277,8 @@ def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO',
       image = fits.open(image)
    if isinstance(scale, str):
       imscale = image[0].header[scale]
+   else:
+      imascale = float(scale)
 
    # get scale from WCS, since we have it
    wcs = WCS(wcsimage[0])
