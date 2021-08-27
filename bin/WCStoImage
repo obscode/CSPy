@@ -3,11 +3,13 @@
 from CSPlib.objmatch import WCStoImage
 import argparse
 
-parser = argparse.ArgumentParser(description='Transfer a WCS from one image to'\                                             ' another.')
+parser = argparse.ArgumentParser(description='Transfer a WCS from one image to'\
+                                             ' another.')
 parser.add_argument('wcsimage', help='Image with a valid WCS')
 parser.add_argument('images', help='Image(s) to transfer the WCS to', nargs='+')
 parser.add_argument('-scale', help='The image scale of the targets. Either a'\
-                                   ' number or header keyword. Default: SCALE')
+                                   ' number or header keyword. Default: SCALE',
+                     default='SCALE')
 parser.add_argument('-Nstars', help='Maximum number of stars to consider. The '\
                                     'problem scales as N^2', type=int)
 parser.add_argument('-plotfile', help='If given as a filename, plot the WCS')
