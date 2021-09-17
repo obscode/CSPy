@@ -16,6 +16,7 @@ import pickle
 import matplotlib.pyplot as plt
 from matplotlib import transforms
 import re
+import warnings
 basedir = os.path.join(os.path.realpath(os.path.dirname(__file__)),'data')
 
 optstd = ascii.read(os.path.join(basedir, 'opt.std.cat'), 
@@ -215,6 +216,31 @@ def getOptStandardMag(filt, names=None):
    tab.rename_column(tab.colnames[3], 'mag')
    tab.rename_column(tab.colnames[4], 'emag')
    return tab
+
+def getOptStandardColor(f1, f2, names=None):
+   '''Returns a table of standard colors. If `names` is supplied, only
+   return those names.
+
+   Args: 
+      f1 (str):  Filter 1 of the color (f1-f2) (one of ugriBV)
+      f2 (str):  Filter 2 of the color (f1-f2) (one of ugriBV)
+      names (list): list of stndards
+      
+   Returns:
+      tab (astropy.table):  table with OBJ, color, ecolor
+      '''
+
+   tab1 = getOptStandardMag(f1, names=names)
+   tab2 = getOptStandardMag(f2, names=names)
+   tab = join(tab1, tab2, keys='OBJ')
+   tab['color'] = tab['mag_1'] - tab['mag_2']
+   with warnings.catch_warnings():    # disable sqrt warnings
+      warnings.simplefilter('ignore')
+      tab['ecolor'] = sqrt(tab['emag_1']**2 + tab['emag_2']**2)
+   tab = tab['OBJ','color','ecolor']
+   return tab
+
+
 
 def getOptNaturalMag(filt, names=None, tel='SWO', ins='DC'):
    '''Returns a table of natural magnitudes. If `names` is supplied, only
