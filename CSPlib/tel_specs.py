@@ -43,6 +43,7 @@ data = {
             'ncombine':'@NCOMBINE',
             'airmass':'@WAIRMASS',
             'object':'@OBJECT',
+            'datamax':40000,
          },
       },
       'SkyMapper': {

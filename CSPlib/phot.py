@@ -23,7 +23,7 @@ from warnings import warn
 import sys,os
 from numpy import *
 from .npextras import between
-from astropy.table import vstack
+from astropy.table import vstack,Table
 
 try:
    import pymc3 as pymc
@@ -83,7 +83,7 @@ def recenter(xs, ys, data, cutoutsize=40, method='1dg'):
 
 class ApPhot:
 
-   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None):
+   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None):
       '''Initialize this aperture photometry class with a tel/ins configuration
       and FITS file.
       
@@ -92,6 +92,7 @@ class ApPhot:
          tel (str):  telescope code (e.g., SWO)
          ins (str):  instrument code (e.g., NC)
          sigma (str or FITS): The FITS file with error (noise) map
+         mask (str or FITS): The optional FITS file with mask (True=Bad) 
       
       Returns:
          ApPhot instance.
@@ -120,6 +121,13 @@ class ApPhot:
          if isinstance(sigma, str):
             sigma = fits.open(sigma)
          self.error = sigma[0].data
+
+      if mask is None:
+         self.mask = self._makeMask()
+      else:
+         if isinstance(mask, str):
+            mask = fits.open(mask)
+         self.mask = mask[0].data
 
       self.centroids = None
       self.apps = []
@@ -171,6 +179,17 @@ class ApPhot:
       self.error = where(self.data > 0,
             sqrt(self.data/egain + self.rdnoise**2/self.gain**2),
             self.rdnoise/self.gain)
+
+   def _makeMask(self):
+      # Look for bad pixels.  Start with NaN's
+      mask = isnan(self.data)
+
+      # Next if datamax is specified:
+      datamax = self.cfg.get('datamax', None)
+      if datamax is not None:
+         mask = mask*greater(self.data, datamax)
+
+      return mask
 
    def loadObjCatalog(self, table=None, filename=None, racol='col2',
          deccol='col3', objcol='col1'):
@@ -279,11 +298,31 @@ class ApPhot:
       return array(skies), array(eskies)
 
    def doPhotometry(self):
-      '''Do the actual photometry.'''
+      '''Do the actual photometry.
+
+      Returns:
+         Astropy Table: Table of photometry. The following columns are included:
+            xcenter,ycenter:  fit coordinates of the star
+            msky:             mean sky value in sky aperture
+            mskyerr:          uncertainty in msky
+            flux[n],eflux[n]: flux and err in n'th aperture
+            ap[n],ap[n]er:    magnitude in nth aperture
+            filter:           filter of observation
+            date:             JD of observation
+            airmass:          airmass of observation
+            objID:            identifyer of the LS star or SN (0)
+            fits:             the FITS file of the observation
+            flags:            bit-wise flags:  
+                              1 = star outside frame
+                              2 = aperture mag is NaN
+                              4 = aperture mag error is NaN
+                              8 = pixels masked out (saturated, e.g.)
+            [F]mag,[F]err:    standard mag,error in filter F
+      '''
       if not self.apps:
          self.makeApertures()
       phot_table = aperture_photometry(self.data, self.apps[0:-1],
-            error=self.error)
+            error=self.error, mask=self.mask)
       # Figure out the sky
       msky,esky = self.estimateSky()
 
@@ -324,13 +363,20 @@ class ApPhot:
       flags = zeros(len(phot_table), dtype=int)
       flags = where(phot_table['xcenter'].value < 5, flags|1, flags)
       flags = where(phot_table['xcenter'].value > self.data.shape[1]-5, flags|1,flags)
-      flags = where(phot_table['ycenter'].value < 5, flags|11, flags)
+      flags = where(phot_table['ycenter'].value < 5, flags|1, flags)
       flags = where(phot_table['ycenter'].value > self.data.shape[0]-5, flags|1,flags)
       for i in range(len(self.apps)-1):
          flags = where(isnan(phot_table['ap{}'.format(i)]),
                        flags | 2, flags)
          flags = where(isnan(phot_table['ap{}er'.format(i)]),
                        flags | 4, flags)
+
+      # Check if masked pixels occurred in the apertures
+      ap_masks = [ap.to_mask() for ap in self.apps[0:-1]]
+      # indexed by [ap,obj]
+      maps = [[sometrue(am.multiply(self.mask)) for am in ams] \
+               for ams in ap_masks]
+      flags = where(sometrue(maps, axis=0), flags | 8, flags)
       phot_table['flags'] = flags
       self.phot = phot_table
 
@@ -461,7 +507,8 @@ def compute_zpt(phot, std_key, stderr_key, inst_key='ap2', ierr_key='ap2er',
    idiff,sdiff,oid1,oid2,omit = NN1(phot, std_key, inst_key)
    flags[omit] += 1
 
-   gids = greater(phot[objkey], 0)
+   gids = greater(phot[objkey], 0)        # remove SN
+   gids = gids*equal(phot['flags'], 0)    # Get rid of photometry prolems
    gids = gids*between(phot[std_key], magmin, magmax)
    gids = gids*less(phot[stderr_key], emagmax)*less(phot[ierr_key],emagmax)
    flags[greater(phot[stderr_key],emagmax)+greater(phot[ierr_key],emagmax)] += 8
@@ -524,4 +571,40 @@ def compute_zpt(phot, std_key, stderr_key, inst_key='ap2', ierr_key='ap2er',
          fig.savefig(plot)
 
    return zp,ezp,flags,"ok"
+
+from photutils.detection import StarFinderBase
+class FixedStarFinder(StarFinderBase):
+
+   def __init__(self, catalog, wcs, radius=12):
+
+      self.tab = ascii.read(catalog)
+      self.wcs = wcs
+      self.radius = radius
+      if 'RA' not in self.tab.colnames or 'DEC' not in self.tab.colnames:
+         raise ValueError("Error:  the input catalog must have RA and DEC "\
+               "columns")
+      
+   def find_stars(self, data, mask=None):
+      i,j = self.wcs.wcs_world2pix(self.tab['RA'], self.tab['DEC'], 0)
+      self.tab['xcentroid'] = i
+      self.tab['ycentroid'] = j
+      self.tab['flux'] = 0
+      for idx in range(len(i)):
+         i0 = int(i[idx]-self.radius)
+         j0 = int(j[idx]-self.radius)
+         i1 = int(i[idx]+self.radius)
+         j1 = int(j[idx]+self.radius)
+         if i0 < 0 or j0 < 0 or i1 > data.shape[1]-1 or j1 > data.shape[0]-1:
+            # Too close to edges
+            self.tab['xcentroid'][idx] = -1
+            self.tab['ycentroid'][idx] = -1
+         cutout = data[j0:j1,i0:i1]
+         self.tab[idx]['flux'] = sum(cutout.ravel())
+      self.tab = self.tab[self.tab['xcentroid'] > 0]
+      self.tab['id'] = arange(1, len(self.tab)+1)
+
+      return(self.tab)
+
+
+
 

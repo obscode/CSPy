@@ -176,7 +176,7 @@ for fil in tqdm(args.fits):
       # Call the extraction, using sky-limit to find the peak flux.
       flux, error, xfit, yfit, xerr, yerr, peak, cflag, sky, skynos_r, rchi = \
          opt.extr(x, y, args.dpos, this_fwhm, clip, shape_par, 0.,0.0,0.0, 0.0)
-      if cflag != "None":
+      if cflag != "O":
          # Extraction failed for some reason, let's just extract for sky-limit
          opt.log("   Warning! Extraction of optstar failed. Reverting to "\
                "sky-limit")
@@ -281,10 +281,11 @@ for fil in tqdm(args.fits):
       tab.rename_column(ekey,'emstd')
       if hasattr(tab['mstd'], 'mask'):
          tab = tab[~tab['mstd'].mask]
+      tab['flags'] = np.where(tab['cflag'] == 'O', 0, 1)
 
-      zp1,ezp1,flags1,mesg1 = compute_zpt(tab, 'mstd','emstd','magins','emagins',
+      zp1,ezp1,flags1,mesg1 = compute_zpt(tab,'mstd','emstd','magins','emagins',
             zpins=0)
-      zp2,ezp2,flags2,mesg2 = compute_zpt(tab, 'mstd','emstd','magins','emagins',
+      zp2,ezp2,flags2,mesg2 = compute_zpt(tab,'mstd','emstd','magins','emagins',
             zpins=0, plot=fil.replace(args.outpat, "_zp.png"), use_pymc=True)
 
       if zp1 is None:

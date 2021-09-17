@@ -305,6 +305,7 @@ class OptExtrPhot:
       self.DEs = None
  
       self.parse_header()
+      self.datamax = self.cfg.get('datamax',65000)
       self._makeErrorMap()
 
       self.centroids = None
@@ -622,6 +623,7 @@ class OptExtrPhot:
                E if star too close to frame edge of the frame.
                B if the fit to the sky failed (inherited from skyfit).
                I if the sky is ill-determined (inherited from skyfit).
+               M if any of the pixel values within cliprad > datamax
                Or the value of any pixel flags.
        sky,skynos_r
            The sky value, and RMS of the sky.'''
@@ -760,7 +762,8 @@ class OptExtrPhot:
         cflag
             A return flag.  
               B means failed to fit sky.
-              I If fit is unreliable because of skewness of sky.'''
+              I If fit is unreliable because of skewness of sky.
+              M if fit is unreliable beacuse of data exceeding datamax'''
       
       # Set default values for the output, to ensure they are defined for
       # compilers which don't set things to zero.  I've chosen 1 for skyerr
@@ -797,6 +800,10 @@ class OptExtrPhot:
       # Modal sky estimation.
       # First we find the mean sky.
       clip_array = self.data[iyslo:iyshi,ixslo:ixshi]
+
+      if np.sometrue(clip_array.ravel() > self.datamax):
+         cflag = 'M'
+
       clip_flg = self.pix_flg[iyslo:iyshi,ixslo:ixshi]
       idx = np.indices(clip_array.shape)
       idx[0] = idx[0] - y0
@@ -984,11 +991,16 @@ class OptExtrPhot:
          self.log("sum of weights: {}".format(np.sum(np.ravel(weight))))
          self._subdata = self.data[int(min2):int(max2),int(min1):int(max1)]
          self._weight = weight
-      sum_flux = np.sum(np.ravel(weight)*\
-            (np.ravel(self.data[int(min2):int(max2),int(min1):int(max1)])- skycnt))
+      subdata = self.data[int(min2):int(max2),int(min1):int(max1)]
+      sum_flux = np.sum(np.ravel(weight)*(np.ravel(subdata)- skycnt))
       # Calculate the error, including that from the sky determination.
       error = np.sqrt( np.sum(np.ravel(var_real*weight*weight)) +\
               skyerr*skyerr*np.sum(np.ravel(weight)) )
+
+      # Check to see if pixels exceed datamax
+      bids = (dist < cliprad+0.5)*(subdata > self.datamax)
+      if np.sometrue(bids):
+         cflag = 'M'
    
       return(sum_flux, error, cflag)
    
