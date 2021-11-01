@@ -10,9 +10,11 @@ for fil in sys.argv[1:]:
    ftsfile = fil.replace('.cat','_g.fits')
    fts = fits.open(ftsfile)
    if 'TELESCOP' in fts[0].header and fts[0].header['TELESCOP'] == 'SkyMapper':
-      nats = SMstand2nat(tab['gmag'],tab['rmag'],tab['imag'])
+      nats = SMstand2nat(tab['gmag'],tab['rmag'],tab['imag'], tab['gerr'],
+            tab['rerr'], tab['ierr'])
    else:
-      nats = PSstand2nat(tab['gmag'],tab['rmag'],tab['imag'])
+      nats = PSstand2nat(tab['gmag'],tab['rmag'],tab['imag'], tab['gerr'],
+            tab['rerr'], tab['ierr'])
    newtab = hstack([tab,nats])
    newtab.remove_columns(['gmag','gerr','rmag','rerr','imag','ierr'])
    if 0 not in newtab['objID']: continue
