@@ -2,7 +2,9 @@
 
 from CSPlib import getPS,getSM,get2MASS
 #from CSPlib.getPS import getStarCat,getFITS
-from astropy.io import fits
+from CSPlib.calibration import PSstand2nat,SMstand2nat
+from astropy.io import fits,ascii
+from astropy.table import hstack
 import pymysql
 from matplotlib import pyplot as plt
 from matplotlib import rcParams
@@ -36,7 +38,8 @@ if len(sys.argv) == 4:
    l = [sys.argv[1:]]
 else:         
    forceRedo = False
-   todo = open('/Volumes/GoogleDrive/Shared drives/CSP/Swope/todo.list')
+   todo = open(sys.argv[1])
+   # Skip header line
    l = [l.strip().split() for l in todo.readlines()[1:]]
 
 for sn,ra,dec in l:
@@ -103,6 +106,25 @@ for sn,ra,dec in l:
          cat[filt+'err'].info.format="%.4f"
       cat.write(join(templates, "{}.cat".format(sn)),format='ascii.fixed_width',
             delimiter=' ', overwrite=True)
+
+      # Now make natural system catalog
+      if skymap:
+         nats = SMstand2nat(cat['gmag'],cat['rmag'],cat['imag'], cat['gerr'],
+               cat['rerr'], cat['ierr'])
+      else:
+         nats = PSstand2nat(cat['gmag'],cat['rmag'],cat['imag'], cat['gerr'],
+               cat['rerr'], cat['ierr'])
+      newtab = hstack([cat,nats])
+      newtab.remove_columns(['gmag','gerr','rmag','rerr','imag','ierr'])
+      if 0 in newtab['objID']:
+         idx = list(newtab['objID']).index(0)
+         for filt in ['u','g','r','i','B','V']:
+            newtab[idx][filt] = -1
+            newtab[idx]['e'+filt] = -1
+         newtab.write(join(templates, "{}.nat".format(sn)), 
+               format='ascii.fixed_width', delimiter=' ', 
+               fill_values=[(ascii.masked,'...')], overwrite=True)
+
       dists = np.sqrt(np.power(cat['RA']-ra,2)*np.cos(dec*np.pi/180)**2 + 
             np.power(cat['DEC']-dec,2))
       pids = []
