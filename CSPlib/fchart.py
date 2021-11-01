@@ -83,7 +83,7 @@ def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
    if offsetcat is not None:
       cat = offsetcat
       for i in range(len(cat)):
-         dx = np.cos(dec*np.pi/180)*(cat['RA'][i]-xsn)*3600
+         dx = np.cos(ysn*np.pi/180)*(cat['RA'][i]-xsn)*3600
          dy = (cat['DEC'][i]-ysn)*3600
          ii,jj = wcs.wcs_world2pix(cat['RA'][i], cat['DEC'][i], 0)
          ax.plot(ii, jj, symbs.pop(), mec='blue', mfc='none', ms=20,
