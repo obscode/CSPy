@@ -68,7 +68,7 @@ chart_size = args.size
 if 'r' in args.filters:
    chart_filter = 'r'
 else:
-   chart_fitler = args.filters[0]
+   chart_filter = args.filters[0]
 
 Nstars = 20
 
@@ -104,7 +104,7 @@ else:
    l = [[args.name, float(args.ra)/15, float(args.dec)]]
 
 for sn,ra,dec in l:
-   fchart = join(fcharts, '{}.png'.format(sn))
+   fc = join(fcharts, '{}.png'.format(sn))
    ra = float(ra)*15   # Sigh
    dec = float(dec)
 
@@ -168,10 +168,10 @@ for sn,ra,dec in l:
          continue
       idx = np.argmin(dists[gids])
       pids.append(np.arange(len(gids))[gids][idx])
-   pids = array(pids)
+   pids = np.array(pids)
 
    fig = fchart.Fchart(fts, offsetcat=cat[pids], snx=ra, sny=dec)
 
-   fig.savefig(fchart) 
+   fig.savefig(fc) 
    
 
