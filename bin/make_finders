@@ -2,7 +2,7 @@
 
 #from CSPlib.getPS import getPS.getStarCat,getPS.getFITS
 from CSPlib.database import getConnection
-from CSPlib import getPS, getSM, getPOSS
+from CSPlib import getPS, getSM, getPOSS, fchart
 from astropy.io import fits
 import pymysql
 from matplotlib import pyplot as plt
@@ -19,7 +19,7 @@ from urllib import request
 from json import loads
 
 parser = argparse.ArgumentParser(description=\
-      'Make a finder chart using panSTARRs data by specifing CSP nane,'\
+      'Make a finder chart using panSTARRs data by specifing CSP name,'\
       ' Alerce name or RA/DEC')
 parser.add_argument('-SN', 
       help="Supernova name. It must exist in the CSP database",
@@ -168,75 +168,9 @@ for sn,ra,dec in l:
          continue
       idx = np.argmin(dists[gids])
       pids.append(np.arange(len(gids))[gids][idx])
+   pids = array(pids)
 
-   fig = plt.figure(figsize=(9,9))
-   ax = fig.add_subplot(111, projection=wcs)
-   plt.subplots_adjust(left=0.2)
-   norm = simple_norm(fts[0].data, percent=args.percent, 
-         max_percent=args.maxpercent, min_percent=args.minpercent)
-   ax.imshow(fts[0].data, origin='lower', norm=norm, cmap='gray_r')
-   #ii,jj = wcs.wcs_world2pix(cat['RA'][pids], cat['DEC'][pids], 0)
-   #ax.plot(ii, jj, 'o', mec='blue', mfc='none', ms=20)
-   ax.plot([0.3,0.48],[0.5, 0.5], '-', color='red', alpha=0.5,
-      transform=ax.transAxes)
-   ax.plot([0.52,0.7],[0.5, 0.5], '-', color='red', alpha=0.5,
-      transform=ax.transAxes)
-   ax.plot([0.5,0.5],[0.3, 0.48], '-', color='red', alpha=0.5,
-      transform=ax.transAxes)
-   ax.plot([0.5,0.5],[0.52, 0.7], '-', color='red', alpha=0.5,
-      transform=ax.transAxes)
-   ax.set_xlabel('RA (J2000)')
-   ax.set_ylabel('DEC (J2000)')
-   for i in pids:
-      dx = np.cos(dec*np.pi/180)*(cat['RA'][i]-ra)*3600
-      dy = (cat['DEC'][i]-dec)*3600
-      mag = cat['rmag'][i]
-      ii,jj = wcs.wcs_world2pix(cat['RA'][i], cat['DEC'][i], 0)
-      ax.plot(ii, jj, symbs.pop(), mec='blue', mfc='none', ms=20,
-            label="({:.1f},{:.1f})".format(dx,dy))
-      #ax.text(ii[i]+30, jj[i]+45, "{:.1f}\n{:.1f}".format(dx,dy), color='blue',
-      #      fontsize=12, ha='right', va='bottom')
-
-   ins = inset_axes(ax, width="100%", height="100%",
-         bbox_to_anchor=(0.7,0.7, 0.4, 0.4), bbox_transform=ax.transAxes)
-   ax.legend(loc='upper left', fontsize=10, markerscale=0.5)
-   ins.tick_params(left=False, right=False, bottom=False, top=False)
-   ins.axes.get_xaxis().set_visible(False)
-   ins.axes.get_yaxis().set_visible(False)
-   size = max(fts[0].data.shape)
-   x0 = size//2 - size//8
-   x1 = size//2 + size//8
-   y0 = size//2 - size//8
-   y1 = size//2 + size//8
-
-   subdata = fts[0].data[x0:x1,y0:y1]
-   ins.imshow(subdata,origin='lower', norm=norm, cmap='gray_r')
-   ins.plot([0.25,0.45],[0.5, 0.5], '-', color='red', alpha=0.5,
-      transform=ins.transAxes)
-   ins.plot([0.55,0.75],[0.5, 0.5], '-', color='red', alpha=0.5,
-      transform=ins.transAxes)
-   ins.plot([0.5,0.5],[0.25, 0.45], '-', color='red', alpha=0.5,
-      transform=ins.transAxes)
-   ins.plot([0.5,0.5],[0.55, 0.75], '-', color='red', alpha=0.5,
-      transform=ins.transAxes)
-
-   ax.plot([0.95,0.85],[0.05,0.05], '-', color='blue', transform=ax.transAxes)
-   ax.plot([0.95,0.95],[0.05,0.15], '-', color='blue', transform=ax.transAxes)
-   ax.text(0.84, 0.05, 'E', fontsize=16, color='blue', transform=ax.transAxes,
-         ha='right', va='center')
-   ax.text(0.95, 0.17, 'N', fontsize=16, color='blue', transform=ax.transAxes,
-         ha='center', va='bottom')
-
-
-   title="{}\n{:.5f},{:.5f}".format(sn,ra,dec)
-   ax.set_title(title, loc='left')
-
-   i0,j0 = size*0.05,size*0.05
-   x0,y0 = wcs.wcs_pix2world(i0, j0, 0)
-   i1, j1 = wcs.wcs_world2pix(x0 - 1/60, y0, 0)
-   ax.plot([i0,i1],[j0,j1], '-', color='blue')
-   ax.text((i0+i1)/2, j0-10, "1'", color='blue', ha='center', va='top')
-
+   fig = fchart.Fchart(fts, offsetcat=cat[pids], snx=ra, sny=dec)
 
    fig.savefig(fchart) 
    

@@ -1,0 +1,93 @@
+#!/usr/bin/env python
+
+from astropy.io import fits,ascii
+from matplotlib import pyplot as plt
+from matplotlib.patches import Circle,Rectangle
+from astropy.wcs import WCS
+from astropy.visualization import simple_norm
+from CSPlib import fchart
+import numpy as np
+import argparse
+
+
+def keyvent(event):
+   global cut
+   if cat[event.inaxes.idx]['good']:
+      cat[event.inaxes.idx]['good'] = False
+      [ap.set_color('red') for ap in event.inaxes.aps]
+   else:
+      cat[event.inaxes.idx]['good'] = True
+      [ap.set_color('green') for ap in event.inaxes.aps]
+   plt.draw()
+
+
+parser = argparse.ArgumentParser(description="Given an inital catalog, this"\
+      " script helps you interactively select good LS stars")
+parser.add_argument('FITS', help='FITS file to get images from')
+parser.add_argument('cat', help='Initial catalog file')
+parser.add_argument('-cutout', help="cutout size in pixels", type=int,
+      default=50)
+parser.add_argument('-output', help='Final output LS catalog',
+      default='LS.cat')
+parser.add_argument('-plot', help='Plot the finder chart',
+      action="store_true")
+parser.add_argument('-cspoutput', help='Final output LS catalog in CSP format',
+      default='mycat.cat')
+parser.add_argument('-n', help='number of rows/columns to show', default=10,
+      type=int)
+parser.add_argument('-scale', help='Image scale arc-sec/pix', default=0.435)
+parser.add_argument('-aps', help='list of aperture radii in arc-sec',
+      default=[], nargs='*')
+args = parser.parse_args()
+
+fts = fits.open(args.FITS)
+obj = fts[0].header['OBJECT']
+wcs = WCS(fts[0])
+cat = ascii.read(args.cat)
+cat['good'] = False
+cut = args.cutout
+
+outf = open(args.cspoutput, 'a')
+outfmt = "{:20s} {:3d} {:10.6f}    {:10.6f}\n"
+
+norm = simple_norm(fts[0].data, percent=99)
+
+n = args.n
+nplots = len(cat)//n**2 + ((len(cat) % n**2) > 0)
+for i in range(nplots):
+   fig = plt.figure(figsize=(10,10), constrained_layout=False)
+   grid = fig.add_gridspec(n,n, wspace=0, hspace=0)
+   axes = grid.subplots()
+   axes = axes.ravel()
+   [ax.xaxis.set_visible(False) for ax in axes]
+   [ax.yaxis.set_visible(False) for ax in axes]
+   for j in range(n**2):
+      idx = i*100 + j
+      if idx > len(cat)-1: break
+      ii,jj = wcs.wcs_world2pix(cat['RA'][idx],cat['DEC'][idx], 0)
+      ii = int(ii)
+      jj = int(jj)
+      subd = fts[0].data[jj-cut:jj+cut,ii-cut:ii+cut]
+      axes[j]._im = axes[j].imshow(subd, origin='lower', norm=norm)
+      axes[j].idx = idx
+      axes[j].aps = []
+      for ap in args.aps:
+         circ = plt.Circle((cut,cut), float(ap)/args.scale,
+               color='red', linewidth=1, fill=False, alpha=0.5)
+         axes[j].aps.append(axes[j].add_patch(circ))
+      
+   fig.canvas.mpl_connect('key_press_event', keyvent)
+   plt.show()
+
+cat = cat[cat['good']]
+cat.remove_column('good')
+cat.write(args.output, format='ascii.fixed_width', delimiter=' ', overwrite=True)
+for i in range(len(cat)):
+   outf.write(outfmt.format(obj, i, cat['RA'][i], cat['DEC'][i]))
+outf.close()
+
+if args.plot:
+   cat['objID'] = np.arange(len(cat))
+   fig = fchart.Fchart(fts, LScat=cat[1:], snx=cat[0]['RA'], sny=cat[0]['DEC'])
+   fig.savefig(args.FITS.replace('.fits','_fchart.pdf'))
+

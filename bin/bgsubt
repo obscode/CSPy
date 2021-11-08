@@ -1,0 +1,38 @@
+#!/usr/bin/env python
+
+import argparse
+from astropy.stats import sigma_clipped_stats, biweight_location, SigmaClip
+from astropy.io import fits
+from photutils.segmentation import make_source_mask
+from photutils.background import Background2D, MedianBackground
+from CSPlib.fitsutils import qdump
+import numpy as np
+
+
+parser = argparse.ArgumentParser(description="Model 2D background and subtract")
+parser.add_argument('fts', help='FITS file with background to remove')
+parser.add_argument('out', help='Output subtracted FITS file ')
+parser.add_argument('-bkimg', help='Output background estimate FITS file ')
+parser.add_argument('-boxsize', help='Box size', type=int, default=50)
+
+args = parser.parse_args()
+
+fts = fits.open(args.fts)
+data = fts[0].data
+
+mask = make_source_mask(data, nsigma=2, npixels=5, dilate_size=11)
+mn,md,st = sigma_clipped_stats(data, sigma=3.0, mask=mask)
+
+print("mean,median,std of image:  {:.3f},{:.3f},{:.3f}".format(mn,md,st))
+
+sigma_clip = SigmaClip(sigma=3.)
+bkg_estimator = MedianBackground()
+bkg = Background2D(data, (args.boxsize,args.boxsize), filter_size=(3,3),
+      sigma_clip=sigma_clip, bkg_estimator=bkg_estimator, mask=mask)
+sdata = data - bkg.background
+
+qdump(args.out, sdata, header=fts[0].header)
+
+if args.bkimg:
+   qdump(args.bkimg, bkg.background, header=fts[0].header)
+

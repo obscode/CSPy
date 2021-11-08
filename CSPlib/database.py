@@ -4,7 +4,7 @@ from astropy.table import Table
 from astropy.time import Time
 import pymysql
 import os
-from numpy import argsort
+from numpy import argsort,array
 from datetime import date
 from .config import getconfig
 
@@ -26,6 +26,10 @@ dbs = {'SBS': {
           'host':'localhost',
           'user':'cburns',
           'db':'Phot'},
+       'POISE':{
+          'host':'sql.obs.carnegiescience.edu',
+          'user':'cburns',
+          'db':'POISE'},
        }
               
 
@@ -271,3 +275,52 @@ def updateSNPhot(SN, JD, filt, fits, mag, emag, db=default_db):
 
    db.close()
 
+
+def getSpectraList(SN, db=default_db):
+   '''Get a list of spectra that are available on the database for the object
+   SN
+   
+   Args:
+      SN(str):  Supernova name
+      db(str):  The database to access.
+
+   Returns:
+      spectra(list):  list of spectra. Empty list denotes no spectra found.
+   '''
+
+   try:
+      db = getConnection(db)
+   except:
+      return []
+
+   c = db.cursor()
+
+   N = c.execute('''SELECT * from SP_INFO where SN=%s''', (SN,))
+   if N == 0:
+      return []
+   data = c.fetchall()
+   return [[d[1],d[2],d[3],d[4],d[5]] for d in data]
+
+def getSpectrum(filename, db=default_db):
+   '''Get a single spectrum given a filename.
+
+   Args:
+      filename(str):  Name of the FITS file (found using getSpectraList)
+      db(str):  the databse to query
+
+   Returns:
+      lambda,flux:  2-tuple of numpy arrays. The wavelenth in Angstroms and
+                    flux in erg/s/cm**2/Angs
+   '''
+
+   try:
+      db = getConnection(db)
+   except:
+      return None
+
+   c = db.cursor()
+   N = c.execute('''SELECT LAMBDA,FLUX from SPECTRA where FILE=%s''', 
+         (filename,))
+   if N == 0: return None
+   data = c.fetchall()
+   return [array([d[0] for d in data]),array([d[1] for d in data])]
