@@ -108,6 +108,8 @@ class Pipeline:
       self.stdIDs = {}
       # These are files that are not identified or failed in some other way
       self.ignore = []
+      # These objects have no galaxy template (u-band usually)
+      self.no_temp = []
       # These are files that have WCS solved
       self.wcsSolved = []
       # These are files with initial photometry
@@ -148,7 +150,7 @@ class Pipeline:
          self.templates = templates
 
       try:
-         self.logfile = open(join(workdir, "pipeline.log"), 'w')
+         self.logfile = open(join(workdir, "pipeline.log"), 'a')
       except:
          raise OSError("Can't write to workdir {}. Check permissions!".format(
             workdir))
@@ -506,7 +508,7 @@ class Pipeline:
                else:
                    self.log('Failed to get template from gdrive: {}'.format(
                        tmpname))
-                   self.ignore.append(f)
+                   self.no_temp.append(f)
                    continue
             # Get the catalog file
             catfile = "{}.nat".format(self.ZIDs[f])
@@ -907,7 +909,8 @@ class Pipeline:
       and then redo the photometry for the SN object'''
 
       todo = [fil for fil in self.initialPhot if fil not in self.subtracted \
-            and fil not in self.ignore and fil not in self.stdIDs]
+            and fil not in self.ignore and fil not in self.stdIDs and \
+            fil not in self.no_temp]
       for fil in todo:
          obj = self.ZIDs[fil]
          diff = fil.replace('.fits','diff.fits')
