@@ -588,12 +588,15 @@ class Pipeline:
             else:
                wcsimage = join(self.templates, "{}_{}.fits".format(
                   ZID,filt))
-         h = fits.getheader(wcsimage)
-         if 'TELESCOP' not in h or h['TELESCOP'] != 'SkyMapper':
-            new = WCStoImage(wcsimage, fil, angles=[0],
-                  plotfile=fil.replace('.fits','_wcs.png'))
+         if os.path.isfile(wcsimage):
+            h = fits.getheader(wcsimage)
+            if 'TELESCOP' not in h or h['TELESCOP'] != 'SkyMapper':
+               new = WCStoImage(wcsimage, fil, angles=[0],
+                     plotfile=fil.replace('.fits','_wcs.png'))
+            else:
+               new = None
          else:
-            new = None
+               new = None
          if new is None:
             self.log("Fast WCS failed... resorting to astrometry.net")
             new = do_astrometry.do_astrometry([fil], replace=True,
@@ -686,6 +689,13 @@ class Pipeline:
                cat = ascii.read(catfile)
          else:
             cat = ascii.read(catfile)
+
+         if not isfile(allcat):
+            # No calibration for this field. Probably someone else's object.
+            # Skip...
+            self.log('No field star calibration for {}.Skipping...'.format(fil))
+            self.ignore.append(fil)
+            continue
 
          ap = ApPhot(fil)
          ap.loadObjCatalog(table=cat, racol='RA', deccol='DEC', 
