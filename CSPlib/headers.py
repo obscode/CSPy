@@ -78,6 +78,8 @@ def update_header(f, fout=None):
    exptype = h['EXPTYPE'].lower()
    if exptype == 'focus':
       obstype = 'focus'
+   elif exptype == 'bias':
+      obstype = 'bias'
    else:
       # Get rid of spaces!!!
       obj = obj.replace(' ','_')
