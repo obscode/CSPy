@@ -5,6 +5,8 @@ from astropy.io import ascii
 from .tel_specs import getTelIns
 import tempfile
 import os
+from scipy.stats import exponnorm
+import numpy as np
 
 sex_in = '''CATALOG_NAME     {tmpdir}/sextractor.cat
 CATALOG_TYPE    ASCII_HEAD
@@ -51,6 +53,7 @@ class SexTractor:
       if scale is not None: self.scale = scale
       if gain is not None: self.gain = gain
       self.tmpdir = tempfile.mkdtemp(dir='.')
+      self.tab = None
 
    def makeSexFiles(self, aper, datamax, fwhm, thresh, deblend_mc=0.005):
       '''Output a sextractor config file.
@@ -113,8 +116,21 @@ class SexTractor:
       '''Read in the catalog data.'''
       if not os.path.isfile(os.path.join(self.tmpdir,'sextractor.cat')):
          raise IOError('Sextractor catalog file not found, did you run()?')
-      tab = ascii.read(os.path.join(self.tmpdir,'sextractor.cat'))
-      return tab
+      self.tab = ascii.read(os.path.join(self.tmpdir,'sextractor.cat'))
+      return self.tab
+
+   def filterStars(self, fmin=0, fmax=20, scale=1, nsigma=5):
+      if self.tab is None:
+         raise RuntimeError("You have to run() and parseCatFile first")
+
+      gids = np.greater(self.tab['FWHM_IMAGE'], fmin*scale)*\
+             np.less(self.tab['FWHM_IMAGE'], fmax*scale)
+      lamb,mu,sig = exponnorm.fit(self.tab['FWHM_IMAGE'][gids])
+
+      gids = gids*np.greater(self.tab['FWHM_IMAGE'], mu-nsigma*sig)*\
+             np.less(self.tab['FWHM_IMAGE'], mu + nsigma*sig)
+      return(self.tab[gids])
+
 
 
 
