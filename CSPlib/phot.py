@@ -24,6 +24,7 @@ import sys,os
 from numpy import *
 from .npextras import between
 from astropy.table import vstack,Table
+import tempfile
 
 try:
    import pymc3 as pymc
@@ -79,6 +80,185 @@ def recenter(xs, ys, data, cutoutsize=40, method='1dg'):
             yout.append(y - interv + yy)
             flags.append(0)
    return array(xout),array(yout),array(flags)
+
+class PSFPhot:
+
+   def __init__(self, ftsfile, tel='SWO', ins='NC'):
+      '''Initialize this PSF photometry class with a tel/ins configuration
+      and FITS file.
+      
+      Args: 
+         ftsfile (str or FITS): The FITS file to deal with
+         tel (str):  telescope code (e.g., SWO)
+         ins (str):  instrument code (e.g., NC)
+         sigma (str or FITS): The FITS file with error (noise) map
+         mask (str or FITS): The optional FITS file with mask (True=Bad) 
+      
+      Returns:
+         PSFPhot instance.
+      '''
+      self.cfg = getTelIns(tel,ins)
+      if not os.path.isfile(ftsfile):
+         raise ValueError("Error:  not such file {}".format(ftsfile))
+      if isinstance(ftsfile, str):
+         self.ftsobj = fits.open(ftsfile)
+         self.ftsfile = ftsfile
+      else:
+         self.ftsobj = ftsfile
+         self.ftsfile = None
+
+      self.head = self.ftsobj[0].header
+      self.data = self.ftsobj[0].data
+      self.wcs = WCS(self.head)
+
+      self.RAs = None
+      self.DEs = None
+ 
+      self.parse_header()
+
+      self.centroids = None
+      self.phot = None
+
+   def _parse_key(self, key, fallback=None):
+      '''Given a key, we try to figure out what value it sould have. First,
+      we check if the key exists in the config dict. If it is a string has
+      starts with '@', we take it from the fits header. Otherwise, it
+      is taken as the value from the config dict. If the key is not in dict
+      we can fallback if it is not None. Othewise, raise an exception.'''
+      val = self.cfg.get(key, None)
+      if val is not None:
+         if isinstance(val,str) and val.find('@') == 0:
+            fitskey = val[1:]
+            if fitskey not in self.head:
+               if fallback is not None:
+                  warn("Header keyword {}, not found, using fallback={}".format(
+                     fitskey, fallback))
+                  return fallback
+               raise KeyError("header keyword {} not found".format(fitskey))
+            return self.head[fitskey.upper()]
+         else:
+            return val
+      else:
+         if fallback is not None:
+            warn("Couldn't figure out value for {}, using fallback={}".format(
+               key, fallback))
+            return fallback
+         else:
+            raise KeyError("Option {} not found in data section".format(key))
+
+   def parse_header(self):
+      '''Parse the FITS header for information we'll need, falling back on
+      defaults or values from the config file.'''
+      self.exposure = self._parse_key("exposure")
+      self.filter = self._parse_key("filter")
+      self.date = self._parse_key("date")
+      self.gain = self._parse_key("gain", fallback=1.0)
+      self.ncombine = self._parse_key("ncombine", fallback=1)
+      self.rdnoise = self._parse_key("rnoise", fallback=0.0)
+      self.airmass = self._parse_key("airmass", fallback=1.0)
+      self.object = self._parse_key("object", fallback='SNobj')
+
+   def loadObjCatalog(self, table=None, filename=None, racol='col2',
+         deccol='col3', objcol='col1'):
+      '''Given a catalog filename, load it and store info.
+      Args:
+         table (astropy.table):  source catalog as a table
+         filename (str):  source catalog as a file
+         racol (str):  column name for RA
+         deccol (str): column name for DEC
+         objcol (str); column name for object number
+         
+      Returns:
+         None
+
+      Effects:
+         self.objs, self.RAs, self.DEs populated with data
+      '''
+      if filename is None and table is None:
+         if self.ftsfile is not None:
+            if os.path.isfile(self.ftsfile.replace('.fits','.cat')):
+               filename = self.ftsfile.replace('.fits','.cat')
+            else:
+               raise ValueError("you must specify either a file or table")
+         else:
+            raise ValueError("you must specify either a file or table")
+
+      if table is not None:
+         cat = table
+      else:
+         cat = ascii.read(filename)
+
+      # Check for needed info
+      if objcol not in cat.colnames:
+         raise ValueError(
+               "Error: object column {} not found in data file".format(objcol))
+      self.objs = cat[objcol]
+      
+      if racol not in cat.colnames:
+         raise ValueError(
+               "Error: RA column {} not found in data file".format(racol))
+      self.RAs = cat[racol]
+
+      if deccol not in cat.colnames:
+         raise ValueError(
+               "Error: DEC column {} not found in data file".format(deccol))
+      self.DEs = cat[deccol]
+
+
+   def doPhotometry(self, magins='MAGINS', stdcat='STDS.cat'):
+      '''Do the PSF photometry using the magins command.
+
+      Returns:
+         Astropy Table: Table of photometry. The following columns are included:
+            xcenter,ycenter:  fit coordinates of the star
+            msky:             mean sky value in sky aperture
+            mskyerr:          uncertainty in msky
+            flux[n],eflux[n]: flux and err in n'th aperture
+            ap[n],ap[n]er:    magnitude in nth aperture
+            filter:           filter of observation
+            date:             JD of observation
+            airmass:          airmass of observation
+            objID:            identifyer of the LS star or SN (0)
+            fits:             the FITS file of the observation
+            flags:            bit-wise flags:  
+                              1 = star outside frame
+                              2 = aperture mag is NaN
+                              4 = aperture mag error is NaN
+                              8 = pixels masked out (saturated, e.g.)
+            [F]mag,[F]err:    standard mag,error in filter F
+      '''
+      with tempfile.TemporaryDirectory() as tmpdir:
+         catfile = os.path.join(tmpdir, 'cat')
+         magfile = os.path.join(tmpdir, 'mags.txt')
+         with open(catfile, 'w') as fout:
+            for i in range(len(self.objs)):
+               fout.write("{} {} {} {}\n".format(
+                  self.object, self.objs[i], self.RAs[i], self.DEs[i]))
+         com = "{} {} {} {} {}".format(magins, self.ftsfile, catfile, stdcat, 
+               magfile)
+         os.system(com)
+         tab = ascii.read(magfile, names=['night','fits','tel','ins','filter', 
+            'airmass','expt','ncombine','date','SN','OBJ','ra','dec','xc','yc',
+            'mag1','merr1','mag2','merr2','mag3','merr3','mag4','merr4',
+            'flux','msky','mskyer' ,'shart','chi','g1','g2','perr'])
+
+      tab['msky'].info.format = "%.3f"
+      tab['mskyer'].info.format = "%.3f"
+      tab['date'].info.format = "%.2f"
+      tab['airmass'].info.format = "%.3f"
+
+      # Do some flags
+      flags = zeros(len(tab), dtype=int)
+      flags = where(tab['xc'] < 5, flags|1, flags)
+      flags = where(tab['xc'] > self.data.shape[1]-5,flags|1,flags)
+      flags = where(tab['yc'] < 5, flags|1, flags)
+      flags = where(tab['yc'] > self.data.shape[0]-5,flags|1,flags)
+      flags = where(tab['perr'] != "No_error",flags|2,flags)
+
+      tab['flags'] = flags
+      self.phot = tab
+
+      return tab
 
 
 class ApPhot:
