@@ -4,6 +4,7 @@ import os
 from glob import glob
 from astropy.io import fits
 from astropy.time import Time
+from CSPlib import filesystem
 
 files = glob("fcd?*c3.fits")
 files.sort()
@@ -12,42 +13,25 @@ template = "{obj}_{filt}{idx:02d}_{tel}_{ins}_{YY}_{MM:02d}_{DD:02d}{suf}"
 
 for fil in files:
    fts = fits.open(fil)
-   #YY,MM,DD = fts[0].header['DATE-OBS'].split('-')
-   # Now, DATE-OBS changes at midnight. So the better way to get the "day"
-   # is to add 0.5 to JD (push it beyond change-over and get the year/month/day
-   jd = Time(fts[0].header['JD'] + 0.5, format='jd')
-   dt = jd.to_datetime()
-   YY,MM,DD = dt.year,dt.month,dt.day
-   YY = int(YY)
-   MM = int(MM)
-   DD = int(DD)
-
-   args = dict(
-       obj=fts[0].header['OBJECT'],
-       filt=fts[0].header['FILTER'],
-       YY=YY, MM=MM, DD=DD,
-       tel=fts[0].header['TELESCOP'],
-       ins=fts[0].header['INSTRUM'],
-       suf='.fits', idx=1)
-
+   idx = 1
    done = False
    while True:
-      name = template.format(**args)
+      name = filesystem.CSPname(fts, idx,'.fits')
       if os.path.islink(name):
          if os.path.basename(os.path.realpath(name)) == fil:
             done = True
             break
          else:
-            args['idx'] += 1
+            idx += 1
       else:
          break
 
-   if not done: os.symlink(fil, template.format(**args))
-   for suf in ['SN.fits','temp.fits','diff.fits','SN_diff.jpg','_zp.jpg',
+   if not done: os.symlink(fil, filesystem.CSPname(fts, idx, '.fits'))
+   for suf in ['SN.fits','temp.fits','diff.fits','_zp.jpg',
          '.phot0','.phot','diff.opt']:
       newf = fil.replace('.fits',suf)
       if os.path.isfile(newf):
-         args['suf'] = suf
-         if not os.path.islink(template.format(**args)):
-            os.symlink(newf,template.format(**args))
+         target = filesystem.CSPname(fts, idx, suf)
+         if not os.path.islink(target):
+            os.symlink(newf,target)
 
