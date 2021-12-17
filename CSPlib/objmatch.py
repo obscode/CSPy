@@ -146,7 +146,7 @@ def objmatch(x1,y1,x2,y2, dtol, atol, scale1=1.0, scale2=1.0,
       da = where(greater(da, 180.0), da-180.0, da)
       use = less(absolute(ds),dtol)*less(absolute(da),atol)
       suse = add.reduce(add.reduce(use,3),1)
-      if max(ravel(suse)) < 4: 
+      if len(ravel(suse)) == 0 or max(ravel(suse)) < 4: 
          if verb: print("angle {:.2f} gives < 4 matches".format(aoff))
          continue
       guse = greater(suse,max(suse.ravel())//2)
