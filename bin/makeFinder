@@ -57,7 +57,7 @@ dists = np.sqrt(np.power(cat['RA']-ra,2)*np.cos(dec*np.pi/180)**2 +
 pids = []
 for magmin,magmax in [(11,12),(12,13),(13,14),(14,15),(16,17)]:
    gids = np.greater_equal(cat['rmag'],magmin)*np.less(cat['rmag'],magmax)
-   gids = gids*np.less(dists, 0.25/2.1)
+   gids = gids*np.less(dists, 0.25/2.1)*np.greater(dists, 30.0/3600)
    if not np.sometrue(gids):
       continue
    idx = np.argmin(dists[gids])
