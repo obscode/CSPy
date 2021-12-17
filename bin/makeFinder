@@ -4,6 +4,7 @@ import argparse
 from CSPlib import fchart
 from astropy.io import ascii,fits
 import sys
+import numpy as np
 
 parser = argparse.ArgumentParser(description="Make a finder chart from a"\
          " FITS file and catalog")
@@ -15,6 +16,12 @@ parser.add_argument('-objcol', help="Name of object column",
                      default='objID')
 parser.add_argument('-snid', help="Supernova ID in the catalog", type=int,
                      default=0)
+parser.add_argument('-zoom', help="Zoom factor for inset", type=float,
+                     default=4.)
+parser.add_argument('-p', help="percent of pixels to plot", type=float, 
+      default=99.)
+parser.add_argument('-lp', help="lower percent of pixels to plot", type=float)
+parser.add_argument('-up', help="upper percent of pixels to plot", type=float)
 
 args = parser.parse_args()
 
@@ -42,7 +49,22 @@ if args.snid not in objs:
    sys.exit(1)
 idx = objs.index(args.snid)
 gids = (cat['objID'] != args.snid)
+ra = cat['RA'][idx]
+dec = cat['DEC'][idx]
 
-fig = fchart.Fchart(fts, LScat=cat[gids], snx=cat[idx]['RA'], 
-       sny=cat[idx]['DEC'])
-fig.savefig(fts[0].header.get('OBJECT','object') + "_fchart.pdf")
+dists = np.sqrt(np.power(cat['RA']-ra,2)*np.cos(dec*np.pi/180)**2 +
+            np.power(cat['DEC']-dec,2))
+pids = []
+for magmin,magmax in [(11,12),(12,13),(13,14),(14,15),(16,17)]:
+   gids = np.greater_equal(cat['rmag'],magmin)*np.less(cat['rmag'],magmax)
+   gids = gids*np.less(dists, 0.25/2.1)*np.greater(dists, 30.0/3600)
+   if not np.sometrue(gids):
+      continue
+   idx = np.argmin(dists[gids])
+   pids.append(np.arange(len(gids))[gids][idx])
+pids = np.array(pids)
+
+fig = fchart.Fchart(fts, offsetcat=cat[pids], snx=ra, sny=dec, 
+      percent=args.p, maxpercent=args.up, minpercent=args.lp,
+      zoomfac=args.zoom)
+fig.savefig(fts[0].header.get('OBJECT','object') + ".png")

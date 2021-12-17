@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 
-from CSPlib import getPS,getSM,get2MASS
+from CSPlib import getPS,getSM,get2MASS,getRefcat2
 #from CSPlib.getPS import getStarCat,getFITS
-from astropy.io import fits
+from CSPlib.calibration import PSstand2nat,SMstand2nat
+from astropy.io import fits,ascii
+from astropy.table import hstack
 import pymysql
 from matplotlib import pyplot as plt
 from matplotlib import rcParams
@@ -23,6 +25,7 @@ chart_size = 0.25   # degrees
 chart_filter = 'r'
 Nstars = 20
 lockfile = '/tmp/make_finders_lock'
+useRefcat = True
 
 # First, check for lockfile
 #if isfile(lockfile):
@@ -36,7 +39,8 @@ if len(sys.argv) == 4:
    l = [sys.argv[1:]]
 else:         
    forceRedo = False
-   todo = open('/Volumes/GoogleDrive/Shared drives/CSP/Swope/todo.list')
+   todo = open(sys.argv[1])
+   # Skip header line
    l = [l.strip().split() for l in todo.readlines()[1:]]
 
 for sn,ra,dec in l:
@@ -85,12 +89,15 @@ for sn,ra,dec in l:
       if key[0:2] == 'PV':
          del fts[0].header[key]
    wcs = WCS(fts[0])
-   cat = getPS.getStarCat(ra, dec, chart_size/2)
-   if cat is None:
-      print("Error, could not download PS catalog, trying SM")
-      cat = getSM.getStarCat(ra, dec, chart_size/2)
+   if useRefcat:
+      cat = getRefcat2.getStarCat(ra, dec, chart_size*0.707)  #0.5*sqrt(2)
+   else:
+      cat = getPS.getStarCat(ra, dec, chart_size*0.707)
       if cat is None:
-         print("Error, neither PS nor SM has a catalog!")
+         print("Error, could not download PS catalog, trying SM")
+         cat = getSM.getStarCat(ra, dec, chart_size*0.707)
+         if cat is None:
+            print("Error, neither PS nor SM has a catalog!")
 
    if cat is not None:
       sids = np.argsort(cat['rmag'])
@@ -103,13 +110,33 @@ for sn,ra,dec in l:
          cat[filt+'err'].info.format="%.4f"
       cat.write(join(templates, "{}.cat".format(sn)),format='ascii.fixed_width',
             delimiter=' ', overwrite=True)
+
+      # Now make natural system catalog
+      if skymap:
+         nats = SMstand2nat(cat['gmag'],cat['rmag'],cat['imag'], cat['gerr'],
+               cat['rerr'], cat['ierr'])
+      else:
+         nats = PSstand2nat(cat['gmag'],cat['rmag'],cat['imag'], cat['gerr'],
+               cat['rerr'], cat['ierr'])
+      newtab = hstack([cat,nats])
+      newtab.remove_columns(['gmag','gerr','rmag','rerr','imag','ierr'])
+      if 0 in newtab['objID']:
+         idx = list(newtab['objID']).index(0)
+         for filt in ['u','g','r','i','B','V']:
+            newtab[idx][filt] = -1
+            newtab[idx]['e'+filt] = -1
+         newtab.write(join(templates, "{}.nat".format(sn)), 
+               format='ascii.fixed_width', delimiter=' ', 
+               fill_values=[(ascii.masked,'...')], overwrite=True)
+
       dists = np.sqrt(np.power(cat['RA']-ra,2)*np.cos(dec*np.pi/180)**2 + 
             np.power(cat['DEC']-dec,2))
       pids = []
       symbs = ['s', 'o', 'd', '^', 'v','<','>'][::-1]
       for magmin,magmax in [(11,12),(12,13),(13,14),(14,15),(16,17)]:
          gids = np.greater_equal(cat['rmag'],magmin)*np.less(cat['rmag'],magmax)
-         gids = gids*np.less(dists, chart_size/2.1)
+         gids = gids*np.less(dists, chart_size/2.1)*\
+               np.greater(dists, chart_size/10)
          if not np.sometrue(gids):
             continue
          idx = np.argmin(dists[gids])

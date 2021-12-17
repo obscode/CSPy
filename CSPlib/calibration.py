@@ -323,23 +323,25 @@ def getNIRNaturalMag(filt, names=None, tel='SWO', ins='RC'):
 
 with open(os.path.join(basedir, 'PS_tcks.pkl'), 'rb') as fin:
    PS_tcks = pickle.load(fin)
-def PSstand2nat(gp,rp,ip, tel='SWO', ins='NC'):
+def PSstand2nat(gp,rp,ip, egp=0, erp=0, eip=0, tel='SWO', ins='NC'):
    '''Take standard panstarrs g,r,i and convert to CSP ugriBV. This is
    done either through color terms (if sufficiently linear) or
    through a lookup table.'''
-   gmr = gp - rp
+   gmr = gp - rp; vgmr = egp**2 + erp**2
    Bcsp = splev(gmr, PS_tcks['B']) + gp
-   eBcsp = splev(gmr, PS_tcks['eB'])
+   eBcsp = sqrt(egp**2 + splev(gmr, PS_tcks['B'], 1)**2*vgmr + \
+                splev(gmr, PS_tcks['eB'])**2) + Bcsp*0
    Vcsp = -0.411*(gmr) - 0.0336 + gp
-   eVcsp = 0.0207 + gmr*0
+   eVcsp = sqrt(0.0207**2 + egp**2 + 0.411**2*vgmr) + Vcsp*0
    ucsp = splev(gmr, PS_tcks['u']) + gp
-   eucsp = splev(gmr, PS_tcks['eu'])
+   eucsp = sqrt(egp**2 + splev(gmr, PS_tcks['u'], 1)**2*vgmr + \
+                splev(gmr, PS_tcks['eu'])**2) + ucsp*0
    gcsp = 0.0865*(gmr) + 0.027 + gp
-   egcsp = 0.0213 + gmr*0
+   egcsp = sqrt(0.0212**2 + egp**2 + 0.0865**2*vgmr) + gcsp*0
    rcsp = 0.0085*(gmr) - 0.0158 + rp
-   ercsp = 0.022 + gmr*0
+   ercsp = sqrt(0.022**2 + erp**2 + 0.0085**2*vgmr) + rcsp*0
    icsp = -0.0344*(gmr) - 0.0166 + ip
-   eicsp = 0.023 + gmr*0
+   eicsp = sqrt(0.023**2 + eip**2 + 0.0344**2*vgmr) + icsp*0
    tab = Table([Bcsp,eBcsp,Vcsp,eVcsp,ucsp,eucsp,gcsp,egcsp,rcsp,ercsp,
                icsp,eicsp], names=['B','eB','V','eV','u','eu','g','eg','r','er',
                                    'i','ei'], masked=True)
@@ -351,24 +353,25 @@ def PSstand2nat(gp,rp,ip, tel='SWO', ins='NC'):
 
 with open(os.path.join(basedir, 'SM_tcks.pkl'),'rb') as fin:
    SM_tcks = pickle.load(fin)
-def SMstand2nat(gp,rp,ip, tel='SWO', ins='NC'):
+def SMstand2nat(gp,rp,ip, egp=0, erp=0, eip=0, tel='SWO', ins='NC'):
    '''Take standard skymapper g,r,i and convert to CSP ugriBV. This is
    done either through color terms (if sufficiently linear) or
    through a lookup table.'''
-   gmr = gp - rp
+   gmr = gp - rp;  vgmr = egp**2 + erp**2
    Bcsp = 0.8994*gmr + 0.206 + gp
-   eBcsp = 0.044 + gmr*0
+   eBcsp = sqrt(0.044**2 + egp**2 + 0.8994**2*vgmr) + Bcsp*0
    Vcsp = splev(gmr, SM_tcks['V']) + gp
-   eVcsp = splev(gmr, SM_tcks['eV'])
-   eVcsp = 0.0207 + gmr*0
+   eVcsp = sqrt(0.0207**2 + egp**2 + splev(gmr, SM_tcks['V'],1)**2*vgmr) +\
+         Vcsp*0
    ucsp = splev(gmr, SM_tcks['u']) + gp
-   eucsp = 0.115 + gmr*0
+   eucsp = sqrt(0.115**2 + egp**2 + splev(gmr, SM_tcks['u'],1)**2*vgmr) +\
+         ucsp*0
    gcsp = 0.410*(gmr) + 0.0378 + gp
-   egcsp = 0.0287 + gmr*0
+   egcsp = sqrt(0.0287**2 + 0.410**2*vgmr + egp**2) + gcsp*0
    rcsp = -0.051*(gmr) - 0.015 + rp
-   ercsp = 0.024 + gmr*0
+   ercsp = sqrt(0.024**2 + erp**2 + 0.051**2*vgmr) + rcsp*0
    icsp = -0.0473*(gmr) - 0.0166 + ip
-   eicsp = 0.024 + gmr*0
+   eicsp = sqrt(0.024**2 + eip**2 + 0.0473**2*vgmr) + icsp*0
    tab = Table([Bcsp,eBcsp,Vcsp,eVcsp,ucsp,eucsp,gcsp,egcsp,rcsp,ercsp,
                icsp,eicsp], names=['B','eB','V','eV','u','eu','g','eg','r','er',
                                    'i','ei'], masked=True)

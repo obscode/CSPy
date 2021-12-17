@@ -14,12 +14,14 @@ from astropy import table
 from astropy.stats import sigma_clipped_stats
 from .npextras import between
 import numpy as np
-from .phot import ApPhot
+from .phot import ApPhot, compute_zpt, PSFPhot
 from .colorterms import getOptNaturalMag
 from . import ccdred
 from . import headers
 from . import do_astrometry
+from . import opt_extr
 from . import calibration
+from .filesystem import CSPname
 from imagematch import ImageMatching_scalerot as ImageMatch
 from .objmatch import WCStoImage
 import os, subprocess
@@ -65,7 +67,8 @@ class Pipeline:
 
    def __init__(self, datadir, workdir=None, prefix='ccd', suffix='.fits',
          calibrations=cfg.data.calibrations, templates=cfg.data.templates,
-         catalogs=cfg.data.templates, fsize=9512640, tmin=0, update_db=True):
+         catalogs=cfg.data.templates, fsize=9512640, tmin=0, update_db=True,
+         gsub=None, SNphot=cfg.photometry.SNphot):
       '''
       Initialize the pipeline object.
 
@@ -80,6 +83,13 @@ class Pipeline:
          calibrations (str): location where older calibration files are located
          templates (str): location where templates are stored
          catalogs (str): location where catalog files are stored
+         tmin (floag):  Only FITS files with exposure times > tmin are 
+                        reduced (to avoid calibration images).
+         update_db (bool):  If True, update the CSP database with the 
+                            SN photometry.
+         gsub (str): location where galaxy subtraction images should be
+                     stored. If None, the work folder.
+         SNphot (str): File where supernova photometry will be saved to file.
       Returns:
          Pipeline object
       '''
@@ -106,6 +116,8 @@ class Pipeline:
       self.ZIDs = {}
       # The standards
       self.stdIDs = {}
+      # These are files that are flagged as not needing template subtractions
+      self.skipTemplate = []
       # These are files that are not identified or failed in some other way
       self.ignore = []
       # These objects have no galaxy template (u-band usually)
@@ -118,6 +130,8 @@ class Pipeline:
       self.subtracted = []
       # Files that have final Photometry
       self.finalPhot = []
+      # SN photometry saved here
+      self.SNphot = SNphot
 
       # Cache information so we don't have to open/close FITS files too often
       self.headerData = {}
@@ -148,6 +162,13 @@ class Pipeline:
          if not isdir(templates):
             raise OSError("No such templates folder: {}".format(templates))
          self.templates = templates
+
+      if gsub is not None:
+         if not isdir(gsub):
+            raise OSError("No such gsub folder: {}".format(gsub))
+         self.gsub = gsub
+      else:
+         self.gsub = None
 
       try:
          self.logfile = open(join(workdir, "pipeline.log"), 'a')
@@ -259,20 +280,21 @@ class Pipeline:
       '''Given the file fil, determine a filename with prefix
       and suffix using info in the header. It will have the 
       format like  SN2010aaa_B01_SWO_NC_2021_02_02.fits'''
-      template = "{obj}_{filt}{idx:02d}_{tel}_{ins}_{YY}_{MM}_{DD}{suf}"
-      fts = fits.open(fil)
-      dateobs = fts[0].header['DATE-OBS']
-      YY,MM,DD = dateobs.split('-')
-      args = dict(YY=YY, MM=MM, DD=DD,
-                  obj=fts[0].header['OBJECT'],
-                  filt=fts[0].header['FILTER'],
-                  tel=fts[0].header['TELESCOP'],
-                  ins=fts[0].header['INSTRUM'],suf=suffix,idx=1)
-      fts.close()
-      while(isfile(template.format(**args))): args['idx'] += 1
 
+      #template = "{obj}_{filt}{idx:02d}_{tel}_{ins}_{YY}_{MM}_{DD}{suf}"
+      #fts = fits.open(fil)
+      #dateobs = fts[0].header['DATE-OBS']
+      #YY,MM,DD = dateobs.split('-')
+      #args = dict(YY=YY, MM=MM, DD=DD,
+      #            obj=fts[0].header['OBJECT'],
+      #            filt=fts[0].header['FILTER'],
+      #            tel=fts[0].header['TELESCOP'],
+      #            ins=fts[0].header['INSTRUM'],suf=suffix,idx=1)
+      #fts.close()
+      idx = 1
+      while(isfile(CSPname(fil, idx, suffix))): idx += 1
       
-      return template.format(**args)
+      return CSPname(fil, idx, suffix)
 
    def getHeaderData(self, fil, key):
       f = basename(fil)
@@ -455,11 +477,6 @@ class Pipeline:
             self.stdIDs[f] = obj
 
          else:
-            # Figure out the science object
-            #if filt not in ['g','r','i']:
-            #   self.log('Skipping science {} with filter {}'.format(f,filt))
-            #   self.ignore.append(f)
-            #   continue
             # First, check to see if the catalog exists locally
             catfile = join(self.templates, obj+'.nat')
             if isfile(catfile):
@@ -495,12 +512,18 @@ class Pipeline:
                   self.ZIDs[f] = res[0]
                else:
                   self.ZIDs[f] = obj
+
             # At this point, self.ZIDS[f] is the ZTF ID
             if filt in ['B','V']:
                tmpname = "{}_g.fits".format(self.ZIDs[f])
             else:
                tmpname = "{}_{}.fits".format(self.ZIDs[f], filt)
-            if not isfile(join(self.templates, tmpname)):
+
+            skipf = "{}_tskip".format(self.ZIDs[f])
+            # check if template exists, or if we have a skip directive
+            if isfile(join(self.templates, skipf)):
+               self.skipTemplate.append(f)
+            elif not isfile(join(self.templates, tmpname)):
                res = self.Rclone('CSP:Swope/templates/{}'.format(tmpname),
                      self.templates)
                if res == 0:
@@ -510,6 +533,7 @@ class Pipeline:
                        tmpname))
                    self.no_temp.append(f)
                    continue
+
             # Get the catalog file
             catfile = "{}.nat".format(self.ZIDs[f])
             if not isfile(join(self.templates, catfile)):
@@ -669,11 +693,17 @@ class Pipeline:
                gids = gids*np.greater(allcat['er'], 0)
                # make sure well-separated
                ra = allcat['RA'];  dec = allcat['DEC']
+               maxdist = 11.
                dists = np.sqrt(np.power(dec[np.newaxis,:]-dec[:,np.newaxis],2)\
                      + np.power((ra[np.newaxis,:]-ra[:,np.newaxis])*\
                      np.cos(dec*np.pi/180), 2))
                Nnn = np.sum(np.less(dists, 11.0/3600), axis=0)
                gids = gids*np.equal(Nnn,1)
+               # Check for no more than 400 objects
+               while sum(gids) > 400:
+                  maxdst += 1
+                  Nnn = np.sum(np.less(dists, maxdist/3600), axis=0)
+                  gids = gids*np.equal(Nnn,1)
                if 0 in allcat['objID']:
                   # make sure SN is kept!
                   idx = list(allcat['objID']).index(0)
@@ -753,18 +783,21 @@ class Pipeline:
 
             continue
          gids = np.greater(phot['objID'], 0)
+         if hasattr(phot[filt+'mag'], 'mask'): 
+            gids = gids*(~phot[filt+'mag'].mask)
          gids = gids*between(phot[filt+'mag'], 15, 20)
          if not np.sometrue(gids):
             self.log("Determining zero-point for frame {} failed, "\
                   "skipping...".format(fil))
             self.ignore.append(fil)
             continue
+         phot = phot[gids]
          diffs = phot[filt+'mag']- phot['ap2']
-         mn,md,st = sigma_clipped_stats(diffs[gids], sigma=3)
+         mn,md,st = sigma_clipped_stats(diffs, sigma=3)
 
          # throw out 5-sigma outliers with respect to MAD
          mad = 1.5*np.median(np.absolute(diffs - md))
-         gids = gids*np.less(np.absolute(diffs - md), 5*mad)
+         gids = np.less(np.absolute(diffs - md), 5*mad)
          if not np.sometrue(gids):
             self.log("Determining zero-point for frame {} failed, "\
                   "skipping...".format(fil))
@@ -838,6 +871,285 @@ class Pipeline:
 
       return
 
+   def subPSFPhotometry(self):
+      '''Using the PanSTARRS or SkyMapper catalogs, perform PSF photometry
+      on the difference images.'''
+
+      todo = [fil for fil in self.subtracted if \
+            fil not in self.finalPhot and fil not in self.ignore]
+
+      for fil in todo:
+         self.log('Working on final PSF photometry for {}'.format(fil))
+         if isfile(fil.replace('.fits','.psf')):
+            try:
+               test = ascii.read(fil.replace('.fits','.psf'))
+               self.finalPhot.append(fil)
+               continue
+            except:
+               pass
+         obj = self.ZIDs[fil]
+         filt = self.getHeaderData(fil, 'FILTER')
+         catfile = join(self.templates, '{}_LS.cat'.format(obj))
+         cat = ascii.read(catfile)
+         allcat = ascii.read(join(self.templates, '{}.nat'.format(obj)),
+                  fill_values=[('...',0)])
+
+         psf = PSFPhot(fil.replace('.fits','diff.fits'), tel='SWO', ins='NC')
+         # Use 'id' instead of 'objID' as MAGINS can't handle the large ints
+         psf.loadObjCatalog(filename=catfile, racol='RA', deccol='DEC',
+               objcol='id')
+         tab = psf.doPhotometry(magins=cfg.software.magins, 
+               stdcat=cfg.data.stdcat)
+         # Bring objID back in to the table
+         tab.rename_column('OBJ','id')
+         tab = table.join(tab, cat['id','objID'], keys='id')
+         
+         # SN index
+         zids = np.nonzero(psf.objs==0)[0]
+         if len(zids) == 0:
+            self.log("PSF:   SN not located in field... skipping")
+            self.ignore.append(fil)
+            continue
+
+         #tab.rename_column('OBJ','objID')
+         tab.rename_column('mag1','magins')
+         tab.rename_column('merr1','emagins')
+         tab.rename_column('filter','filt')
+         tab.rename_column('date','JD')
+
+         # Join with the standards catalog and solve for a zp
+         if psf.filter+'mag' in allcat.colnames:
+            mkey = psf.filter + 'mag'
+            ekey = psf.filter + 'err'
+         else:
+            mkey = psf.filter
+            ekey = 'e'+psf.filter
+           
+         if mkey not in allcat.colnames or ekey not in allcat.colnames:
+            self.log("Standard magnitude {} not found in catalog. Skipping...".\
+                  format(mkey))
+            self.ignore.append(fil)
+            continue
+
+         tab = table.join(tab, allcat['objID',mkey,ekey], keys='objID')
+         tab.rename_column(mkey,'mstd')
+         tab.rename_column(ekey,'emstd')
+         if hasattr(tab['mstd'], 'mask'):
+            tab = tab[~tab['mstd'].mask]
+  
+         zp,ezp,flags,mesg = compute_zpt(tab,'mstd','emstd','magins',
+               'emagins', zpins=0)
+  
+         if zp is None:
+            self.log("Failed to compute a zero-point for {}".format(fil))
+            self.log("Message is {}".format(mesg))
+            self.ignore.append(fil)
+            continue
+         tab['mag'] = tab['magins'] + zp
+         tab['emag'] = np.sqrt(tab['emagins']**2 + ezp**2)
+         tab['eflux'] = tab['emagins']*tab['flux']/1.087
+         tab['eflux'].info.format = "%.4f"
+  
+         tab = tab['objID','filt','JD','xc','yc','flux',
+               'eflux','msky','mskyer','chi','magins','emagins',
+               'mstd','emstd', 'mag','emag','flags','perr','g1','g2']
+  
+         # We've got good magnitudes to get the SN data
+         if 0 not in tab['objID']:
+            self.log("No PSF photometry for the SN, skipping...")
+            self.ignore.append(fil)
+            continue
+         idx = list(tab['objID']).index(0)
+         if tab['mag'][idx] <= 0:
+            self.log("SN data for {} invalid, skipping...".format(fil))
+            self.ignore.append(fil)
+            continue
+         mag = tab['mag'][idx]
+         emag = tab['emag'][idx]
+         with open(self.SNphot, 'a') as fout:
+            fout.write("{:20s} {:2s} {:.3f} {:.3f} {:.3f} {}\n".format(
+                       obj, filt, psf.date, mag, emag, 
+                       basename(fil.replace('.fits','diff.fits'))))
+  
+         tab.write(fil.replace('.fits','.psf'), format='ascii.fixed_width',
+               delimiter=' ', overwrite=True)
+
+         if self.update_db:
+            self.log("Updating CSP database with photometry for {},{}".format(
+               obj,filt))
+            res = database.updateSNPhot(obj, jd, filt, basename(fil), mag, emag)
+            if res == -2:
+               self.log('Failed to udpate csp2 database')
+         self.finalPhot.append(fil)
+      return
+
+
+   def subOptPhotometry(self):
+      '''Using the PanSTARRS or SkyMapper catalogs, permfor optimized photometry
+      on the difference images.'''
+
+      todo = [fil for fil in self.subtracted if \
+            fil not in self.finalPhot and fil not in self.ignore]
+
+      for fil in todo:
+         self.log('Working on final optimized photometry for {}'.format(fil))
+         if isfile(fil.replace('.fits','.opt')):
+            try:
+               test = ascii.read(fil.replace('.fits','.opt'))
+               self.finalPhot.append(fil)
+               continue
+            except:
+               pass
+         obj = self.ZIDs[fil]
+         filt = self.getHeaderData(fil, 'FILTER')
+         catfile = join(self.templates, '{}_LS.cat'.format(obj))
+         cat = ascii.read(catfile)
+         allcat = ascii.read(join(self.templates, '{}.nat'.format(obj)),
+                  fill_values=[('...',0)])
+
+         logf = open(fil.replace('.fits','opt.log'), 'w')
+         opt = opt_extr.OptExtrPhot(fil, tel='SWO', ins='NC',
+               logf=logf)
+
+         opt.loadObjCatalog(filename=catfile, racol='RA', deccol='DEC',
+               objcol='objID')
+         this_fwhm = 1.0/opt.scale
+
+         opt.log("HEADER INFO")
+         opt.log("   gain = {}".format(opt.gain))
+         opt.log("   fwhm = {}".format( this_fwhm))
+         opt.log("   JD = {}".format( opt.date))
+         opt.log("   filter = {}".format(opt.filter))
+  
+         # Now, let's model the PSF.  If psfstar is given, use it, otherwise 
+         # all but object 0 (the SN)
+         opt.log("PSF-CALC:")
+         shape_par,ipsf,nfit, rchi = opt.psf_calc(3.0, this_fwhm,
+               plotfile=fil.replace('.fits','_psf.png'))
+         if shape_par is None:
+            self.log("OPT:   PSF Fit failed, abort.")
+            self.ignore.append(fil)
+            continue
+
+         (fwhm1,fwhm2) = opt.get_fwhm(shape_par)
+         self.log("OPT:    FWHM's = {},{}".format(fwhm1,fwhm2))
+  
+         clip = 2.0*np.sqrt(fwhm1*fwhm2)
+         this_fwhm = np.sqrt(fwhm1*fwhm2)
+
+         # results
+         ress = []
+         for i in range(len(opt.objs)):
+            ress.append(list(opt.extr(opt.xpsf[i], opt.ypsf[i], 3.0, this_fwhm,
+               clip, shape_par, 0.0, 0.0, 0.0, 0.0)))
+            if ress[-1][0] <= 0:  ress[-1][7] = 'Z'     # flux <= 0
+         # make into a table, for ease
+         tab = table.Table(rows=ress,names=['flux','eflux','xfit','yfit','xerr',
+                                       'yerr','peak','cflag','sky','skynos',
+                                       'rchi'])
+
+         # SN index
+         zids = np.nonzero(opt.objs==0)[0]
+         if len(zids) == 0:
+            self.log("OPT:   SN not located in field... skipping")
+            self.ignore.append(fil)
+            continue
+
+         SNid = np.nonzero(opt.objs==0)[0][0]
+         xSN = opt.xpsf[SNid]
+         ySN = opt.ypsf[SNid]
+
+         res = list(opt.extr(xSN, ySN, 3.0, this_fwhm, clip, shape_par, 
+            0.0, 0.0, 0.0, 0.0))
+         self.log("OPT:    Supernova extracted with:")
+         self.log("OPT:       flux = {} +/- {}".format(res[0],res[1]))
+         self.log("OPT:       xfit = {} +/- {}".format(res[2],res[4]))
+         self.log("OPT:       yfit = {} +/- {}".format(res[3],res[5]))
+         self.log("OPT:       rchi2 = {}".format(res[-1]))
+         if res[0] <= 0:  res[7] = 'Z'    # flux < 0
+  
+         idx = np.nonzero(opt.objs==0)[0][0]
+         # Update with SN values
+         tab.remove_row(idx)
+         tab.insert_row(0, res)
+  
+         tab['objID'] = opt.objs
+
+         # Catch the zero/negative fluxes
+         mag = np.where(tab['flux'] > 0, -2.5*np.log10(tab['flux']) + 30, -1)
+         emag = np.where(tab['flux'] > 0, 1.0857*tab['eflux']/tab['flux'], -1)
+
+         tab['magins'] = mag
+         tab['emagins'] = emag
+         tab['filt'] = opt.filter
+         tab['JD'] = opt.date
+  
+         # Join with the standards catalog and solve for a zp
+         if opt.filter+'mag' in allcat.colnames:
+            mkey = opt.filter + 'mag'
+            ekey = opt.filter + 'err'
+         else:
+            mkey = opt.filter
+            ekey = 'e'+opt.filter
+           
+         if mkey not in allcat.colnames or ekey not in allcat.colnames:
+            self.log("Standard magnitude {} not found in catalog. Skipping...".\
+                  format(mkey))
+            self.ignore.append(fil)
+            continue
+
+         tab = table.join(tab, allcat['objID',mkey,ekey], keys='objID')
+         tab.rename_column(mkey,'mstd')
+         tab.rename_column(ekey,'emstd')
+         if hasattr(tab['mstd'], 'mask'):
+            tab = tab[~tab['mstd'].mask]
+         tab['flags'] = np.where(tab['cflag'] == 'O', 0, 1)
+  
+         zp,ezp,flags,mesg = compute_zpt(tab,'mstd','emstd','magins',
+               'emagins', zpins=0)
+  
+         if zp is None:
+            self.log("Failed to compute a zero-point for {}".format(fil))
+            self.log("Message is {}".format(mesg))
+            self.ignore.append(fil)
+            continue
+         tab['mag'] = tab['magins'] + zp
+         tab['emag'] = np.sqrt(tab['emagins']**2 + ezp**2)
+  
+         # Format the table
+         for col in ['flux','eflux','xfit','yfit','xerr','yerr','peak','skynos',
+               'rchi','magins','emagins','mstd','emstd','mag','emag']:
+            tab[col].info.format = "%.4f"
+         tab = tab['objID','filt','JD','xfit','yfit','xerr','yerr','flux',
+               'eflux','peak', 'cflag','sky','skynos','rchi','magins','emagins',
+               'mstd','emstd', 'mag','emag','flags']
+  
+         # We've got good magnitudes to get the SN data
+         idx = np.nonzero(tab['objID'] == 0)[0][0]
+         if tab['mag'][idx] <= 0:
+            self.log("SN data for {} invalid, skipping...".format(fil))
+            self.ignore.append(fil)
+            continue
+         mag = tab['mag'][idx]
+         emag = tab['emag'][idx]
+         with open(self.SNphot, 'a') as fout:
+            fout.write("{:20s} {:2s} {:.3f} {:.3f} {:.3f} {}\n".format(
+                       obj, filt, opt.date, mag, emag, basename(fil)))
+  
+         tab.write(fil.replace('.fits','.opt'), format='ascii.fixed_width',
+               delimiter=' ', overwrite=True)
+
+         if self.update_db:
+            self.log("Updating CSP database with photometry for {},{}".format(
+               obj,filt))
+            res = database.updateSNPhot(obj, opt.date, filt, basename(fil), 
+                  mag, emag)
+            if res == -2:
+               self.log('Failed to udpate csp2 database')
+         self.finalPhot.append(fil)
+      return
+
+
    def subphotometry(self):
       '''Using the PanSTARRS catalog, we do subtracted photometry on the field
       and update the database.'''
@@ -902,7 +1214,7 @@ class Pipeline:
          else:
             mag = phot[idx]['ap0'] - 30 + zpt + apcor
             emag = np.sqrt(phot[idx]['ap0er']**2 + ezpt**2)
-         with open(join(self.workdir,'SNphot.dat'), 'a') as fout:
+         with open(self.SNphot, 'a') as fout:
             fout.write("{:20s} {:2s} {:.3f} {:.3f} {:.3f} {}\n".format(
                obj, filt, jd, mag, emag, basename(fil)))
          if self.update_db:
@@ -924,37 +1236,67 @@ class Pipeline:
       for fil in todo:
          obj = self.ZIDs[fil]
          diff = fil.replace('.fits','diff.fits')
+
+         # Check to see if we skip template subtractions for this file
+         if fil in self.skipTemplate:
+            # Just copy the file
+            self.log("No template needed, skipping subtraction")
+            os.system("cp {} {}".format(fil,diff))
+            self.subtracted.append(fil)
+
          magcat = join(self.templates, "{}.nat".format(obj))
          # Check to see if we've done it already
          if isfile(diff): 
             self.subtracted.append(fil)
             continue
+
          filt = self.getHeaderData(fil, 'FILTER')
          if filt in ['B','V']:
-            template = join(self.templates, '{}_g.fits'.format(obj,filt))
+            stemplate = join(self.templates, '{}_g.fits'.format(obj,filt))
          else:
-            template = join(self.templates, '{}_{}.fits'.format(obj,filt))
+            stemplate = join(self.templates, '{}_{}.fits'.format(obj,filt))
+
+         # If the template is missing, assume we don't do it
+         if cfg.data.copyTemplates:
+            template = join(self.workdir, os.path.basename(stemplate))
+            if not os.path.isfile(template):
+               os.system("cp {} {}".format(stemplate, template))
+         else:
+            template = stemplate
+
          obs = ImageMatch.Observation(fil, scale=0.435, saturate=4e4, 
                reject=True, snx='SNRA', sny='SNDEC', magmax=22,
                magmin=11)
          ref = ImageMatch.Observation(template, scale=0.25, saturate=6e4,
                reject=True, magmax=22, magmin=11)
-         #try:
-         res = obs.GoCatGo(ref, skyoff=True, pwid=11, perr=3.0, nmax=100, 
+         try:
+            res = obs.GoCatGo(ref, skyoff=True, pwid=11, perr=3.0, nmax=100, 
                   nord=3, match=True, subt=True, quick_convolve=True, 
-                  do_sex=True, thresh=3., sexdir=sex_dir, diff_size=35, bs=True,
+                  do_sex=True, thresh=3., sexdir=sex_dir, diff_size=35,bs=False,
                   usewcs=True, xwin=[200,1848], ywin=[200,1848], vcut=1e8,
                   magcat=magcat, magcol='r')
-         if res != 0:
+            if res != 0:
+               self.log('Template subtraction failed for {}, skipping'.format(
+                     fil))
+               self.ignore.append(fil)
+               continue
+            self.subtracted.append(fil)
+
+            # If requested, save the template subtraction image
+            if self.gsub is not None:
+               subimg = fil.replace('.fits','SN_diff.jpg')
+               if os.path.isfile(subimg):
+                  newf = self.makeFileName(fil, 'SN_diff.jpg')
+                  os.system('cp {} {}'.format(subimg, newf))
+                  # where to put it
+                  sdir = os.path.join(self.gsub, obj)
+                  if not os.path.isdir(sdir):
+                     os.mkdir(sdir)
+                  os.system('cp {} {}'.format(newf, sdir))
+         except:
             self.log('Template subtraction failed for {}, skipping'.format(
-                  fil))
+                fil))
             self.ignore.append(fil)
-            continue
-         self.subtracted.append(fil)
-         #except:
-         #   self.log('Template subtraction failed for {}, skipping'.format(
-         #       fil))
-         #   self.ignore.append(fil)
 
    def initialize(self):
       '''Make a first run through the data and see if we have what we need
@@ -997,7 +1339,12 @@ class Pipeline:
          self.solve_wcs()
          self.photometry()
          self.template_subtract()
-         self.subphotometry()
+         if cfg.photometry.instype == 'optimal':
+            self.subOptPhotometry()
+         elif cfg.photometry.instype == 'psf':
+            self.subPSFPhotometry()
+         else:
+            self.subphotometry()
 
          if poll_interval < 0:
             # only once through

@@ -577,7 +577,7 @@ class OptExtrPhot:
       return(fwhm1,fwhm2)
    
    def extr(self, xpos, ypos, dpos, fwhm, cliprad, shape_par,  
-         optnrm, companion, xcomp, ycomp, noise=None, ndither=0, sky=None):
+         optnrm, companion, xcomp, ycomp, noise=None, ndither=False, sky=None):
       ''' returns (flux, error, xfit, yfit, xerr, yerr, peak, cflag, skynos_r):
        This subroutine calculates the flux optimally.     
    
@@ -646,93 +646,93 @@ class OptExtrPhot:
           int(ypos)<=self.low[1] + int(fwhm/2) or \
           int(ypos)>=self.high[1]-int(fwhm/2) ):
          return(0.0, 0.0, -1, -1, 0.0, 0.0, 0.0, 'E', 0.0, 0.0, 0.0)
-      else:
-         # Measure the sky. The box size is determined in
-         # the way described in the paper
-         # Measure it first in a smaller box.
-         ibox=int(np.sqrt(453.2*fwhm*fwhm+ 4.0*fwhm*fwhm))
-         #self.log("Using final ibox: {}".format(ibox))
-         skycnt, skyerr, skynos, cflag = self.skyfit(xpos, ypos, fwhm,
-             ibox)
-         skynos_r=skynos
-         sky_flag = cflag
-         if (self.debug):  self.log('Returned from skyfit with flag {}'.\
-               format(sky_flag))
-         if sky_flag != "O":
-            return (0.0, 0.0, -1, -1, 0.0, 0.0, 0.0, 'S', 0.0, 0.0, 0.0)
-                               
-         # Set up the parameters for the fit.
-         a_par = np.zeros(7)*0.0
-         a_par[0:3] = shape_par[0:3]
-         a_par[-1] = shape_par[-1]
-         # Set the position.
+
+      # Measure the sky. The box size is determined in
+      # the way described in the paper
+      # Measure it first in a smaller box.
+      ibox=int(np.sqrt(453.2*fwhm*fwhm+ 4.0*fwhm*fwhm))
+      #self.log("Using final ibox: {}".format(ibox))
+      skycnt, skyerr, skynos, cflag = self.skyfit(xpos, ypos, fwhm,
+          ibox)
+      skynos_r=skynos
+      sky_flag = cflag
+      if (self.debug):  self.log('Returned from skyfit with flag {}'.\
+            format(sky_flag))
+      if sky_flag != "O":
+         return (0.0, 0.0, -1, -1, 0.0, 0.0, 0.0, 'S', 0.0, 0.0, 0.0)
+                            
+      # Set up the parameters for the fit.
+      a_par = np.zeros(7)*0.0
+      a_par[0:3] = shape_par[0:3]
+      a_par[-1] = shape_par[-1]
+      # Set the position.
+      a_par[4]=xpos
+      a_par[5]=ypos
+      if (dpos > 0.0):
+         # If the position is free set normalisation to 1, and hunt for 
+         # best counts.
+         a_par[3]=1.0
+         # Set the initial normalisation to the peak counts.
+         a_par[3]=max(self.data[int(a_par[5]),int(a_par[4])]-skycnt, skynos)
+         # Reset the position.
          a_par[4]=xpos
          a_par[5]=ypos
-         if (dpos > 0.0):
-            # If the position is free set normalisation to 1, and hunt for 
-            # best counts.
-            a_par[3]=1.0
-            # Set the initial normalisation to the peak counts.
-            a_par[3]=max(self.data[int(a_par[5]),int(a_par[4])]-skycnt, skynos)
-            # Reset the position.
-            a_par[4]=xpos
-            a_par[5]=ypos
-         else:
-            a_par[3]=max(self.data[int(a_par[5]),int(a_par[4])]-skycnt, skynos)
-         if (dpos > 0.0 and not ndither):
-            (a_par, e_pos, cflag,rchi) = self.gfit(fix_shape=True, dpos=0.0, 
-                           fit_sub=False, skycnt=skycnt, skynos=skynos, 
-                           a_par=a_par, 
-                           noise=noise)
+      else:
+         a_par[3]=max(self.data[int(a_par[5]),int(a_par[4])]-skycnt, skynos)
+      if (dpos > 0.0 and not ndither):
+         (a_par, e_pos, cflag,rchi) = self.gfit(fix_shape=True, dpos=0.0, 
+                        fit_sub=False, skycnt=skycnt, skynos=skynos, 
+                        a_par=a_par, 
+                        noise=noise)
    
-            (a_par, e_pos, cflag,rchi) = self.gfit(fix_shape=True, dpos=dpos,
-                           fit_sub=False, skycnt=skycnt, skynos=skynos, 
-                           a_par=a_par, 
-                           noise=noise)
+         (a_par, e_pos, cflag,rchi) = self.gfit(fix_shape=True, dpos=dpos,
+                        fit_sub=False, skycnt=skycnt, skynos=skynos, 
+                        a_par=a_par, 
+                        noise=noise)
    
-            # cflag is deliberately ignored.  We will check for saturation when
-            # we do the photometry.
-            # Update the positions.
-            xfit=a_par[4]
-            yfit=a_par[5]
-            xerr=e_pos[0]
-            yerr=e_pos[1]
-         else:
-            rchi = 0.0
+         # cflag is deliberately ignored.  We will check for saturation when
+         # we do the photometry.
+         # Update the positions.
+         xfit=a_par[4]
+         yfit=a_par[5]
+         xerr=e_pos[0]
+         yerr=e_pos[1]
+      else:
+         rchi = 0.0
    
-         peak=a_par[3]
+      peak=a_par[3]
    
-         # Finally, do the optimal photometry.
-         if sky is not None:
-            skycnt = sky
-         if not ndither or dpos == 0:
-            flux, error, cflag = self.sum_flux(skycnt, skyerr, skynos, 
-               a_par, cliprad, optnrm, noise=noise)
-         else:
-            # Dither around the best location and find max flux:
-            xpos = a_par[4]
-            ypos = a_par[5]
-            if not ndither % 2: ndither += 1
-            inds = np.indices((ndither,ndither))
-            dxs = np.ravel(1.0*(inds[1]-ndither/2)/(ndither/2)*dpos)
-            dys = np.ravel(1.0*(inds[0]-ndither/2)/(ndither/2)*dpos)
-            flux,error,cflag = self.sum_flux( skycnt, skyerr, skynos,
-                a_par, cliprad, optnrm, noise=noise)
-            maxi = 0
-            for i in range(len(dxs)):
-               a_par[4] = xpos + dxs[i]
-               a_par[5] = ypos + dys[i]
-               this_flux,this_error,this_cflag = self.sum_flux(skycnt, 
-                     skyerr, skynos, a_par, cliprad, optnrm, noise=noise)
-               if this_flux > flux:
-                  flux = this_flux  
-                  error = this_error  
-                  cflag = this_cflag
-                  maxi = i
-            xfit = xpos + dxs[maxi]
-            yfit = ypos + dys[maxi]
+      # Finally, do the optimal photometry.
+      if sky is not None:
+         skycnt = sky
+      if not ndither or dpos == 0:
+         flux, error, cflag = self.sum_flux(skycnt, skyerr, skynos, 
+            a_par, cliprad, optnrm, noise=noise)
+      else:
+         # Dither around the best location and find max flux:
+         xpos = a_par[4]
+         ypos = a_par[5]
+         if not ndither % 2: ndither += 1
+         inds = np.indices((ndither,ndither))
+         dxs = np.ravel(1.0*(inds[1]-ndither/2)/(ndither/2)*dpos)
+         dys = np.ravel(1.0*(inds[0]-ndither/2)/(ndither/2)*dpos)
+         flux,error,cflag = self.sum_flux( skycnt, skyerr, skynos,
+             a_par, cliprad, optnrm, noise=noise)
+         maxi = 0
+         for i in range(len(dxs)):
+            a_par[4] = xpos + dxs[i]
+            a_par[5] = ypos + dys[i]
+            this_flux,this_error,this_cflag = self.sum_flux(skycnt, 
+                  skyerr, skynos, a_par, cliprad, optnrm, noise=noise)
+            if this_flux > flux:
+               flux = this_flux  
+               error = this_error  
+               cflag = this_cflag
+               maxi = i
+         xfit = xpos + dxs[maxi]
+         yfit = ypos + dys[maxi]
    
-         if (cflag == 'O'):  cflag=sky_flag
+      if (cflag == 'O'):  cflag=sky_flag
    
       if (self.debug): self.log('Exiting from s/r extr.')
       return (flux, error, xfit, yfit, xerr, yerr, peak, cflag, skycnt, 
@@ -995,7 +995,7 @@ class OptExtrPhot:
       sum_flux = np.sum(np.ravel(weight)*(np.ravel(subdata)- skycnt))
       # Calculate the error, including that from the sky determination.
       error = np.sqrt( np.sum(np.ravel(var_real*weight*weight)) +\
-              skyerr*skyerr*np.sum(np.ravel(weight)) )
+              skyerr*skyerr*np.sum(np.ravel(weight))**2 )
 
       # Check to see if pixels exceed datamax
       bids = (dist < cliprad+0.5)*(subdata > self.datamax)
