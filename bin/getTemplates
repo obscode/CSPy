@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from CSPlib import getPS,getSM,get2MASS
+from CSPlib import getPS,getSM,get2MASS,getRefcat2
 #from CSPlib.getPS import getStarCat,getFITS
 from CSPlib.calibration import PSstand2nat,SMstand2nat
 from astropy.io import fits,ascii
@@ -25,6 +25,7 @@ chart_size = 0.25   # degrees
 chart_filter = 'r'
 Nstars = 20
 lockfile = '/tmp/make_finders_lock'
+useRefcat = True
 
 # First, check for lockfile
 #if isfile(lockfile):
@@ -88,12 +89,15 @@ for sn,ra,dec in l:
       if key[0:2] == 'PV':
          del fts[0].header[key]
    wcs = WCS(fts[0])
-   cat = getPS.getStarCat(ra, dec, chart_size/2)
-   if cat is None:
-      print("Error, could not download PS catalog, trying SM")
-      cat = getSM.getStarCat(ra, dec, chart_size/2)
+   if useRefcat:
+      cat = getRefcat2.getStarCat(ra, dec, chart_size*0.707)  #0.5*sqrt(2)
+   else:
+      cat = getPS.getStarCat(ra, dec, chart_size*0.707)
       if cat is None:
-         print("Error, neither PS nor SM has a catalog!")
+         print("Error, could not download PS catalog, trying SM")
+         cat = getSM.getStarCat(ra, dec, chart_size*0.707)
+         if cat is None:
+            print("Error, neither PS nor SM has a catalog!")
 
    if cat is not None:
       sids = np.argsort(cat['rmag'])
@@ -131,7 +135,8 @@ for sn,ra,dec in l:
       symbs = ['s', 'o', 'd', '^', 'v','<','>'][::-1]
       for magmin,magmax in [(11,12),(12,13),(13,14),(14,15),(16,17)]:
          gids = np.greater_equal(cat['rmag'],magmin)*np.less(cat['rmag'],magmax)
-         gids = gids*np.less(dists, chart_size/2.1)
+         gids = gids*np.less(dists, chart_size/2.1)*\
+               np.greater(dists, chart_size/10)
          if not np.sometrue(gids):
             continue
          idx = np.argmin(dists[gids])
