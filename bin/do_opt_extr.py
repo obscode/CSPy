@@ -117,6 +117,10 @@ for fil in tqdm(args.fits):
    # Instantiate the optimal extraction
    opt = opt_extr.OptExtrPhot(fil, tel=args.tel, ins=args.ins, logf=logf,
          debug=args.debug)
+   # Check for long filter names
+   if len(opt.filter) > 1:
+      opt.filter = opt.filter[0]
+
    if opt.exposure < args.tmin:
       continue
    if opt.debug:
@@ -317,7 +321,7 @@ for fil in tqdm(args.fits):
             tab['mag2'][idx], tab['emag2'][idx],fil])
 
          ## Now, let's try to get a reliable measure of the disersions
-         ## First get rid of the outliers
+         ## First get d of the outliers
          #gids = np.greater(tab['objID'], 0)*np.less(tab['magins'], 90)
          #for i in range(3):
          #   med = np.median(tab[gids]['mstd']-tab[gids]['mag'])

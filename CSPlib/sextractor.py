@@ -49,7 +49,20 @@ class SexTractor:
 
       self.image = image
       teldata = getTelIns(tel, ins)
-      self.__dict__.update(teldata)
+      #self.__dict__.update(teldata)
+      if isinstance(self.image, str):
+         fts = fits.open(image)
+      else:
+         fts = self.image
+      for key in teldata:
+         if isinstance(teldata[key], str):
+            if teldata[key][0] == '@':
+               self.__dict__[key] = fts[0].header[teldata[key][1:]]
+            else:
+               self.__dict__[key] = teldata[key]
+         else:
+            self.__dict__[key] = teldata[key]
+
       if scale is not None: self.scale = scale
       if gain is not None: self.gain = gain
       self.tmpdir = tempfile.mkdtemp(dir='.')
