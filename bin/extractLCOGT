@@ -1,0 +1,30 @@
+#!/usr/bin/evn python
+
+import argparse
+parser = argparse.ArgumentParser(description="Extract imagining data and "\
+          "tables from LCOGT extended FITS file")
+parser.add_argument('fitsfiles', help='List of FITS.fz files', nargs="+")
+args = parser.parse_args()
+
+from astropy.io import fits
+from astropy.table import Table
+from CSPlib.filesystem import LCOGTname
+
+for fil in args.fitsfiles:
+   fts = fits.open(fil)
+   oname = LCOGTname(fts)
+   img = fits.HDUList()
+   img.append(fits.PrimaryHDU(header=fts[1].header, data=fts[1].data))
+   img.writeto(oname, overwrite=True)
+
+   cat = Table(fts[2].data)
+   cat.write(oname.replace('.fits','.cat'), format='ascii.fixed_width', 
+             delimiter=' ', overwrite=True)
+
+   bpm = fits.HDUList()
+   bpm.append(fits.PrimaryHDU(header=fts[3].header, data=fts[3].data))
+   bpm.writeto(oname.replace('.fits','_bpm.fits'), overwrite=True)
+
+   sig = fits.HDUList()
+   sig.append(fits.PrimaryHDU(header=fts[4].header, data=fts[4].data))
+   sig.writeto(oname.replace('.fits','_sigma.fits'), overwrite=True)

@@ -1,0 +1,27 @@
+#!/usr/bin/evn python
+
+import argparse
+parser = argparse.ArgumentParser(description="Download LCOGT frames for a"\
+         " given proposal ID and optionally object name")
+parser.add_argument('prop', help='Proposal ID (separate multiple with commas)')
+parser.add_argument('user', help='User name')
+parser.add_argument('passwd', help='Password')
+parser.add_argument('-days', help='Number of days in past to search',
+      type=int, default=1)
+parser.add_argument('-obj', default=None,
+                   help='Optional object name (separate multiple with commas)')
+parser.add_argument('-target', help='Target directory for downloads'\
+      ' (default: .)', default='.')
+args = parser.parse_args()
+
+from CSPlib.getLCOGTdata import get_headers_from_token,downloadLatestFrames
+
+props = args.prop.split(',')
+objs = args.obj.split(',')
+headers = get_headers_from_token(args.user, args.passwd)
+
+for prop in props:
+   for obj in objs:
+      downloadLatestFrames(prop, headers, args.target, days=args.days, obj=obj)
+
+
