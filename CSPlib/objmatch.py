@@ -284,13 +284,13 @@ def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO',
    wcs = WCS(wcsimage[0])
    wscale = abs(wcs.pixel_scale_matrix[0,0])*3600   # in arc-sex/pixel
 
-   s = SexTractor(image, tel, ins)
+   s = SexTractor(image, tel=tel, ins=ins)
    s.run()
    icat = s.parseCatFile()
    s.cleanup()
    icat = icat[argsort(icat['MAG_APER'])]
 
-   s = SexTractor(wcsimage, gain=1.0, scale=wscale)
+   s = SexTractor(wcsimage, tel=tel, ins=ins, gain=1.0, scale=wscale)
    s.run()
    wcat = s.parseCatFile()
    s.cleanup()

@@ -305,7 +305,7 @@ class OptExtrPhot:
       self.DEs = None
  
       self.parse_header()
-      self.datamax = self.cfg.get('datamax',65000)
+      #self.datamax = self.cfg.get('datamax',65000)
       self._makeErrorMap()
 
       self.centroids = None
@@ -357,6 +357,7 @@ class OptExtrPhot:
       self.airmass = self._parse_key("airmass", fallback=1.0)
       self.obj_name = self._parse_key("object", fallback=None)
       self.scale = self._parse_key("scale", fallback=1.0)
+      self.datamax = self._parse_key("datamax", fallback=6.5e4)
 
    def _makeErrorMap(self):
       '''Compute the error in the data based on gain, readnoise, etc.'''

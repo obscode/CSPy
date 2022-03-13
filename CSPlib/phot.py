@@ -4,17 +4,22 @@ seems to only do aperture photometry reliably.'''
 from .config import config
 from .tel_specs import getTelIns
 
-from astropy.stats import mad_std, sigma_clipped_stats
+from astropy.stats import mad_std, sigma_clipped_stats, gaussian_sigma_to_fwhm
 import astropy.units as u
 from astropy.io import ascii,fits
 from astropy.coordinates import SkyCoord
 from astropy.wcs import WCS
 from astropy.time import Time
+from astropy.nddata import NDData
 
 from photutils import make_source_mask
 from photutils import SkyCircularAperture, SkyCircularAnnulus
 from photutils import aperture_photometry
 from photutils.centroids import centroid_com,centroid_1dg
+from photutils.psf import BasicPSFPhotometry, IntegratedGaussianPRF, DAOGroup
+from photutils.psf import EPSFBuilder, extract_stars
+from photutils.background import MMMBackground
+from astropy.modeling.fitting import LevMarLSQFitter
 
 from matplotlib import pyplot as plt
 from astropy.visualization import simple_norm
@@ -81,10 +86,10 @@ def recenter(xs, ys, data, cutoutsize=40, method='1dg'):
             flags.append(0)
    return array(xout),array(yout),array(flags)
 
-class PSFPhot:
+class BasePhot:
 
-   def __init__(self, ftsfile, tel='SWO', ins='NC'):
-      '''Initialize this PSF photometry class with a tel/ins configuration
+   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None):
+      '''Initialize this photometry class with a tel/ins configuration
       and FITS file.
       
       Args: 
@@ -115,6 +120,19 @@ class PSFPhot:
       self.DEs = None
  
       self.parse_header()
+      if sigma is None:
+         self._makeErrorMap()
+      else:
+         if isinstance(sigma, str):
+            sigma = fits.open(sigma)
+         self.error = sigma[0].data
+
+      if mask is None:
+         self.mask = self._makeMask()
+      else:
+         if isinstance(mask, str):
+            mask = fits.open(mask)
+         self.mask = mask[0].data
 
       self.centroids = None
       self.phot = None
@@ -157,6 +175,26 @@ class PSFPhot:
       self.rdnoise = self._parse_key("rnoise", fallback=0.0)
       self.airmass = self._parse_key("airmass", fallback=1.0)
       self.object = self._parse_key("object", fallback='SNobj')
+      self.scale = self._parse_key("scale", fallback=1.0)
+      self.datamax = self._parse_key("datamax", fallback=65000.)
+
+   def _makeErrorMap(self):
+      '''Compute the error in the data based on gain, readnoise, etc.'''
+      # effective gain:
+      egain = self.gain*self.ncombine
+      self.error = where(self.data > 0,
+            sqrt(self.data/egain + self.rdnoise**2/self.gain**2),
+            self.rdnoise/self.gain)
+
+   def _makeMask(self):
+      # Look for bad pixels.  Start with NaN's
+      mask = isnan(self.data)
+
+      # Next if datamax is specified:
+      mask = mask*greater(self.data, self.datamax)
+
+      return mask
+
 
    def loadObjCatalog(self, table=None, filename=None, racol='col2',
          deccol='col3', objcol='col1'):
@@ -204,6 +242,14 @@ class PSFPhot:
                "Error: DEC column {} not found in data file".format(deccol))
       self.DEs = cat[deccol]
 
+   def doPhotometry(self, magins='MAGINS', stdcat='STDS.cat'):
+      '''To be over-ridden by subclass'''
+      pass
+
+class PSFPhot(BasePhot):
+
+   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None):
+      super(PSFPhot,self).__init__(ftsfile, tel, ins, sigma, mask)
 
    def doPhotometry(self, magins='MAGINS', stdcat='STDS.cat'):
       '''Do the PSF photometry using the magins command.
@@ -259,6 +305,96 @@ class PSFPhot:
       self.phot = tab
 
       return tab
+
+class PSFPhot2(BasePhot):
+
+   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None):
+      super(PSFPhot2,self).__init__(ftsfile, tel, ins, sigma, mask)
+
+   def ModelPSF(self, size=20):
+      '''Use the star catalog to make cutouts and model the PSF using
+      photutil's PSFBuilder
+
+      Args:
+         size (int):  cutout size for the PSF data in arc-sec
+
+      Returns:
+         EPSFModel instance
+      '''
+      psize = int(size/self.scale)
+
+      # Determine the PSF approximate locations
+      xc,yc = self.wcs.wcs_world2pix(self.RAs, self.DEs, 0)
+      hsize = (size-1)/2
+      gids = (xc > hsize) & (xc < (self.data.shape[1]-1-hsize)) &\
+             (yc > hsize) & (yc < (self.data.shape[0]-1-hsize))
+      tab = Table([xc[gids], yc[gids]], names=['x','y'])
+
+      # extract the stars from the data
+      mn,md,st = sigma_clipped_stats(self.data, sigma=2.)
+      nddata = NDData(data=self.data - md)
+      stars = extract_stars(nddata, tab, size=psize)
+
+      # check to see if "saturated" (non-linear) pixels in cutouts
+      bids = array([sometrue(s.data + md > self.datamax) for s in stars])
+      self.saturated = bids
+      tab = tab[~bids]
+      stars = extract_stars(nddata, tab, size=psize)
+
+      # Make the EPSFBuilder. Seems that the quartic kernel has issues,
+      # so we use the quartic
+      eps_builder = EPSFBuilder(oversampling=4, maxiters=10, progress_bar=False,
+         smoothing_kernel='quartic')
+      epsf,fstars = eps_builder(stars)
+      return epsf
+
+   def doPhotometry(self, psfModel=None):
+      '''Do the PSF photometry using the astropy photutils package.
+
+      Args:
+         psfModel:  An EPSFModel instance from self.ModelPSF or None, to use
+                    a simple integrated Gaussian
+      Returns:
+         Astropy Table: Table of photometry. The following columns are included:
+            xcenter,ycenter:  fit coordinates of the star
+            msky:             mean sky value in sky aperture
+            mskyerr:          uncertainty in msky
+            flux[n],eflux[n]: flux and err in n'th aperture
+            ap[n],ap[n]er:    magnitude in nth aperture
+            filter:           filter of observation
+            date:             JD of observation
+            airmass:          airmass of observation
+            objID:            identifyer of the LS star or SN (0)
+            fits:             the FITS file of the observation
+            flags:            bit-wise flags:  
+                              1 = star outside frame
+                              2 = aperture mag is NaN
+                              4 = aperture mag error is NaN
+                              8 = pixels masked out (saturated, e.g.)
+            [F]mag,[F]err:    standard mag,error in filter F
+      '''
+      # Make sure we have what we need:
+      if self.RAs is None or self.DEs is None:
+         raise RuntimeError("No RA/DEC loaded, run loadObjCatalog first")
+
+      # Instantiate the stuff we need
+      mmm_bkg = MMMBackground()
+      finder = FixedStarFinder(self.wcs, RAs=self.RAs, DECs=self.DEs)
+      group = DAOGroup(10/self.scale)   # 10 arc-sec
+      fitter = LevMarLSQFitter()
+      if psfModel is None:
+         psfModel = IntegratedGaussianPRF(sigma=1.0/self.scale)
+
+      # Fit Size of the image:  10x10 arcsec
+      pix = int(10.0/self.scale) 
+      if pix % 2 == 0:  pix +=1
+      fitshape = (pix,pix)
+
+      psf = BasicPSFPhotometry(group_maker=group, bkg_estimator=mmm_bkg,
+            psf_model=psfModel, fitshape=fitshape, finder=finder,
+            fitter=fitter)
+      self.tab = psf(self.data)
+      self.resids = psf.get_residual_image()
 
 
 class ApPhot:
@@ -752,17 +888,22 @@ def compute_zpt(phot, std_key, stderr_key, inst_key='ap2', ierr_key='ap2er',
 
    return zp,ezp,flags,"ok"
 
+
 from photutils.detection import StarFinderBase
 class FixedStarFinder(StarFinderBase):
 
-   def __init__(self, catalog, wcs, radius=12):
+   def __init__(self, wcs, RAs=None, DECs=None, catalog=None, radius=12):
 
-      self.tab = ascii.read(catalog)
+      if RAs is not None and DECs is not None:
+         self.tab = Table([RAs, DECs], names=['RA','DEC'])
+      elif catalog is not None:
+         self.tab = ascii.read(catalog)
+         if 'RA' not in self.tab.colnames or 'DEC' not in self.tab.colnames:
+            raise ValueError("Error:  the input catalog must have RA and DEC "\
+                  "columns")
+
       self.wcs = wcs
       self.radius = radius
-      if 'RA' not in self.tab.colnames or 'DEC' not in self.tab.colnames:
-         raise ValueError("Error:  the input catalog must have RA and DEC "\
-               "columns")
       
    def find_stars(self, data, mask=None):
       i,j = self.wcs.wcs_world2pix(self.tab['RA'], self.tab['DEC'], 0)
@@ -784,7 +925,4 @@ class FixedStarFinder(StarFinderBase):
       self.tab['id'] = arange(1, len(self.tab)+1)
 
       return(self.tab)
-
-
-
 
