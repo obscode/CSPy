@@ -347,6 +347,7 @@ if __name__ == "__main__":
    # If user specifies rad, use that
    if args.rad > 0:
       dra = args.rad
+      ddec = 0
       rect = 0
    else:
       dra,ddec = args.rect
@@ -368,7 +369,8 @@ if __name__ == "__main__":
    if dra == 0 or (rect and ddec == 0):
       raise ValueError("Require a radius or rectangle dimension")
 
-   tab = RefcatQuery(ra0, dec0, rect, dra, ddec, rootdir, exten)
+   tab = RefcatQuery(args.ra, args.dec, rect, dra, ddec, mlim, rlim, rootdir, 
+         exten)
 
    if (outfmt == OUT_ATLAS):
 
