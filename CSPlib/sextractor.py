@@ -55,13 +55,16 @@ class SexTractor:
       else:
          fts = self.image
       for key in teldata:
-         if isinstance(teldata[key], str):
-            if teldata[key][0] == '@':
-               self.__dict__[key] = fts[0].header[teldata[key][1:]]
+         try:
+            if isinstance(teldata[key], str):
+               if teldata[key][0] == '@':
+                  self.__dict__[key] = fts[0].header[teldata[key][1:]]
+               else:
+                  self.__dict__[key] = teldata[key]
             else:
                self.__dict__[key] = teldata[key]
-         else:
-            self.__dict__[key] = teldata[key]
+         except:
+            pass
 
       if scale is not None: self.scale = scale
       if gain is not None: self.gain = gain
