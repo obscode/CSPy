@@ -14,6 +14,16 @@ except:
 # Scale of PS images
 PSscale = 0.25/3600   # in degrees/pixel
 
+def getRemoteFITS(url, tries=5):
+   '''Get remote FITS file and retry [tries] times if timeout.'''
+   ntry = 0
+   while ntry < tries:
+      try:
+         fts = fits.open(url)
+         return fts
+      except:
+         print("******** timeout, retrying *********")
+         ntry += 1
 
 def getImages(ra, dec, size=240, filt='g', verbose=False):
    '''Query the PS data server to get a list of images for the given 
@@ -97,15 +107,18 @@ def getFITS(ra, dec, size, filters, mosaic=False):
       if len(urls) > 1 and mosaic:
          from reproject import reproject_interp
          baseurl = urls[0]
-         basefts = fits.open(baseurl)
+         #basefts = fits.open(baseurl)
+         basefts = getRemoteFITS(baseurl)
          for url in urls[1:]:
-            ft = fits.open(url)
+            #ft = fits.open(url)
+            ft = getRemoteFITS(url)
             arr,foot = reproject_interp(ft[0], basefts[0].header)
             intersect = np.isnan(basefts[0].data)*np.greater(foot, 0)
             basefts[0].data = np.where(intersect, arr, basefts[0].data)
          ret.append(basefts)
       else:
-         ret.append(fits.open(urls[0]))
+         #ret.append(fits.open(urls[0]))
+         ret.append(getRemoteFITS(urls[0]))
 
    return ret
 

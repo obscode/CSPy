@@ -10,12 +10,21 @@ gzip ccd*.fits
 echo "Removing intermediate FITS products..."
 # Next, the bias corrected, but not flat-field corrected
 rm bcd*.fits
+rm lcd*.fits
 
 # The products of WCS and astrometry.net's solution
 rm *_wcs.png
 rm *-ngc.png
 rm *-objs.png
 rm *-indx.png
+rm fcd*.solved
+rm fcd*-indx.xyls
+rm fcd*.wcs
+rm fcd*.rdls
+rm fcd*.match
+rm fcd*.log
+rm fcd*.axy
+rm fcd*.corr
 
 echo "Removing un-needed template subtraction products..."
 rm *SN.fits

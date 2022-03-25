@@ -103,7 +103,7 @@ def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
                va='bottom', ha='left', fontsize=10)
 
    # Cut-out
-   if zoomfac is not None:
+   if zoomfac is not None and zoomfac > 0:
       ins = inset_axes(ax, width="100%", height="100%",
             bbox_to_anchor=(0.7,0.7, 0.4, 0.4), bbox_transform=ax.transAxes)
       ins.tick_params(left=False, right=False, bottom=False, top=False)
@@ -140,7 +140,7 @@ def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
    ax.set_title(sn, loc='left')
 
    # Scale
-   i0,j0 = size*0.05,size*0.05
+   i0,j0 = xsize*0.05,ysize*0.05
    x0,y0 = wcs.wcs_pix2world(i0, j0, 0)
    i1, j1 = wcs.wcs_world2pix(x0 - 1/60, y0, 0)
    ax.plot([i0,i1],[j0,j1], '-', color='blue')
