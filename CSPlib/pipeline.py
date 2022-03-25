@@ -612,8 +612,11 @@ class Pipeline:
                   ZID,filt))
          h = fits.getheader(wcsimage)
          if 'TELESCOP' not in h or h['TELESCOP'] != 'SkyMapper':
-            new = WCStoImage(wcsimage, fil, angles=[0],
-                  plotfile=fil.replace('.fits','_wcs.png'))
+            try:
+               new = WCStoImage(wcsimage, fil, angles=[0],
+                     plotfile=fil.replace('.fits','_wcs.png'))
+            except:
+               new = None
          else:
             new = None
          if new is None:
