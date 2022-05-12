@@ -364,20 +364,23 @@ class Pipeline:
             jd = Time(fts[0].header['EPOCH'], format='decimalyear').jd
 
             # Now get list of Flats we have in the database
-            res = subprocess.run([cfg.software.rclone, 'ls','--include',
-               'ut*/SFlat{}{}'.format(filt,self.suffix),
-               'CSP:Swope/Calibrations'], stdout=subprocess.PIPE)
+            cmd = [cfg.software.rclone, 'ls','--include',
+                   'ut*/SFlat{}{}'.format(filt,self.suffix),
+                   'CSP:Swope/Calibrations']
+
+            res = subprocess.run(cmd, stdout=subprocess.PIPE)
             lines = res.stdout.decode('utf-8').split('\n')
             lines = [line for line in lines if len(line) > 0]
             flats = [line.split()[1] for line in lines]
-            # Pick the closest
-            flat = closestNight(jd, flats)
-            res = self.Rclone("CSP:Swope/Calibrations/{}".format(flat),
-                     self.workdir)
-            if res == 0:
-               self.log("Retrieved Flat SFlat{}{} from latest reductions".\
-                     format(filt,self.suffix))
-               self.flatFrame[filt] = fits.open(fname, memmap=False)
+            if len(flats) > 0:
+               # Pick the closest
+               flat = closestNight(jd, flats)
+               res = self.Rclone("CSP:Swope/Calibrations/{}".format(flat),
+                        self.workdir)
+               if res == 0:
+                  self.log("Retrieved Flat SFlat{}{} from latest reductions".\
+                        format(filt,self.suffix))
+                  self.flatFrame[filt] = fits.open(fname, memmap=False)
             else:
                cfile = join(self.calibrations, "CAL", 
                      "SFlat{}{}".format(filt, self.suffix))
@@ -1325,7 +1328,12 @@ class Pipeline:
       number of seconds before reading each file to avoid race conditions.'''
       self.stopped = False
       signal.signal(signal.SIGHUP, self.sighandler)
+      done = False
       while not self.stopped:
+         if poll_interval > 0: 
+            time.sleep(poll_interval)
+         else:
+            if done: break
          #print("Checking for new files")
          files = self.getNewFiles()
          for fil in files:
@@ -1336,20 +1344,30 @@ class Pipeline:
          self.FlatCorr()
 
          self.identify()
+         if not cfg.tasks.WCS:
+            done = True
+            continue
          self.solve_wcs()
+
+         if not cfg.tasks.InitPhot:
+            done = True
+            continue
          self.photometry()
+
+         if not cfg.tasks.TempSubt:
+            done = True
+            continue
          self.template_subtract()
+
+         if not cfg.tasks.SubPhot:
+            done = True
+            continue
          if cfg.photometry.instype == 'optimal':
             self.subOptPhotometry()
          elif cfg.photometry.instype == 'psf':
             self.subPSFPhotometry()
          else:
             self.subphotometry()
-
-         if poll_interval < 0:
-            # only once through
-            break
-         time.sleep(poll_interval)
 
       self.log("Pipeline stopped normally at {}".format(
          time.strftime('%Y/%m/%d %H:%M:%S')))
