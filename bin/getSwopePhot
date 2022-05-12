@@ -15,8 +15,9 @@ SN = args.SN
 N = c.execute('''select * from MAGSN where field=%s order by JD''', SN)
 data = c.fetchall()
 for dat in data:
-   dt,name,idx,filt,fits,mag,emag,_,_,JD = dat
-   dirs = "ut_{:02d}{:02d}{:02d}_{:02d}/".format(dt.year-2000,dt.month,dt.day,
-         dt.day+1)
-   print("{}   {:.3f} {:.3f} {}".format(filt,mag,emag,dirs+fits))
+   if len(dat) == 10:
+      dt,name,idx,filt,fits,mag,emag,_,_,JD = dat
+   else:
+      _,dt,name,idx,filt,fits,mag,emag,_,_,JD = dat
+   print("{:.2f} {} {:.3f} {:.3f} {}".format(JD,filt,mag,emag,fits))
 

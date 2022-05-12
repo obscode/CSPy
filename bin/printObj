@@ -1,0 +1,24 @@
+#!/usr/bin/env python
+
+from astropy.coordinates import SkyCoord
+from astropy import units as u
+from CSPlib import database
+import sys
+
+db = database.getConnection(db='SBS')
+c = db.cursor()
+
+SN = sys.argv[1]
+N = c.execute("SELECT RA*15,DE,NAME_PSN from SNList where SN=%s", (SN,))
+
+if N == 0:
+   print("SN {} not found".format(SN))
+   sys.exit(1)
+RA,DEC,Name = c.fetchone()
+
+c = SkyCoord(float(RA), float(DEC), unit=(u.degree, u.degree))
+sg = c.to_string(style='hmsdms')
+rah,deg = sg.split()
+rah = rah.replace('h',':').replace('m',':').replace('s','')
+deg = deg.replace('d',':').replace('m',':').replace('s','')
+print("{:19s} {}   {}    {}".format(SN, rah, deg, Name))

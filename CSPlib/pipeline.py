@@ -691,11 +691,16 @@ class Pipeline:
                self.templates)
             if res > 0:
                # Now remove stars below/above thresholds
-               gids = allcat['r'] < 20
-               gids = gids*(allcat['r'] > 12)
-               gids = gids*np.greater(allcat['er'], 0)
+               gids = np.ones(len(allcat), dtype=bool)
+               for filt in ['u','g','r','i','B','V']:
+                  m = getattr(allcat[filt], 'mask', np.zeros(len(allcat), dtype=bool))
+                  gids = gids*(~m)
+               allcat = allcat[gids]
+               gids = np.array(allcat['r'] < 20)
+               #gids = gids*(allcat['r'] > 12)
+               gids = gids*np.array(np.greater(allcat['er'], 0))
                # make sure well-separated
-               ra = allcat['RA'];  dec = allcat['DEC']
+               ra = np.array(allcat['RA']);  dec = np.array(allcat['DEC'])
                maxdist = 11.
                dists = np.sqrt(np.power(dec[np.newaxis,:]-dec[:,np.newaxis],2)\
                      + np.power((ra[np.newaxis,:]-ra[:,np.newaxis])*\
@@ -703,8 +708,8 @@ class Pipeline:
                Nnn = np.sum(np.less(dists, 11.0/3600), axis=0)
                gids = gids*np.equal(Nnn,1)
                # Check for no more than 400 objects
-               while sum(gids) > 400:
-                  maxdst += 1
+               while sum(gids) > 200:
+                  maxdist += 1
                   Nnn = np.sum(np.less(dists, maxdist/3600), axis=0)
                   gids = gids*np.equal(Nnn,1)
                if 0 in allcat['objID']:
@@ -894,15 +899,22 @@ class Pipeline:
          filt = self.getHeaderData(fil, 'FILTER')
          catfile = join(self.templates, '{}_LS.cat'.format(obj))
          cat = ascii.read(catfile)
+         if 'id' not in cat.colnames:
+            cat['id'] = np.arange(len(cat))
          allcat = ascii.read(join(self.templates, '{}.nat'.format(obj)),
                   fill_values=[('...',0)])
 
          psf = PSFPhot(fil.replace('.fits','diff.fits'), tel='SWO', ins='NC')
          # Use 'id' instead of 'objID' as MAGINS can't handle the large ints
-         psf.loadObjCatalog(filename=catfile, racol='RA', deccol='DEC',
+         psf.loadObjCatalog(table=cat, racol='RA', deccol='DEC',
                objcol='id')
-         tab = psf.doPhotometry(magins=cfg.software.magins, 
-               stdcat=cfg.data.stdcat)
+         try:
+            tab = psf.doPhotometry(magins=cfg.software.magins, 
+                  stdcat=cfg.data.stdcat)
+         except:
+            self.log("PSF Photometry failed... skipping")
+            self.ignore.append(fil)
+            continue
          # Bring objID back in to the table
          tab.rename_column('OBJ','id')
          tab = table.join(tab, cat['id','objID'], keys='id')
