@@ -58,7 +58,10 @@ class SexTractor:
          try:
             if isinstance(teldata[key], str):
                if teldata[key][0] == '@':
-                  self.__dict__[key] = fts[0].header[teldata[key][1:]]
+                  try:
+                     self.__dict__[key] = fts[0].header[teldata[key][1:]]
+                  except:
+                     pass
                else:
                   self.__dict__[key] = teldata[key]
             else:
