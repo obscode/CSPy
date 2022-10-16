@@ -68,7 +68,7 @@ class Pipeline:
    def __init__(self, datadir, workdir=None, prefix='ccd', suffix='.fits',
          calibrations=cfg.data.calibrations, templates=cfg.data.templates,
          catalogs=cfg.data.templates, fsize=9512640, tmin=0, update_db=True,
-         gsub=None, SNphot=cfg.photometry.SNphot):
+         gsub=None, reduced=None, SNphot=cfg.photometry.SNphot):
       '''
       Initialize the pipeline object.
 
@@ -89,6 +89,9 @@ class Pipeline:
                             SN photometry.
          gsub (str): location where galaxy subtraction images should be
                      stored. If None, the work folder.
+         reduced (str): location where reduced (bias-subtraced, flat-fielded,
+                        and WCS computed files are stored. If None, they are
+                        only left in the working folder.
          SNphot (str): File where supernova photometry will be saved to file.
       Returns:
          Pipeline object
@@ -167,6 +170,16 @@ class Pipeline:
          self.gsub = gsub
       else:
          self.gsub = None
+
+      if reduced is not None:
+         if not isdir(reduced):
+            try:
+               os.mkdir(reduced)
+            except:
+               raise OSError("Cannot create reduced folder: {}".format(reduced))
+         self.reduced = reduced
+      else:
+         self.reduced = None
 
       try:
          self.logfile = open(join(workdir, "pipeline.log"), 'w')
@@ -628,11 +641,17 @@ class Pipeline:
                self.log("astrometry.net failed for {}. No WCS coputed, "
                         "skipping...".format(fil))
                self.ignore.append(fil)
+               continue
             else:
                self.wcsSolved.append(fil)
          else:
             new.writeto(fil, overwrite=True)
             self.wcsSolved.append(fil)
+
+         if self.reduced is not None:
+            # Make a copy in the reduced area
+            os.system('cp {} {}'.format(fil, self.reduced))
+
       return
 
    def photometry(self):
