@@ -43,9 +43,14 @@ args = parser.parse_args()
 fts = fits.open(args.FITS)
 obj = fts[0].header['OBJECT']
 wcs = WCS(fts[0])
+naxis2,naxis1 = fts[0].data.shape
+cut = args.cutout
 cat = ascii.read(args.cat)
 cat['good'] = False
-cut = args.cutout
+cat['ii'],cat['jj'] = wcs.wcs_world2pix(cat['RA'], cat['DEC'], 0)
+gids = np.greater(cat['ii'], cut) * np.less(cat['ii'], naxis1-cut) *\
+       np.greater(cat['jj'], cut) * np.less(cat['jj'], naxis2-cut)
+cat = cat[gids]
 
 outf = open(args.cspoutput, 'a')
 outfmt = "{:20s} {:3d} {:10.6f}    {:10.6f}\n"
@@ -81,6 +86,8 @@ for i in range(nplots):
 
 cat = cat[cat['good']]
 cat.remove_column('good')
+cat.remove_column('ii')
+cat.remove_column('jj')
 cat.write(args.output, format='ascii.fixed_width', delimiter=' ', overwrite=True)
 for i in range(len(cat)):
    outf.write(outfmt.format(obj, i, cat['RA'][i], cat['DEC'][i]))
