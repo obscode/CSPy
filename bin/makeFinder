@@ -23,6 +23,7 @@ parser.add_argument('-p', help="percent of pixels to plot", type=float,
 parser.add_argument('-lp', help="lower percent of pixels to plot", type=float)
 parser.add_argument('-up', help="upper percent of pixels to plot", type=float)
 parser.add_argument('-flipx', help='Flip X (RA)', action='store_true')
+parser.add_argument('-objname', help='Object name', default=None)
 
 args = parser.parse_args()
 
@@ -67,7 +68,7 @@ pids = np.array(pids)
 
 fig = fchart.Fchart(fts, offsetcat=cat[pids], snx=ra, sny=dec, 
       percent=args.p, maxpercent=args.up, minpercent=args.lp,
-      zoomfac=args.zoom)
+      zoomfac=args.zoom, sn=args.objname)
 if args.flipx:
    fig.axes[0].invert_xaxis()
    fig.axes[1].invert_xaxis()
