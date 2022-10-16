@@ -30,6 +30,8 @@ p.add_argument('-tmin', help="Minimum exposure time to consider a science"\
 p.add_argument('-once', help="Only run through once.", action='store_true')
 p.add_argument('-gsub', help="Folder where to store subtraciton images",
       type=str)
+p.add_argument('-reduced', help="Folder where to store reduced images",
+      type=str)
 p.add_argument('-snphot', help="Output file for the SN photometry",
       type=str, default=cfg.photometry.SNphot)
 
@@ -42,7 +44,7 @@ args = p.parse_args()
 pipe = Pipeline(datadir=args.datadir, workdir=args.workdir, prefix=args.prefix,
       suffix=args.suffix, calibrations=args.calibrations, 
       templates=args.templates, fsize=args.fsize, tmin=args.tmin,
-      update_db=(not args.noupdate), gsub=args.gsub)
+      update_db=(not args.noupdate), reduced=args.reduced, gsub=args.gsub)
 
 pipe.initialize()
 if args.justcalib:
