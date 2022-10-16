@@ -6,13 +6,20 @@ from CSPlib.database import getConnection
 parser = argparse.ArgumentParser(description="Get Swope photometry")
 parser.add_argument('SN', help='Name of the SN from the database')
 parser.add_argument('-db', help="Name of the database", default='SBS')
+parser.add_argument('-u', help="Get un-subtracted photometry (obj=0)",
+      action='store_true')
 args = parser.parse_args()
 
 db = getConnection(db=args.db)
 c = db.cursor()
 SN = args.SN
 
-N = c.execute('''select * from MAGSN where field=%s order by JD''', SN)
+if args.u:
+   N = c.execute('select * from MAGSN where field=%s and obj = 0 order by JD', 
+         SN)
+else:
+   N = c.execute('select * from MAGSN where field=%s and obj = -1 order by JD', 
+         SN)
 data = c.fetchall()
 for dat in data:
    if len(dat) == 10:
