@@ -11,6 +11,8 @@ parser.add_argument('-PS', help='Use PS/SM catalogs for calibration',
       action='store_true')
 args = parser.parse_args()
 
+import matplotlib
+
 from CSPlib.database import getConnection
 from matplotlib import pyplot as plt
 from matplotlib.gridspec import GridSpec
@@ -20,16 +22,17 @@ import numpy as np
 import glob, os
 
 def examine_night(event):
-   if plt.fignum_exists(2):
-      plt.close(2)
-   else:
+   if not plt.fignum_exists(2):
       fig2 = plt.figure(num=2, tight_layout=True, figsize=(8,8))
-   gs = GridSpec(2,2)
-   ax1 = fig2.add_subplot(gs[0,:])
-   ax1.xaxis.set_visible(False)
-   ax1.yaxis.set_visible(False)
-   ax2 = fig2.add_subplot(gs[1,0])
-   ax3 = fig2.add_subplot(gs[1,1])
+      gs = GridSpec(2,2)
+      ax1 = fig2.add_subplot(gs[0,:])
+      ax1.xaxis.set_visible(False)
+      ax1.yaxis.set_visible(False)
+      ax2 = fig2.add_subplot(gs[1,0])
+      ax3 = fig2.add_subplot(gs[1,1])
+   else:
+      fig2 = plt.figure(2)
+      ax1,ax2,ax3 = fig2.axes
 
    a = event.artist
    row = a.tab[event.ind[0]]
@@ -44,25 +47,37 @@ def examine_night(event):
          plt.draw()
       else:
          ax1._myimg = ax1.imshow(img)
+   ax1.set_title(fits)
    N = c.execute(query2, (row['fits'],))
    if N > 0:
       rows = c.fetchall()
-      tab = Table(rows=rows, names=['obj','mag','emag'])
+      tab = Table(rows=rows, names=['obj','mag','emag','mstd'])
       if getattr(ax2, '_myeb1', None) is not None:
-         print('here2')
          ax2._myeb1.remove()
          ax2._myhl.set_ydata([row['mag']]*2)
          ax2._myhl2.set_ydata([row['mag']-row['err']]*2)
          ax2._myhl3.set_ydata([row['mag']+row['err']]*2)
+         ax3._myeb1.remove()
+         ax3._myhl.set_ydata([row['mag']]*2)
+         ax3._myhl2.set_ydata([row['mag']-row['err']]*2)
+         ax3._myhl3.set_ydata([row['mag']+row['err']]*2)
       else:
          ax2._myhl = ax2.axhline(row['mag'])
          ax2._myhl2 = ax2.axhline(row['mag']-row['err'], linestyle='--')
          ax2._myhl3 = ax2.axhline(row['mag']+row['err'], linestyle='--')
+         ax3._myhl = ax2.axhline(row['mag'])
+         ax3._myhl2 = ax3.axhline(row['mag']-row['err'], linestyle='--')
+         ax3._myhl3 = ax3.axhline(row['mag']+row['err'], linestyle='--')
       ax2._myeb1 = ax2.errorbar(tab['obj'], tab['mag'], tab['emag'],
+               fmt='o', color='C0')
+      ax3._myeb1 = ax3.errorbar(tab['mstd'], tab['mag'], tab['emag'],
                fmt='o', color='C0')
       ax2.set_xlim(tab['obj'].min()-1, tab['obj'].max()+1)
       ax2.set_ylim(row['mag']-1, row['mag']+1)
+      ax3.set_xlim(tab['mstd'].min()-0.5, tab['mstd'].max()+0.5)
+      ax3.set_ylim(row['mag']-1, row['mag']+1)
    plt.draw()
+   fig2.show()
 
 
 db = getConnection(db=args.db)
@@ -76,16 +91,17 @@ query1 = '''SELECT MAGLSEQ.{0}-MAGINS.psf,
                and MAGINS.field=%s and MAGLSEQ.field=MAGINS.field and
                MAGLSEQ.obj=MAGINS.obj and
                MAGINS.qual<2 and MAGINS.psfer!=0 and MAGINS.psfer<0.2
-               and MAGLSEQ.obj>0 and MAGLSEQ.rxi<20 and MAGLSEQ.ncal>0'''
+               and MAGLSEQ.obj>0 and MAGLSEQ.rxi<20 and MAGLSEQ.ncal>2'''
 
 # SN differential photometry
 query2 = '''SELECT t2.obj, t1.psf-t2.psf+t3.{0}, 
-                   sqrt(t1.psfer*t1.psfer + t2.psfer*t2.psfer + t3.{1}*t3.{1})
+                   sqrt(t1.psfer*t1.psfer + t2.psfer*t2.psfer + t3.{1}*t3.{1}),
+                   t3.{0}
             FROM MAGINS as t1, MAGINS as t2, MAGLSEQ as t3
             WHERE t1.fits = t2.fits and t1.field = t3.field and t2.obj=t3.obj
                   and t1.filt=t2.filt and t3.filt=t1.filt and t1.obj = -1 and
                   t2.obj > 0 and t1.qual < 2 and t2.qual < 2 and t2.psfer != 0
-                  and t2.psfer < 0.2 and t3.rxi < 20 and t3.ncal > 0 
+                  and t2.psfer < 0.2 and t3.rxi < 20 and t3.ncal > 2 
                   and t1.fits=%s'''
 
 if args.PS:
@@ -112,6 +128,10 @@ for filt in filters:
    ec = ax.errorbar(t['jd'], t['mag'], fmt='o',
       yerr=np.sqrt(t['err']**2+t['fiterr']**2), label=filt, picker=True)
    ec.lines[0].tab = t
+   for lc in ec.lines[2]:
+      lc.tab = t
+#   t = tab[(tab['filt'] == filt)]
+#   ec.lines[0].lstab = t
 ax.invert_yaxis()
 ax.set_xlabel('JD (days)')
 ax.set_ylabel('mag')
