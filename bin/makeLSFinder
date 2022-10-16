@@ -1,0 +1,58 @@
+#!/usr/bin/env python
+
+import argparse
+from CSPlib import fchart
+from astropy.io import ascii,fits
+import sys
+import numpy as np
+
+parser = argparse.ArgumentParser(description="Make a finder chart from a"\
+         " FITS file and catalog of local sequence stars")
+parser.add_argument('FITS', help="FITS file with imaging data")
+parser.add_argument('cat', help="ASCII file with catalog data")
+parser.add_argument('-RAcol', help="Name of RA column", default='RA')
+parser.add_argument('-DECcol', help="Name of DEC column", default='DEC')
+parser.add_argument('-objcol', help="Name of object column",
+                     default='objID')
+parser.add_argument('-snid', help="Supernova ID in the catalog", type=int,
+                     default=0)
+parser.add_argument('-p', help="percent of pixels to plot", type=float, 
+      default=99.)
+parser.add_argument('-lp', help="lower percent of pixels to plot", type=float)
+parser.add_argument('-up', help="upper percent of pixels to plot", type=float)
+parser.add_argument('-loff', help="LS label offset from circle", type=float,
+      default=0.02)
+
+args = parser.parse_args()
+
+fts = fits.open(args.FITS)
+cat = ascii.read(args.cat)
+if args.RAcol not in cat.colnames:
+   print('Error:  RAcol {} not found in the catalog'.format(args.RAcol))
+   sys.exit(1)
+
+if args.DECcol not in cat.colnames:
+   print('Error:  DECcol {} not found in the catalog'.format(args.DECcol))
+   sys.exit(1)
+
+if args.objcol not in cat.colnames:
+   print('Error:  objcol {} not found in the catalog'.format(args.objcol))
+   sys.exit(1)
+
+if args.RAcol != 'RA':  cat.rename_column(args.RAcol, 'RA')
+if args.DECcol != 'DEC':  cat.rename_column(args.DECcol, 'DEC')
+if args.objcol != 'objID':  cat.rename_column(args.objcol, 'objID')
+
+objs = list(cat['objID'])
+if args.snid not in objs:
+   print('Error:  SNID {} not found in the catalog'.format(args.snid))
+   sys.exit(1)
+idx = objs.index(args.snid)
+gids = (cat['objID'] != args.snid)
+ra = cat['RA'][idx]
+dec = cat['DEC'][idx]
+
+fig = fchart.Fchart(fts, LScat=cat[gids], snx=ra, sny=dec, 
+      percent=args.p, maxpercent=args.up, minpercent=args.lp,
+      zoomfac=None, loffset=args.loff)
+fig.savefig(fts[0].header.get('OBJECT','object') + "_LS.png")
