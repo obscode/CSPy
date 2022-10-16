@@ -1,0 +1,47 @@
+#!/usr/bin/env python
+
+from matplotlib import pyplot as plt
+import sys,os
+from glob import glob
+from astropy.io import ascii
+from astropy.table import vstack
+
+obj = sys.argv[1]
+
+tabs = []
+fils = glob('ut*/SNopt.dat')
+for fil in fils:
+   tab = ascii.read(fil)
+   tab = tab[tab['SN'] == obj]
+   if len(tab) == 0: continue
+   tab['dir'] = os.path.dirname(fil)
+   tabs.append(tab)
+
+tab = vstack(tabs)
+fig,ax = plt.subplots()
+ax.invert_yaxis()
+
+def pick(event):
+   for id in event.ind:
+      dirs = event.artist.dirs
+      fils = event.artist.fils
+      print(dirs[id]+'/'+fils[id])
+
+for filt in ['B','V','g','r','i','u']:
+   gids = tab['filter'] == filt
+   stab = tab[gids]
+   l = ax.errorbar(stab['JD'], stab['mag'], fmt='o', yerr=stab['emag'],
+         picker=5)
+   l.dirs = stab['dir']
+   l.fils = stab['fits']
+
+ax.set_xlabel('JD (days)')
+ax.set_ylabel('observed mag')
+fig.tight_layout()
+fig.canvas.mpl_connect('pick_event', pick)
+
+plt.show()
+
+   
+
+

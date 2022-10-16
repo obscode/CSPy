@@ -123,6 +123,8 @@ class Pipeline:
       self.skipTemplate = []
       # These are files that are not identified or failed in some other way
       self.ignore = []
+      # These objects have no galaxy template (u-band usually)
+      self.no_temp = []
       # These are files that have WCS solved
       self.wcsSolved = []
       # These are files with initial photometry
@@ -182,7 +184,7 @@ class Pipeline:
          self.reduced = None
 
       try:
-         self.logfile = open(join(workdir, "pipeline.log"), 'w')
+         self.logfile = open(join(workdir, "pipeline.log"), 'a')
       except:
          raise OSError("Can't write to workdir {}. Check permissions!".format(
             workdir))
@@ -375,20 +377,23 @@ class Pipeline:
             jd = Time(fts[0].header['EPOCH'], format='decimalyear').jd
 
             # Now get list of Flats we have in the database
-            res = subprocess.run([cfg.software.rclone, 'ls','--include',
-               'ut*/SFlat{}{}'.format(filt,self.suffix),
-               'CSP:Swope/Calibrations'], stdout=subprocess.PIPE)
+            cmd = [cfg.software.rclone, 'ls','--include',
+                   'ut*/SFlat{}{}'.format(filt,self.suffix),
+                   'CSP:Swope/Calibrations']
+
+            res = subprocess.run(cmd, stdout=subprocess.PIPE)
             lines = res.stdout.decode('utf-8').split('\n')
             lines = [line for line in lines if len(line) > 0]
             flats = [line.split()[1] for line in lines]
-            # Pick the closest
-            flat = closestNight(jd, flats)
-            res = self.Rclone("CSP:Swope/Calibrations/{}".format(flat),
-                     self.workdir)
-            if res == 0:
-               self.log("Retrieved Flat SFlat{}{} from latest reductions".\
-                     format(filt,self.suffix))
-               self.flatFrame[filt] = fits.open(fname, memmap=False)
+            if len(flats) > 0:
+               # Pick the closest
+               flat = closestNight(jd, flats)
+               res = self.Rclone("CSP:Swope/Calibrations/{}".format(flat),
+                        self.workdir)
+               if res == 0:
+                  self.log("Retrieved Flat SFlat{}{} from latest reductions".\
+                        format(filt,self.suffix))
+                  self.flatFrame[filt] = fits.open(fname, memmap=False)
             else:
                cfile = join(self.calibrations, "CAL", 
                      "SFlat{}{}".format(filt, self.suffix))
@@ -542,7 +547,7 @@ class Pipeline:
                else:
                    self.log('Failed to get template from gdrive: {}'.format(
                        tmpname))
-                   self.ignore.append(f)
+                   self.no_temp.append(f)
                    continue
 
             # Get the catalog file
@@ -623,15 +628,15 @@ class Pipeline:
             else:
                wcsimage = join(self.templates, "{}_{}.fits".format(
                   ZID,filt))
-         h = fits.getheader(wcsimage)
-         if 'TELESCOP' not in h or h['TELESCOP'] != 'SkyMapper':
-            try:
+         if os.path.isfile(wcsimage):
+            h = fits.getheader(wcsimage)
+            if 'TELESCOP' not in h or h['TELESCOP'] != 'SkyMapper':
                new = WCStoImage(wcsimage, fil, angles=[0],
                      plotfile=fil.replace('.fits','_wcs.png'))
-            except:
+            else:
                new = None
          else:
-            new = None
+               new = None
          if new is None:
             self.log("Fast WCS failed... resorting to astrometry.net")
             new = do_astrometry.do_astrometry([fil], replace=True,
@@ -741,6 +746,13 @@ class Pipeline:
                cat = ascii.read(catfile)
          else:
             cat = ascii.read(catfile)
+
+         if not isfile(allcat):
+            # No calibration for this field. Probably someone else's object.
+            # Skip...
+            self.log('No field star calibration for {}.Skipping...'.format(fil))
+            self.ignore.append(fil)
+            continue
 
          ap = ApPhot(fil)
          ap.loadObjCatalog(table=cat, racol='RA', deccol='DEC', 
@@ -1253,7 +1265,8 @@ class Pipeline:
       and then redo the photometry for the SN object'''
 
       todo = [fil for fil in self.initialPhot if fil not in self.subtracted \
-            and fil not in self.ignore and fil not in self.stdIDs]
+            and fil not in self.ignore and fil not in self.stdIDs and \
+            fil not in self.no_temp]
       for fil in todo:
          obj = self.ZIDs[fil]
          diff = fil.replace('.fits','diff.fits')
@@ -1346,7 +1359,12 @@ class Pipeline:
       number of seconds before reading each file to avoid race conditions.'''
       self.stopped = False
       signal.signal(signal.SIGHUP, self.sighandler)
+      done = False
       while not self.stopped:
+         if poll_interval > 0: 
+            time.sleep(poll_interval)
+         else:
+            if done: break
          #print("Checking for new files")
          files = self.getNewFiles()
          for fil in files:
@@ -1357,20 +1375,30 @@ class Pipeline:
          self.FlatCorr()
 
          self.identify()
+         if not cfg.tasks.WCS:
+            done = True
+            continue
          self.solve_wcs()
+
+         if not cfg.tasks.InitPhot:
+            done = True
+            continue
          self.photometry()
+
+         if not cfg.tasks.TempSubt:
+            done = True
+            continue
          self.template_subtract()
+
+         if not cfg.tasks.SubPhot:
+            done = True
+            continue
          if cfg.photometry.instype == 'optimal':
             self.subOptPhotometry()
          elif cfg.photometry.instype == 'psf':
             self.subPSFPhotometry()
          else:
             self.subphotometry()
-
-         if poll_interval < 0:
-            # only once through
-            break
-         time.sleep(poll_interval)
 
       self.log("Pipeline stopped normally at {}".format(
          time.strftime('%Y/%m/%d %H:%M:%S')))
