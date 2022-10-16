@@ -112,4 +112,27 @@ def getTelIns(tel, ins):
 
    return data[tel][ins]
 
+def getTelInfo(key, hdr, tel, ins):
+   '''Try to resolve a keyword from the telescope info and header. In order,
+   we look for a value in the telescope specs, followed by a keyword "@KEY"
+   lookup according to the telescope specs, and lastly just a keyword lookup
+   in the header.'''
+
+   inf = getTelIns(tel, ins)
+
+   if key not in inf:
+      '''Just grab the key from the header if it exists.'''
+      if key not in hdr:
+         raise AttributeError("key {} not in header or telescope info".format(
+            key))
+      return hdr[key]
+   
+   idx = inf[key]
+   if type(idx) is str:
+      if idx[0] == '@':
+         if idx[1:] not in hdr:
+            raise AttributeError("key {} not found in header".format(idx[1:]))
+         return hdr[idx[1:]]
+
+   return idx
 
