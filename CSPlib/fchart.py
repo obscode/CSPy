@@ -11,7 +11,7 @@ symbs = ['s', 'o', 'd', '^', 'v','<','>'][::-1]
 
 def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
       offsetcat=None, LScat=None, zoomfac=4, snx='SNX', sny='SNY',
-      sn=None):
+      sn=None, loffset=0.02):
    '''Draw a finder chart for the given FITS image. 
 
    Args:
@@ -25,6 +25,8 @@ def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
       zoomfac (int):   The zoom factor for the cutout
       snx,sny (float/str): Header keyword or value of the SN position (degrees)
       sn (str): SN name. If not specified, get it from the header
+      loffset (float):  LS label offset from the marker as a fraction of the
+                        figure size. Default: 0.02
    
    Returns:
       matplotlib.figure instance:  the finder chart
@@ -99,7 +101,7 @@ def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
       ii,jj = wcs.wcs_world2pix(cat['RA'], cat['DEC'], 0)
       ax.plot(ii, jj, 'o', mec='blue', mfc='none', ms=20)
       for i in range(len(cat)):
-         ax.text(ii[i]+isize*0.02,jj[i]+jsize*0.02, cat['objID'][i], 
+         ax.text(ii[i]+isize*loffset,jj[i]+jsize*loffset, cat['objID'][i], 
                va='bottom', ha='left', fontsize=10)
 
    # Cut-out
@@ -140,10 +142,10 @@ def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
    ax.set_title(sn, loc='left')
 
    # Scale
-   i0,j0 = xsize*0.05,ysize*0.05
-   x0,y0 = wcs.wcs_pix2world(i0, j0, 0)
-   i1, j1 = wcs.wcs_world2pix(x0 - 1/60, y0, 0)
-   ax.plot([i0,i1],[j0,j1], '-', color='blue')
-   ax.text((i0+i1)/2, j0-10, "1'", color='blue', ha='center', va='top')
+   ii0,jj0 = isize*0.05,jsize*0.05
+   xx0,yy0 = wcs.wcs_pix2world(ii0, jj0, 0)
+   ii1, jj1 = wcs.wcs_world2pix(xx0 - 1/60, yy0, 0)
+   ax.plot([ii0,ii1],[jj0,jj1], '-', color='blue')
+   ax.text((ii0+ii1)/2, jj0-10, "1'", color='blue', ha='center', va='top')
 
    return fig
