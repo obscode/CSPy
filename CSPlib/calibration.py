@@ -327,6 +327,10 @@ def PSstand2nat(gp,rp,ip, egp=0, erp=0, eip=0, tel='SWO', ins='NC'):
    '''Take standard panstarrs g,r,i and convert to CSP ugriBV. This is
    done either through color terms (if sufficiently linear) or
    through a lookup table.'''
+   if tel != 'SWO' or ins != 'NC':
+      raise ValueError('telescope {} and instrument {} do not have color'\
+            'terms defined'.format(tel,ins))
+                       
    gmr = gp - rp; vgmr = egp**2 + erp**2
    Bcsp = splev(gmr, PS_tcks['B']) + gp
    eBcsp = sqrt(egp**2 + splev(gmr, PS_tcks['B'], 1)**2*vgmr + \
@@ -357,6 +361,10 @@ def SMstand2nat(gp,rp,ip, egp=0, erp=0, eip=0, tel='SWO', ins='NC'):
    '''Take standard skymapper g,r,i and convert to CSP ugriBV. This is
    done either through color terms (if sufficiently linear) or
    through a lookup table.'''
+   if tel != 'SWO' or ins != 'NC':
+      raise ValueError('telescope {} and instrument {} do not have color'\
+            'terms defined'.format(tel,ins))
+                       
    gmr = gp - rp;  vgmr = egp**2 + erp**2
    Bcsp = 0.8994*gmr + 0.206 + gp
    eBcsp = sqrt(0.044**2 + egp**2 + 0.8994**2*vgmr) + Bcsp*0

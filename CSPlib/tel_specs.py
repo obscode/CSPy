@@ -46,6 +46,24 @@ data = {
             'datamax':40000,
          },
       },
+      'BAA': {
+         'IM': {
+            'scale':0.200,
+            'gain':'@EGAIN',
+            'rnoise':'@ENOISE',
+            'overscan':{
+               1:[2049,2112],
+            },
+            'datasec':[1,2048,1,4096],
+            'statsec':[300,1600,300,3600],
+            'exposure':'@EXPTIME',
+            'filter':'@FILTER',
+            'ncombine':'@NCOMBINE',
+            'airmass':'@AIRMASS',
+            'object':'@OBJECT',
+            'datamax':65535,
+         },
+      },
       'SkyMapper': {
          'CCD': {
             'scale':0.4963,
