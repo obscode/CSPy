@@ -35,20 +35,23 @@ def getStarCat(ra, dec, radius, mmin=-10, mmax=100):
 
    if not mmin < mmax:
       raise ValueError("mmin must be less than mmax")
+   ra = float(ra)*1
+   dec = float(dec)*1
 
    tabs = []
    if mmin < 16:
+      print(ra,dec)
       tabs.append(refcat.RefcatQuery(ra, dec, 1, radius, radius, mmax, 0,
-         [os.path.join(refcatdir, '00_m_16')], 'rc2'))
+         [os.path.join(refcatdir, '00_m_16')], 'rc2', verbose=0))
    if mmin < 17 and mmax > 16:
       tabs.append(refcat.RefcatQuery(ra, dec, 1, radius, radius, mmax, 0,
-         [os.path.join(refcatdir, '16_m_17')], 'rc2'))
+         [os.path.join(refcatdir, '16_m_17')], 'rc2', verbose=0))
    if mmin < 178 and mmax > 17:
       tabs.append(refcat.RefcatQuery(ra, dec, 1, radius, radius, mmax, 0,
-         [os.path.join(refcatdir, '17_m_18')], 'rc2'))
+         [os.path.join(refcatdir, '17_m_18')], 'rc2', verbose=0))
    if mmax > 18:
       tabs.append(refcat.RefcatQuery(ra, dec, 1, radius, radius, mmax, 0,
-         [os.path.join(refcatdir, '18_m_19')], 'rc2'))
+         [os.path.join(refcatdir, '18_m_19')], 'rc2', verbose=0))
    tab = table.vstack(tabs)
    gids = np.greater_equal(tab['r'], mmin)*np.less_equal(tab['r'], mmax)
    tab = tab[gids]
