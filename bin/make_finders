@@ -40,6 +40,10 @@ parser.add_argument('-maxpercent', help='Percent of pixels to scale for upper '\
       'limit of image', type=float, default=None)
 parser.add_argument('-minpercent', help='Percent of pixels to scale for lower '\
       'limit of image', type=float, default=None)
+parser.add_argument('-zoom', help='Zoom factor for inset. If <= 0, omit inset',
+      type=float, default=5.)
+parser.add_argument('-nooffset', help='Omit the offset stars', 
+                    action='store_true')
 parser.add_argument('-outdir', help='Output folder', default=None)
 parser.add_argument('-filters', help='List of filters (e.g., gri) to download',
       default='gri')
@@ -171,7 +175,12 @@ for sn,ra,dec in l:
       pids.append(np.arange(len(gids))[gids][idx])
    pids = np.array(pids)
 
-   fig = fchart.Fchart(fts, offsetcat=cat[pids], snx=ra, sny=dec)
+   if args.nooffset:
+      offsetcat = None
+   else:
+      offsetcat = cat[pids]
+   fig = fchart.Fchart(fts, offsetcat=offsetcat, snx=ra, sny=dec, 
+                       zoomfac=args.zoom, sn=args.name)
 
    fig.savefig(fc) 
    
