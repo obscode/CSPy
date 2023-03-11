@@ -252,7 +252,7 @@ def LinearityCorrect(fts, copy=False, tel='SWO',ins='NC', chip='@OPAMP',
    spix = fts[0].data/32000.0
    fcor = alpha*(1.0 + c2*spix + c3*np.power(spix,2))
    if sigma is not None:
-      sigma[0].data = fts[0].data*fcor
+      sigma[0].data = sigma[0].data*fcor
       sigma[0].header['COMMENT'] = "Linearity correction applied with:"
       sigma[0].header['COMMENT'] = \
           "   c1={:.5f},c2={:.5f},c3={:.5f},alpha={:.5f}".format(c1,c2,c3,alpha)
