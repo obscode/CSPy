@@ -1,0 +1,134 @@
+#!/usr/bin/env python
+
+import argparse
+
+parser = argparse.ArgumentParser(description="Compute the PSF FWHM for a FITS"\
+      "file using local sequence stars")
+parser.add_argument('fits', help='FITS file(s) to analyze', nargs='+')
+parser.add_argument('-boxsize', help='BG estimation box size', type=int,
+                    default=100)
+parser.add_argument('-msig', help="Number of sigma for making mask for BG estimation",
+                   type=float, default=2)
+parser.add_argument('-crsig', help='Cosmic ray sigma-threshold', type=float,
+                    default=6.0)
+parser.add_argument('-tel', help='Telescope code (default SWO)', default='SWO')
+parser.add_argument('-ins', help='Instrument code (default NC)', default='NC')
+parser.add_argument('-obj', help='Object name')
+parser.add_argument('-cat', help='Object catalog')
+parser.add_argument('-racol', help='Object RA column name (def: RA)',
+                    default='RA')
+parser.add_argument('-deccol', help='Object DEC column name (def: DEC)',
+                    default='DEC')
+parser.add_argument('-objcol', help='Object id column name (def: objID',
+                    default='objID')
+parser.add_argument('-db', help='Database to query for LS (default "POISE")', 
+                    default='POISE')
+parser.add_argument('-fix', help='Do background and CRR fixes, and backup old FITS file',
+                    action='store_true')
+parser.add_argument('-ext', help='Dump all the goodies to an extended FITS',
+                    action='store_true')
+parser.add_argument('-out', help="Output FITS file for 'fix' option.",
+                    default=None)
+args = parser.parse_args()
+
+from CSPlib import phot
+from astropy.io import fits, ascii
+from astropy.table import Table
+from CSPlib.database import getConnection
+from CSPlib.fitsutils import qdump
+import numpy as np
+from os import rename
+
+for ftsfile in args.fits:
+   fts = phot.BasePhot(ftsfile, tel=args.tel, ins=args.ins)
+   if args.obj is None:
+      obj = fts.object
+   else:
+      obj = args.obj
+   
+   # Do cosmic-ray rejection
+   try:
+      fts.CRReject(fix=True, sigclip=6)
+   except:
+      pass
+   # Produce background-subtracted image
+   fts.model2DBackground(boxsize=args.boxsize, nsigma=args.msig)
+
+   # Get the LS coordinates. These are vetted, isolated stellar objects 
+   if args.cat is None:
+      db = getConnection(db=args.db)
+      c = db.cursor()
+      c.execute('''SELECT OBJ,RA*15,DE from Coords where SN=%s and OBJ > 0''', (obj,))
+      rows = c.fetchall()
+      tab = Table(rows=rows, names=['obj','RA','DEC'])
+      fts.loadObjCatalog(table=tab, racol='RA', deccol='DEC', objcol='obj')
+   else:
+      tab = ascii.read(args.cat)
+      for col in ['racol','deccol','objcol']:
+         thecol = getattr(args, col)
+         if thecol not in tab.colnames:
+            raise ValueError("Column {} not found in catalog file".format(thecol))
+      fts.loadObjCatalog(table=tab, racol=args.racol, deccol=args.deccol, 
+                         objcol=args.objcol)
+      
+
+   if args.tel == 'PS':
+      # Add backbround rms to the error
+      fts.error += fts.background.background_rms
+      profile = 'Moffat'
+   else:
+      profile = 'Gauss'
+   # Compute the FWHM
+   fwhm,tab = fts.fitFWHM(plotfile=ftsfile.replace('.fits','_fwhm.pdf'), profile=profile)
+
+   # Now create a new FITS file with multiple extensions for all the nice
+   # stuff we've computed
+   if args.ext:
+      hdu1 = fits.PrimaryHDU(fts.data-fts.background.background, header=fts.head)
+      hdu1.header['FWHM'] = np.round(fwhm,3)
+      hdu1.header['MEANSKY'] = np.round(fts.background.background_median,3)
+      hdu2 = fits.ImageHDU(fts.error)
+      hdu2.header['EXTNAME'] = "ERR"
+      hdu3 = fits.ImageHDU(fts.mask.astype(int))
+      hdu3.header['EXTNAME'] = "BPM"
+      bdu = fits.BinTableHDU.from_columns([
+         fits.Column(name='objID', format='I', array=tab['objID']),
+         fits.Column(name='RA', format='E', array=tab['RA']),
+         fits.Column(name='DEC', format='E', array=tab['DEC']),
+         fits.Column(name='xfit', format='E', array=tab['xfit']),
+         fits.Column(name='yfit', format='E', array=tab['yfit']),
+         fits.Column(name='fwhm', format='E', array=tab['fwhm']),
+         fits.Column(name='rchisq', format='E', array=tab['rchisq']),
+         fits.Column(name='snr', format='E', array=tab['snr'])])
+      bdu.header['EXTNAME'] = 'CAT'
+      newfts = fits.HDUList([hdu1,hdu2,hdu3,bdu])
+      if args.out is None:
+         newfts.writeto(ftsfile.replace('.fits','full.fits'), overwrite=True)
+      else:
+         newfts.writeto(args.out, overwrite=True)
+
+   elif args.fix:
+      if args.out is None:
+         rename(ftsfile, ftsfile.replace('.fits','_orig.fits'))
+         outfile = ftsfile
+      else:
+         outfile = args.out
+      hdu1 = fits.PrimaryHDU(fts.data-fts.background.background, header=fts.head)
+      hdu1.header['FWHM'] = np.round(fwhm,3)
+      hdu1.header['MEANSKY'] = np.round(fts.background.background_median,3)
+      if 'IMMATBG' in hdu1.header:  del hdu1.header['IMMATBG']
+      if 'IMMATSD' in hdu1.header:  del hdu1.header['IMMATSD']
+      newfts = fits.HDUList([hdu1])
+      newfts.writeto(outfile, overwrite=True)
+
+      tab.write(outfile.replace('.fits','fwhm.cat'), format='ascii.fixed_width',
+                delimiter=' ', overwrite=True)
+      qdump(outfile.replace('.fits','bg.fits'), fts.background.background,
+            ftsfile)
+      qdump(outfile.replace('.fits','bpm.fits'), (~fts.mask).astype(np.int8), ftsfile)
+
+   else:
+      # Just update the header of the original file
+      fits.setval(ftsfile, 'FWHM', value=fwhm)
+
+
