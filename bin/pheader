@@ -8,6 +8,8 @@ parser = argparse.ArgumentParser(description=\
 parser.add_argument('key', help="Header keyword to print")
 parser.add_argument('files', help="FITS files to examine. Prepend '@' to "\
                                   "indicate listing in file", nargs='*')
+parser.add_argument('-d', help="Delimiter to use to separate multiple fields",
+                    default=',')
 
 args = parser.parse_args()
 
@@ -28,4 +30,4 @@ for f in files:
             keyvals.append(str(header[key]))
          else:
             keyvals.append('N/A')
-      print("{}:  {}".format(ff, ','.join(keyvals)))
+      print("{}:  {}".format(ff, args.d.join(keyvals)))
