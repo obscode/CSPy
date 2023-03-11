@@ -1,0 +1,207 @@
+#!/usr/bin/env python
+
+import argparse
+parser = argparse.ArgumentParser(description="Use the RefCat2 catalog to"\
+      "calibrate a ZP for a given FITS file")
+parser.add_argument('fits', help='FITS file(s) to compute zpts', nargs="+")
+parser.add_argument('-tel', help='Telescope code, default: SWO', default='SWO')
+parser.add_argument('-ins', help='Instrument code, default: NC', default='NC')
+parser.add_argument('-mmax', help='Maximum magnitude to use', type=float)
+parser.add_argument('-mmin', help='Minimum magnitude to use', type=float)
+parser.add_argument('-Nmax', help='Maximum number of stars to use', 
+      default=None, type=int)
+args = parser.parse_args()
+
+from CSPlib.config import getconfig
+from CSPlib.phot import ApPhot, compute_zpt
+from CSPlib.tel_specs import getTelIns,getTelInfo
+from CSPlib import getRefcat2
+from CSPlib.calibration import PSstand2nat
+from astropy.io import fits
+from astropy.wcs import WCS
+from astropy.stats import sigma_clipped_stats
+from astropy.table import hstack, join
+from astropy.io import ascii
+import numpy as np
+from matplotlib import pyplot as plt
+
+
+cfg = getconfig()
+info = getTelIns(args.tel, args.ins)
+
+def getCentralCoords(hdr):
+   '''Use the WCS in the header to extract the central pixel coordinates
+   in decimal degress'''
+   wcs = WCS(hdr)
+   if not wcs.has_celestial:
+      return None,None
+
+   i0,j0 = hdr['naxis1']/2,hdr['naxis2']/2
+   ra0,dec0 = wcs.wcs_pix2world(i0, j0, 0)
+   return ra0,dec0
+
+def getRefcatCatalog(ra, dec, size, filt, tel, ins, mmin=args.mmin, 
+      mmax=args.mmax, Nmax=args.Nmax):
+   '''Construct a catalog of Refcat2 sources in the field and convert to
+   natural photometry. '''
+
+   cat = getRefcat2.getStarCat(ra, dec, size*0.707)  #0.5*sqrt(2)
+   sids = np.argsort(cat['rmag'])
+   cat = cat[sids]
+   cat['RA'].info.format = "%.8f"
+   cat['DEC'].info.format = "%.8f"
+
+   # Now make natural system catalog
+   nats = PSstand2nat(cat['gmag'],cat['rmag'],cat['imag'], cat['gerr'],
+            cat['rerr'], cat['ierr'])
+   if filt not in nats.colnames:
+      return None
+   newtab = hstack([cat,nats])
+   newtab.remove_columns(['gmag','gerr','rmag','rerr','imag','ierr'])
+
+   # get rid of masked data
+   gids = getattr(newtab[filt], 'mask', np.zeros(len(newtab), dtype=bool))
+   cat = newtab[~gids]
+   if mmax is not None:
+      cat = cat[np.array(cat[filt] < mmax)]
+   if mmin is not None:
+      cat = cat[np.array(cat[filt] > mmin)]
+   if Nmax is not None:
+      cat = cat[:Nmax]
+   cat = cat['RA','DEC',filt,'e'+filt]
+   cat['objID'] = np.arange(1, len(cat)+1)
+   return cat
+
+
+if __name__ == "__main__":
+   '''Using the PanSTARRS catalog, we do initial photometry on the field
+   and determine a zero-point. Or, if we have stanard fields, we do
+   the aperture photometry on them and determine a zero-point.'''
+
+   for fil in args.fits:
+      fts = fits.open(fil)
+      hdr = fts[0].header
+      data = fts[0].data
+      print('Working on photometry for {}'.format(fil))
+      # Check to see if we've done the photometry already
+      filt = getTelInfo('filter', hdr, args.tel, args.ins)
+      scale = getTelInfo('scale', hdr, args.tel, args.ins)
+
+      ra,dec = getCentralCoords(hdr)
+      if ra is None:
+         print('Error! File {} does not have a valid WCS'.format(fil))
+         continue
+
+      size = max(data.shape)*scale/3600    # in degrees
+
+      cat = getRefcatCatalog(ra, dec, size, filt, args.tel, args.ins, mmin=15, 
+            mmax=20)
+      if cat is None:
+         print("Error:  could not get catalog for {}".format(fil))
+         continue
+      cat.write(fil.replace(".fits", ".cat"), format='ascii.fixed_width',
+         delimiter=' ', fill_values=[(ascii.masked, '...')])
+
+      ap = ApPhot(fil, args.tel, args.ins)
+      ap.loadObjCatalog(table=cat, racol='RA', deccol='DEC', 
+            objcol='objID')
+      try:
+         phot = ap.doPhotometry()
+      except:
+         print("Aperture photometry for {} failed.".format(fil))
+         continue
+      phot.rename_column('OBJ','objID')
+      phot = join(phot, cat['objID',filt,'e'+filt], keys='objID')
+      phot.rename_column(filt,filt+'mag')
+      phot.rename_column('e'+filt, filt+'err')
+
+      phot[filt+'mag'].info.format='%.4f'
+      phot[filt+'err'].info.format='%.4f'
+
+      phot.remove_column('id')
+
+      # Just the good stuff
+      gids = (~np.isnan(phot['ap2er']))*(~np.isnan(phot['ap2']))
+      if not np.sometrue(gids):
+         print("Photomery failed for {}, skipping...".format(
+            fil))
+         continue
+      phot = phot[gids]
+      phot.sort('objID')
+      phot['exptime'] = getTelInfo('exptime', hdr, args.tel, args.ins)
+      
+      phot.write(fil.replace('.fits','.phot'), format='ascii.fixed_width',
+            delimiter=' ', fill_values=[(ascii.masked, '...')])
+
+      if hasattr(phot[filt+'mag'], 'mask'): 
+         phot = phot[~phot[filt+'mag'].mask]
+      diffs = phot[filt+'mag'] - phot['ap2']
+      mn,md,st = sigma_clipped_stats(diffs, sigma=3)
+
+      # throw out 5-sigma outliers with respect to MAD
+      mad = 1.5*np.median(np.absolute(diffs - md))
+      gids = np.less(np.absolute(diffs - md), 5*mad)
+      if not np.sometrue(gids):
+         print("Determining zero-point for frame {} failed, "\
+               "skipping...".format(fil))
+         continue
+
+      # Weight by inverse variance
+      wts = np.power(phot['ap2er']**2 + phot[filt+'err']**2,-1)*gids
+
+      # 30 is used internall in photometry code as arbitrary zero-point
+      zp = np.sum(diffs*wts)/np.sum(wts) + 30
+      ezp = np.sqrt(1.0/np.sum(wts))
+      #zp = md + 30
+      #ezp = st/np.sqrt(sum(gids))
+      if np.isnan(zp) or np.isnan(ezp):
+         print("Determining zero-point for frame {} failed (NAN), "\
+               "skipping...".format(fil))
+         continue
+
+      print('Determined zero-point to be {:.3f} +/- {:.3f}'.format(zp,ezp))
+      hdr['ZP'] = zp
+      hdr['EZP'] = ezp
+
+      # make some diagnostic plots of aperture correction and zp determ.
+      fig,axes = plt.subplots(2,1, figsize=(6,6))
+      diffs = phot[filt+'mag']- phot['ap2']
+      x = phot[filt+'mag']
+      y = diffs + 30
+      axes[0].errorbar(x, y, fmt='o', xerr=phot[filt+'err'], 
+            yerr=np.sqrt(phot[filt+'err']**2 + phot['ap2er']**2))
+      axes[0].plot(x[~gids],y[~gids], 'o', mfc='red', label='rejected',
+            zorder=10)
+      axes[0].axhline(zp, color='k')
+      axes[0].set_xlim(12,20)
+      axes[0].set_ylim(zp-1,zp+1)
+      axes[0].legend()
+      axes[0].set_ylabel('m(std) - m(ins)')
+      axes[0].set_xlabel('m(std)')
+
+      # Now aperture corrections
+      for i,r in [('0',3.0),('1',5.0)]:
+         ap = 'ap'+i
+         aper = 'ap'+i+'er'
+         gids = (~np.isnan(phot[ap]))*(~np.isnan(phot[aper]))*\
+               (np.greater(phot['objID'], 0))
+         diffs = np.where(gids, phot['ap2']-phot[ap], 0)
+         wts = np.where(gids,np.power(phot['ap2er']**2+phot[aper]**2,-1), 0)
+         apcor = np.sum(wts*diffs)/np.sum(wts)
+         eapcor = np.sqrt(1.0/np.sum(wts))
+         print('   Aperture correction 2 -> {} is {:.3f}'.format( i,apcor))
+         hdr['APCOR2'+i] = apcor
+         hdr['EAPCOR2'+i] = eapcor
+         xs = np.linspace(r-0.25,r+0.25, sum(gids))
+         axes[1].errorbar(xs, diffs[gids], yerr=np.power(wts[gids],-0.5),
+               fmt='o')
+         axes[1].errorbar([r], [apcor], fmt='o', yerr=[eapcor],
+               color='red')
+
+      axes[1].axhline(0, color='k', zorder=100)
+      axes[1].set_xlabel('apsize (arc-sec) + random')
+      axes[1].set_ylabel('mag(7") - mag(ap)')
+      axes[1].set_ylim(-1,1)
+      fts[0].writeto(fil, overwrite=True)
+      fig.savefig(fil.replace('.fits','_zp.jpg'))
+      fts.writeto(fil, overwrite=True)
