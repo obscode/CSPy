@@ -4,6 +4,10 @@ import argparse
 parser = argparse.ArgumentParser(description="Extract imagining data and "\
           "tables from LCOGT extended FITS file")
 parser.add_argument('fitsfiles', help='List of FITS.fz files', nargs="+")
+parser.add_argument('-imHDU', help='HDU index of image', type=int, default=1)
+parser.add_argument('-catHDU', help='HDU index of catalog', type=int, default=2)
+parser.add_argument('-bpmHDU', help='HDU index of BPM', type=int, default=3)
+parser.add_argument('-sigHDU', help='HDU index of sigma', type=int, default=4)
 args = parser.parse_args()
 
 from astropy.io import fits
@@ -12,19 +16,22 @@ from CSPlib.filesystem import LCOGTname
 
 for fil in args.fitsfiles:
    fts = fits.open(fil)
-   oname = LCOGTname(fts)
+   oname = LCOGTname(fts, HDU=args.imHDU)
    img = fits.HDUList()
-   img.append(fits.PrimaryHDU(header=fts[1].header, data=fts[1].data))
+   img.append(fits.PrimaryHDU(header=fts[args.imHDU].header, 
+       data=fts[args.imHDU].data))
    img.writeto(oname, overwrite=True)
 
-   cat = Table(fts[2].data)
+   cat = Table(fts[args.catHDU].data)
    cat.write(oname.replace('.fits','.cat'), format='ascii.fixed_width', 
              delimiter=' ', overwrite=True)
 
    bpm = fits.HDUList()
-   bpm.append(fits.PrimaryHDU(header=fts[3].header, data=fts[3].data))
+   bpm.append(fits.PrimaryHDU(header=fts[args.bpmHDU].header, 
+             data=fts[args.bpmHDU].data))
    bpm.writeto(oname.replace('.fits','_bpm.fits'), overwrite=True)
 
    sig = fits.HDUList()
-   sig.append(fits.PrimaryHDU(header=fts[4].header, data=fts[4].data))
+   sig.append(fits.PrimaryHDU(header=fts[args.sigHDU].header, 
+              data=fts[args.sigHDU].data))
    sig.writeto(oname.replace('.fits','_sigma.fits'), overwrite=True)
