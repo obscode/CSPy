@@ -4,37 +4,48 @@ seems to only do aperture photometry reliably.'''
 from .config import config
 from .tel_specs import getTelIns
 
-from astropy.stats import mad_std, sigma_clipped_stats, gaussian_sigma_to_fwhm
+from astropy.stats import sigma_clipped_stats, SigmaClip
+from astropy.stats import gaussian_fwhm_to_sigma as FtoS
 import astropy.units as u
 from astropy.io import ascii,fits
 from astropy.coordinates import SkyCoord
 from astropy.wcs import WCS
-from astropy.time import Time
 from astropy.nddata import NDData
+from astropy.visualization import simple_norm
 
-from photutils import make_source_mask
+from photutils.segmentation import make_source_mask
 from photutils import SkyCircularAperture, SkyCircularAnnulus
 from photutils import aperture_photometry
 from photutils.centroids import centroid_com,centroid_1dg
 from photutils.psf import BasicPSFPhotometry, IntegratedGaussianPRF, DAOGroup
-from photutils.psf import EPSFBuilder, extract_stars
-from photutils.background import MMMBackground
+#from photutils.psf import EPSFBuilder, extract_stars
+from .myepsfbuilder import FlowsEPSFBuilder as EPSFBuilder
+from photutils.psf import extract_stars
+from photutils.background import MMMBackground, MedianBackground,Background2D
 from astropy.modeling.fitting import LevMarLSQFitter
+from astropy.modeling import models
+from scipy.optimize import least_squares
 
 from matplotlib import pyplot as plt
 from astropy.visualization import simple_norm
 
-from warnings import warn
-import sys,os
+from warnings import catch_warnings, simplefilter
+import os
 from numpy import *
 from .npextras import between
 from astropy.table import vstack,Table
 import tempfile
+from copy import deepcopy
 
 try:
    import pymc3 as pymc
 except:
    pymc = None
+
+try:
+   import astroscrappy
+except:
+   astroscrappy = None
 
 def recenter(xs, ys, data, cutoutsize=40, method='1dg'):
    '''Given initial guesses for star positions, re-center.
@@ -86,6 +97,120 @@ def recenter(xs, ys, data, cutoutsize=40, method='1dg'):
             flags.append(0)
    return array(xout),array(yout),array(flags)
 
+def objfunc(p, mod, x, y, z, w):
+   res = (z - mod.evaluate(x, y, p[0], p[1], p[2], p[3], p[3], 0))*w
+   return res.ravel()
+
+def centroid2D(data, i0, j0, fwhm0, radius, var=None, gain=1, rdnoise=0,
+                     bg=0, mask=None, axis=None, profile='Gauss'):
+   '''Using a 1D Gausssian, fit the centroid and FWHM of a stellar object.
+   
+   Args:
+      data (ndarray):  the FITS data (full frame) to fit
+      i0,j0 (float):   initial position of pixel centroid
+      fwhm0 (float):   initial value for FWHM
+      radius (float):  the size of cutout to fit.
+      var (ndarray):   variance array for data. If None, compute it
+      gain (float):    gain of data (used for errors if var is None)
+      rdnoise (float): read noise in e- (used for errors if var is None)
+      bg (float):      background value (used for errors if var is None
+                       and data was background-subtracted).
+      axis (mpl.Axes): MPL axis istance. If not None, plot radial profile
+      profile(str):    which profile to use ('Gauss' or 'Moffat')
+
+   Returns:
+      success,xfit,yfit,fwhm,rchisq
+         success (bool):     True if successful fit
+         xfit,yfit (float):  fit pixel positions
+         fhwm (float):       fit FWHM in pixels
+         rchisq (float:      reduced-chi-square of fit
+         peakSNR (flaot):    peak S/N of subraster
+   '''
+   jm,im = data.shape
+   if not radius < i0 < im-radius or not radius < j0 < jm-radius:
+      return False,i0,j0,fwhm0,-1,-1
+   imin = max(0, int(i0)-radius);  imax = min(int(i0)+radius, im)
+   jmin = max(0, int(j0)-radius);  jmax = min(int(j0)+radius, jm)
+
+   subdat = deepcopy(data[jmin:jmax, imin:imax])
+   if mask is not None:
+      submask = deepcopy(mask[jmin:jmax, imin:imax])
+
+   if var is None:
+      # Make noise from subdat
+      subvar = (subdat+bg)/gain + rdnoise**2/gain**2
+   else:
+      subvar = deepcopy(var[jmin:jmax, imin:imax])
+   
+   bids = ~(isfinite(subdat) & greater(subvar, 0))
+   subdat[bids] = 0
+   subvar[bids] = 1
+   norm = subdat[~bids].max()
+   subdat /= norm
+   subvar /= norm**2
+
+   peakSNR = power(subvar,-0.5).max()
+   weights = power(subvar, -0.5)*~bids    # zero-weight the bad data
+
+   # Setup fitting
+   fitter = LevMarLSQFitter(calc_uncertainties=True)
+   if profile.lower() == 'gauss':
+      g2 = models.Gaussian2D(amplitude=1.0, x_mean=radius, y_mean=radius, 
+                             x_stddev=fwhm0*FtoS)
+      #bounds = (array([0.1, radius/2, radius/2, fwhm0/10*FtoS]),
+      #          array([2.0, radius*2, radius*2, fwhm0*10*FtoS]))
+      g2.amplitude.bounds = (0.1, 2.0)
+      g2.x_mean.bounds = (radius/2, radius*2)
+      g2.y_mean.bounds = (radius/2, radius*2)
+      g2.x_stddev.bounds = (fwhm0/10*FtoS, 5*fwhm0*FtoS)
+      g2.y_stddev.tied = lambda model: model.x_stddev
+      g2.theta.fixed = True
+   else:
+      g2 = models.Moffat2D(amplitude=1.0, x_0=radius, y_0=radius, 
+                             gamma=fwhm0, alpha=1.5)
+      #bounds = (array([0.1, radius/2, radius/2, fwhm0/10*FtoS]),
+      #          array([2.0, radius*2, radius*2, fwhm0*10*FtoS]))
+      g2.amplitude.bounds = (0.1, 2.0)
+      g2.x_0.bounds = (radius/2, radius*2)
+      g2.y_0.bounds = (radius/2, radius*2)
+      g2.gamma.bounds = (fwhm0/10, 5*fwhm0)
+
+   yy,xx = mgrid[:subdat.shape[1], :subdat.shape[0]]
+   fit = fitter(g2, x=xx, y=yy, z=subdat, weights=weights)
+   #p0 = [1.0, radius, radius, fwhm0*FtoS]
+   #res = least_squares(objfunc, p0, args=(g2, xx, yy, subdat, weights))
+   #model = g2.evaluate(xx, yy, res.x[0], res.x[1], res.x[2], res.x[3], res.x[3], 0)
+
+   model = fit(xx,yy)
+   chisq = sum((subdat-model)**2/subvar)
+   rchisq = chisq / (subdat.shape[0]*subdat.shape[1] - 4)
+
+   if getattr(g2, 'x_mean', None) is not None:
+      xm = fit.x_mean
+      ym = fit.y_mean
+      fwhm = fit.x_stddev/FtoS
+   else:
+      xm = fit.x_0
+      ym = fit.y_0
+      fwhm = fit.fwhm
+
+   # Now check to see if any masked pixels are "close" to the core
+   if mask is not None:
+      rads = sqrt((xx - xm)**2 + (yy - ym)**2)
+      gids = less(rads, 2*fwhm*FtoS).ravel()
+      if sometrue(submask.ravel()[gids]):
+         return(False, imin+xm, jmin+ym, fwhm, rchisq, peakSNR)
+
+   if axis is not None:
+      #rads = sqrt((xx - res.x[1])**2 + (yy - res.x[2])**2)
+      rads = sqrt((xx - xm)**2 + (yy - ym)**2)
+      axis.plot(rads.ravel(), subdat.ravel(), '.', color='k', alpha=0.5)
+      sids = argsort(rads.ravel())
+      axis.plot(rads.ravel()[sids], model.ravel()[sids], '-', color='red', 
+                alpha=0.5, zorder=1000)
+
+   return (True,imin+xm, jmin+ym, fwhm, rchisq, peakSNR)
+
 class BasePhot:
 
    def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None):
@@ -114,21 +239,29 @@ class BasePhot:
 
       self.head = self.ftsobj[0].header
       self.data = self.ftsobj[0].data
-      self.wcs = WCS(self.head)
+      with catch_warnings():
+         simplefilter('ignore')
+         self.wcs = WCS(self.head)
 
       self.RAs = None
       self.DEs = None
  
       self.parse_header()
       if sigma is None:
-         self._makeErrorMap()
+         if 'ERR' in self.ftsobj:
+            self.error = self.ftsobj['ERR'].data
+         else:
+            self._makeErrorMap()
       else:
          if isinstance(sigma, str):
             sigma = fits.open(sigma)
          self.error = sigma[0].data
 
       if mask is None:
-         self.mask = self._makeMask()
+         if 'BPM' in self.ftsobj:
+            self.mask = self.ftsobj['BPM'].data
+         else:
+            self.mask = self._makeMask()
       else:
          if isinstance(mask, str):
             mask = fits.open(mask)
@@ -136,6 +269,8 @@ class BasePhot:
 
       self.centroids = None
       self.phot = None
+
+      self.background = None
 
    def _parse_key(self, key, fallback=None):
       '''Given a key, we try to figure out what value it sould have. First,
@@ -149,7 +284,7 @@ class BasePhot:
             fitskey = val[1:]
             if fitskey not in self.head:
                if fallback is not None:
-                  warn("Header keyword {}, not found, using fallback={}".format(
+                  print("Warning: Header keyword {}, not found, using fallback={}".format(
                      fitskey, fallback))
                   return fallback
                raise KeyError("header keyword {} not found".format(fitskey))
@@ -158,7 +293,7 @@ class BasePhot:
             return val
       else:
          if fallback is not None:
-            warn("Couldn't figure out value for {}, using fallback={}".format(
+            print("Warning: couldn't figure out value for {}, using fallback={}".format(
                key, fallback))
             return fallback
          else:
@@ -167,9 +302,9 @@ class BasePhot:
    def parse_header(self):
       '''Parse the FITS header for information we'll need, falling back on
       defaults or values from the config file.'''
-      self.exposure = self._parse_key("exposure")
-      self.filter = self._parse_key("filter")
-      self.date = self._parse_key("date")
+      self.exposure = self._parse_key("exposure", fallback=1)
+      self.filter = self._parse_key("filter", fallback='X')
+      self.date = self._parse_key("date", fallback=0.0)
       self.gain = self._parse_key("gain", fallback=1.0)
       self.ncombine = self._parse_key("ncombine", fallback=1)
       self.rdnoise = self._parse_key("rnoise", fallback=0.0)
@@ -177,24 +312,78 @@ class BasePhot:
       self.object = self._parse_key("object", fallback='SNobj')
       self.scale = self._parse_key("scale", fallback=1.0)
       self.datamax = self._parse_key("datamax", fallback=65000.)
+      self.meansky = self._parse_key("meansky", fallback=0.)
 
    def _makeErrorMap(self):
       '''Compute the error in the data based on gain, readnoise, etc.'''
       # effective gain:
       egain = self.gain*self.ncombine
-      self.error = where(self.data > 0,
-            sqrt(self.data/egain + self.rdnoise**2/self.gain**2),
-            self.rdnoise/self.gain)
+      with catch_warnings():
+         simplefilter("ignore")
+         self.error = where(self.data > 0,
+               sqrt((self.data+self.meansky)/egain + self.rdnoise**2/self.gain**2),
+               self.rdnoise/self.gain)
 
    def _makeMask(self):
       # Look for bad pixels.  Start with NaN's
       mask = isnan(self.data)
 
       # Next if datamax is specified:
-      mask = mask*greater(self.data, self.datamax)
+      mask = mask | greater(self.data, self.datamax)
 
       return mask
 
+   def CRReject(self, fix=False, sigclip=4.5, cleantype='meanmask'):
+      '''Use LA Cosmic (implemented by the astroscrappy module) to flag
+      and optionally fix cosmic rays of single images.
+      
+      Args:
+         fix (boolean):  If True, replace the cosmic rays 
+         cleantype (str): Which type of cleaning algorithm. Choices are:
+                          "median", "medmask", "meanmask", or "idw"
+                          (see astroscrappy module for details)
+         sigclip (float): Laplacian-to-noise limit for CR rejection
+
+      Returns:
+         None
+
+      Effects:
+         Updates self.mask to mask out cosmic rays. If fix=True, then
+         update self.data to cleaned version.'''
+
+      if astroscrappy is None:
+         raise ModuleNotFoundError("Error:  you need astroscrappy to do"\
+               " CR rejection")
+      m,a = astroscrappy.detect_cosmics(self.data, sigclip=sigclip,
+                                        invar=power(self.error,2),
+                                        cleantype=cleantype)
+      self.mask = self.mask | m
+      if fix:
+         self.data = a
+
+      return
+
+   def model2DBackground(self, boxsize=50, nsigma=2, npixels=10):
+      '''Construct a 2D background estimate of the image.
+
+      Args:
+         boxsize (int):  Box size used to make BG esimate. The larger, the
+                         better the stats, but more coarse the estimate.
+
+      Returns:
+         None
+
+      Effects:
+         self.background set to resulting 2D background instance.
+      '''
+      mask = make_source_mask(self.data, nsigma=nsigma, npixels=npixels, 
+                              dilate_size=11, mask=self.mask)
+      sigma_clip = SigmaClip(sigma=3.)
+      bkg_estimator = MedianBackground()
+      bkg = Background2D(self.data, (boxsize,boxsize), filter_size=(3,3),
+                         sigma_clip=sigma_clip, bkg_estimator=bkg_estimator,
+                         mask=mask)
+      self.background = bkg
 
    def loadObjCatalog(self, table=None, filename=None, racol='col2',
          deccol='col3', objcol='col1'):
@@ -241,6 +430,123 @@ class BasePhot:
          raise ValueError(
                "Error: DEC column {} not found in data file".format(deccol))
       self.DEs = cat[deccol]
+
+   def fitFWHM(self, SNRmin= 5, Nmin=5, plotfile=None, profile='Gauss'):
+      '''Fit simple 2D symmetric Gaussian profiles to the LS stars and get the
+      average FWHM of the image in arc-seconds.
+
+      Args:
+         SNRmin (float):       Minimum peak S/R radio for using to compute FWHM
+         Nmin (int):           Minimum number of stars needed to compute FWHM
+         plotfile(str):        Output radial plot of the profile and fit 
+         profile(str):         Which profile to use 'Gauss' or 'Moffat'
+
+      Returns:
+         fwhm, table
+             fwhm:  the full-width at half-maximum in arc-sec
+             tab:   table of positions (obj, RA, DEC, xpix, ypix, fwhm, rchisq)
+
+      '''
+      if self.RAs is None:
+         raise ValueError("You need to load a catalog first")
+
+      if self.background is None:
+         bg = median(self.data.ravel())
+      else:
+         bg = self.background.background
+
+      if plotfile is not None:
+         fig,ax = plt.subplots()
+         ax.set_xlabel('radial distance (pixels)')
+         ax.set_ylabel('normalized counts')
+      else:
+         ax = None
+
+      # list of stars to work with
+      xs,ys = self.wcs.wcs_world2pix(self.RAs, self.DEs, 0)
+      gids = []; xout = []; yout = []; fwhms = []; rchisqs = []; snrs=[]
+      for i in range(len(xs)):
+         if self.objs[i] < 1:
+            # SN, so don't use that
+            gids.append(False)
+            continue
+         stat,x,y,fwhm,rchisq,snr = centroid2D(self.data - bg, 
+                                  xs[i], ys[i], 
+                                  1.0/self.scale, int(10/self.scale), 
+                                  var=self.error**2, axis=ax, profile=profile)
+         if not stat:
+            gids.append(False)
+            continue
+         gids.append(True)
+         xout.append(x)
+         yout.append(y)
+         fwhms.append(fwhm*self.scale)   # In arc-sec
+         rchisqs.append(rchisq)
+         snrs.append(snr)
+
+      tab = Table([self.objs[gids],self.RAs[gids],self.DEs[gids],xout,yout,
+                 fwhms,rchisqs, snrs], 
+                 names=['objID','RA','DEC','xfit','yfit','fwhm','rchisq','snr'])
+      tab['xfit'].info.format = "%.3f"
+      tab['yfit'].info.format = "%.3f"
+      tab['fwhm'].info.format = "%.2f"
+      tab['rchisq'].info.format = "%.3f"
+      tab['snr'].info.format = "%.2f"
+
+      #if len(tab) < Nmin:
+      #   raise ValueError("Less than Nmin ({}) stars fit".format(Nmin))
+
+      mask = (tab['snr'] > SNRmin)
+      if sum(mask) > Nmin:
+         fwhm = median(tab['fwhm'][mask])
+      elif len(tab) > Nmin:
+         sids = argsort(tab['snr'])
+         fwhm = median(tab['fwhm'][sids][:Nmin])
+         for i in range(Nmin):
+            mask[sids[i]] = True
+      elif len(tab) > 0:
+         idx = argmax(tab['snr'])
+         fwhm = tab['fwhm'][idx]
+         mask[idx] = True
+      else:
+         return -1,tab
+
+      if plotfile is not None:
+         ax.axhline(0.5, color='red')
+         ax.axvline(fwhm/self.scale/2)
+
+         # make the not-used profiles less prominent
+         for i in range(len(mask)):
+            if not mask[i]:
+               ax.lines[2*i].set_alpha(0.05)
+               ax.lines[2*i+1].set_alpha(0.1)
+         ax.set_xlim(0, fwhm*10)
+         fig.tight_layout()
+         fig.savefig(plotfile)
+      return fwhm,tab
+
+   def plot_field(self, percent=99.):
+      '''PLot the data as a field of view with LS stars plotted if loaded
+      
+         Args:
+            percent(float):  the percentage of pixels for the colormap normalization
+      '''
+
+      fig = plt.figure()
+      ax = fig.add_subplot(111, projection=self.wcs)
+      norm = simple_norm(self.data, percent=percent) 
+      ax.imshow(self.data, origin='lower', norm=norm, cmap='gray_r')
+
+      if self.RAs is not None:
+         ii,jj = self.wcs.wcs_world2pix(self.RAs, self.DEs, 0)
+         ax.plot(ii, jj,'o', mfc='none', mec='red', ms=10)
+         for k,lab in enumerate(self.objs):
+            ax.text(ii[k]+10/self.scale, jj[k]+10/self.scale, str(self.objs[k]), ha='left',
+                    color='red')
+      
+      return fig
+
+
 
    def doPhotometry(self, magins='MAGINS', stdcat='STDS.cat'):
       '''To be over-ridden by subclass'''
@@ -311,7 +617,7 @@ class PSFPhot2(BasePhot):
    def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None):
       super(PSFPhot2,self).__init__(ftsfile, tel, ins, sigma, mask)
 
-   def ModelPSF(self, size=20):
+   def ModelPSF(self, size=20, oversampling=4):
       '''Use the star catalog to make cutouts and model the PSF using
       photutil's PSFBuilder
 
@@ -322,6 +628,7 @@ class PSFPhot2(BasePhot):
          EPSFModel instance
       '''
       psize = int(size/self.scale)
+      if psize % 2 == 0:  psize += 1
 
       # Determine the PSF approximate locations
       xc,yc = self.wcs.wcs_world2pix(self.RAs, self.DEs, 0)
@@ -329,6 +636,8 @@ class PSFPhot2(BasePhot):
       gids = (xc > hsize) & (xc < (self.data.shape[1]-1-hsize)) &\
              (yc > hsize) & (yc < (self.data.shape[0]-1-hsize))
       tab = Table([xc[gids], yc[gids]], names=['x','y'])
+      if len(tab) == 0:
+         raise ValueError("Error:  All catalog stars are off-chip. Wrong field?")
 
       # extract the stars from the data
       mn,md,st = sigma_clipped_stats(self.data, sigma=2.)
@@ -338,13 +647,14 @@ class PSFPhot2(BasePhot):
       # check to see if "saturated" (non-linear) pixels in cutouts
       bids = array([sometrue(s.data + md > self.datamax) for s in stars])
       self.saturated = bids
-      tab = tab[~bids]
+      if sometrue(bids):
+         tab = tab[~bids]
       stars = extract_stars(nddata, tab, size=psize)
 
       # Make the EPSFBuilder. Seems that the quartic kernel has issues,
       # so we use the quartic
-      eps_builder = EPSFBuilder(oversampling=4, maxiters=10, progress_bar=False,
-         smoothing_kernel='quartic')
+      eps_builder = EPSFBuilder(oversampling=oversampling, maxiters=10, 
+          progress_bar=False, smoothing_kernel='quartic')
       epsf,fstars = eps_builder(stars)
       return epsf
 
@@ -379,7 +689,7 @@ class PSFPhot2(BasePhot):
 
       # Instantiate the stuff we need
       mmm_bkg = MMMBackground()
-      finder = FixedStarFinder(self.wcs, RAs=self.RAs, DECs=self.DEs)
+      finder = FixedStarFinder(self.wcs, RAs=self.RAs, DECs=self.DEs, ids=self.objs)
       group = DAOGroup(10/self.scale)   # 10 arc-sec
       fitter = LevMarLSQFitter()
       if psfModel is None:
@@ -397,7 +707,7 @@ class PSFPhot2(BasePhot):
       self.resids = psf.get_residual_image()
 
 
-class ApPhot:
+class ApPhot(BasePhot):
 
    def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None):
       '''Initialize this aperture photometry class with a tel/ins configuration
@@ -413,155 +723,57 @@ class ApPhot:
       Returns:
          ApPhot instance.
       '''
-      self.cfg = getTelIns(tel,ins)
-      if not os.path.isfile(ftsfile):
-         raise ValueError("Error:  not such file {}".format(ftsfile))
-      if isinstance(ftsfile, str):
-         self.ftsobj = fits.open(ftsfile)
-         self.ftsfile = ftsfile
-      else:
-         self.ftsobj = ftsfile
-         self.ftsfile = None
-
-      self.head = self.ftsobj[0].header
-      self.data = self.ftsobj[0].data
-      self.wcs = WCS(self.head)
-
-      self.RAs = None
-      self.DEs = None
- 
-      self.parse_header()
-      if sigma is None:
-         self._makeErrorMap()
-      else:
-         if isinstance(sigma, str):
-            sigma = fits.open(sigma)
-         self.error = sigma[0].data
-
-      if mask is None:
-         self.mask = self._makeMask()
-      else:
-         if isinstance(mask, str):
-            mask = fits.open(mask)
-         self.mask = mask[0].data
-
-      self.centroids = None
+      super(ApPhot,self).__init__(ftsfile, tel, ins, sigma, mask)
       self.apps = []
       self.skyap = None
-      self.phot = None
 
-   def _parse_key(self, key, fallback=None):
-      '''Given a key, we try to figure out what value it sould have. First,
-      we check if the key exists in the config dict. If it is a string has
-      starts with '@', we take it from the fits header. Otherwise, it
-      is taken as the value from the config dict. If the key is not in dict
-      we can fallback if it is not None. Othewise, raise an exception.'''
-      val = self.cfg.get(key, None)
-      if val is not None:
-         if isinstance(val,str) and val.find('@') == 0:
-            fitskey = val[1:]
-            if fitskey not in self.head:
-               if fallback is not None:
-                  warn("Header keyword {}, not found, using fallback={}".format(
-                     fitskey, fallback))
-                  return fallback
-               raise KeyError("header keyword {} not found".format(fitskey))
-            return self.head[fitskey.upper()]
-         else:
-            return val
-      else:
-         if fallback is not None:
-            warn("Couldn't figure out value for {}, using fallback={}".format(
-               key, fallback))
-            return fallback
-         else:
-            raise KeyError("Option {} not found in data section".format(key))
-
-   def parse_header(self):
-      '''Parse the FITS header for information we'll need, falling back on
-      defaults or values from the config file.'''
-      self.exposure = self._parse_key("exposure")
-      self.filter = self._parse_key("filter")
-      self.date = self._parse_key("date")
-      self.gain = self._parse_key("gain", fallback=1.0)
-      self.ncombine = self._parse_key("ncombine", fallback=1)
-      self.rdnoise = self._parse_key("rnoise", fallback=0.0)
-      self.airmass = self._parse_key("airmass", fallback=1.0)
-
-   def _makeErrorMap(self):
-      '''Compute the error in the data based on gain, readnoise, etc.'''
-      # effective gain:
-      egain = self.gain*self.ncombine
-      self.error = where(self.data > 0,
-            sqrt(self.data/egain + self.rdnoise**2/self.gain**2),
-            self.rdnoise/self.gain)
-
-   def _makeMask(self):
-      # Look for bad pixels.  Start with NaN's
-      mask = isnan(self.data)
-
-      # Next if datamax is specified:
-      datamax = self.cfg.get('datamax', None)
-      if datamax is not None:
-         mask = mask*greater(self.data, datamax)
-
-      return mask
-
-   def loadObjCatalog(self, table=None, filename=None, racol='col2',
-         deccol='col3', objcol='col1'):
-      '''Given a catalog filename, load it and store info.
-      Args:
-         table (astropy.table):  source catalog as a table
-         filename (str):  source catalog as a file
-         racol (str):  column name for RA
-         deccol (str): column name for DEC
-         objcol (str); column name for object number
-         
-      Returns:
-         None
-
-      Effects:
-         self.objs, self.RAs, self.DEs populated with data
-      '''
-      if filename is None and table is None:
-         if self.ftsfile is not None:
-            if os.path.isfile(self.ftsfile.replace('.fits','.cat')):
-               filename = self.ftsfile.replace('.fits','.cat')
-            else:
-               raise ValueError("you must specify either a file or table")
-         else:
-            raise ValueError("you must specify either a file or table")
-
-      if table is not None:
-         cat = table
-      else:
-         cat = ascii.read(filename)
-
-      # Check for needed info
-      if objcol not in cat.colnames:
-         raise ValueError(
-               "Error: object column {} not found in data file".format(objcol))
-      self.objs = cat[objcol]
-      
-      if racol not in cat.colnames:
-         raise ValueError(
-               "Error: RA column {} not found in data file".format(racol))
-      self.RAs = cat[racol]
-
-      if deccol not in cat.colnames:
-         raise ValueError(
-               "Error: DEC column {} not found in data file".format(deccol))
-      self.DEs = cat[deccol]
-
-   def centroid(self, boxsize=20):
+   def centroid(self, cutoutsize=20, method='1dg'):
       '''Given data and a wcs, centroid the catalog objects. Returns
-      as a SkyCoord object.'''
+      as a SkyCoord object.
+
+      Args:
+         boxsize (int):  size of the extraction box
+         method (str):   centroiding method to use (see photutils docs)
+
+      Returns:
+         astropy.SkyCoords:   Coordinates of the objects
+      '''
       if self.RAs is None:
          raise ValueError("You need to load a catalog first")
       # re-centroid the positions:
-      i,j = self.wcs.wcs_world2pix(self.RAs, self.DEs, 0)
-      ii,jj,flag = recenter(i, j, self.data, cutoutsize=boxsize)
-      ra,dec = self.wcs.wcs_pix2world(ii, jj, 0)
+      xs,ys = self.wcs.wcs_world2pix(self.RAs, self.DEs, 0)
+      flags = []; xout = []; yout = []
+      if cutoutsize % 2 == 0: cutoutsize += 1   # make sure odd
+      interv = cutoutsize//2                    # integer division!!!
+ 
+      for i in range(len(xs)):
+         if not (interv < xs[i] < self.data.shape[1]-interv and\
+               interv < ys[i] < self.data.shape[0]-interv):
+            xout.append(xs[i])
+            yout.append(ys[i])
+            flags.append(1)    # outside data array
+         else:
+            x = int(xs[i])
+            y = int(ys[i])
+            sdata = self.data[y-interv:y+interv+1, x-interv:x+interv+1]
+            mn,md,st = sigma_clipped_stats(sdata, sigma=2.)
+            if method == 'com':
+               xx,yy = centroid_com(sdata - md)
+            elif method == '1dg':
+               xx,yy = centroid_1dg(sdata - md)
+            elif method == '2dg':
+               xx,yy = centroid_2dg(sdata - md)
+            elif method == 'quad':
+               xx,yy = centroid_quadratic(sdata - md)
+            if not (0 < xx < cutoutsize and 0 < yy < cutoutsize):
+               xout.append(xs[i])
+               yout.append(ys[i])
+               flags.append(2)
+            else:
+               xout.append(x - interv + xx)
+               yout.append(y - interv + yy)
+               flags.append(0)
+      ra,dec = self.wcs.wcs_pix2world(array(xout), array(yout), 0)
       self.centroids = SkyCoord(ra*u.deg, dec*u.deg)
 
 
@@ -581,7 +793,9 @@ class ApPhot:
          creates the aperture objetcs self.apps
       '''
       if self.centroids is None:
-         self.centroid(boxsize=boxsize)
+         with catch_warnings():
+            simplefilter('ignore')
+            self.centroid(cutoutsize=boxsize)
       
       for apsize in appsizes:
          self.apps.append(SkyCircularAperture(self.centroids, 
@@ -892,15 +1106,18 @@ def compute_zpt(phot, std_key, stderr_key, inst_key='ap2', ierr_key='ap2er',
 from photutils.detection import StarFinderBase
 class FixedStarFinder(StarFinderBase):
 
-   def __init__(self, wcs, RAs=None, DECs=None, catalog=None, radius=12):
+   def __init__(self, wcs, RAs=None, DECs=None, ids=None, catalog=None, radius=12):
 
-      if RAs is not None and DECs is not None:
-         self.tab = Table([RAs, DECs], names=['RA','DEC'])
+      if RAs is not None and DECs is not None and ids is not None:
+         self.tab = Table([ids, RAs, DECs], names=['id','RA','DEC'])
       elif catalog is not None:
          self.tab = ascii.read(catalog)
-         if 'RA' not in self.tab.colnames or 'DEC' not in self.tab.colnames:
-            raise ValueError("Error:  the input catalog must have RA and DEC "\
-                  "columns")
+         if 'RA' not in self.tab.colnames or 'DEC' not in self.tab.colnames \
+             or 'id' not in tab.colnames:
+            raise ValueError("Error:  the input catalog must have RA, DEC, and "\
+                  "id columns")
+      else:
+         raise ValueError("Error: must specify RAs,DECs,ids or catalog")
 
       self.wcs = wcs
       self.radius = radius
@@ -919,10 +1136,10 @@ class FixedStarFinder(StarFinderBase):
             # Too close to edges
             self.tab['xcentroid'][idx] = -1
             self.tab['ycentroid'][idx] = -1
-         cutout = data[j0:j1,i0:i1]
-         self.tab[idx]['flux'] = sum(cutout.ravel())
+            self.tab['flux'][idx] = 0
+         else:
+            cutout = data[j0:j1,i0:i1]
+            self.tab[idx]['flux'] = sum(cutout.ravel())
       self.tab = self.tab[self.tab['xcentroid'] > 0]
-      self.tab['id'] = arange(1, len(self.tab)+1)
 
       return(self.tab)
-
