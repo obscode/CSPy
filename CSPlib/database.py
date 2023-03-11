@@ -233,6 +233,29 @@ def getCoordsName(ra, dec, db=default_db, tol=0.125):
    # If More than one, use closest (first)
    return l[0]
 
+def getLSCoords(SN, db=default_db):
+   '''Retrieve the coordinates of the local sequence stars.
+   
+   Args:
+      SN(str):  Name of the SN
+      db(sr):   Database to query
+   
+   Returns:
+      tab(astropy.table):  Table of object ID, RA, and DEC (in degrees)'''
+
+   try:
+      db = getConnection(db)
+   except:
+      return -2
+   c = db.cursor()
+   res = c.execute("SELECT OBJ,RA*15,DE FROM Coords where SN=%s", (SN,))
+   if res < 1:
+      return -1
+   rows = c.fetchall()
+   tab = Table(rows=rows, names=['objID','RA','DEC'])
+   return(tab)
+
+
 def updateSNPhot(SN, JD, filt, fits, mag, emag, db=default_db):
    '''Update the SN photometry in the database.
 
