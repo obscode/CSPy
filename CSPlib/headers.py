@@ -4,7 +4,6 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 from math import floor
 from CSPlib import wairmass_for_lco_images
-from numpy import cos,pi
 
 obstypes = {'dflat':'dflat',
             'sflat':'sflat',
@@ -31,11 +30,19 @@ def shift_center(header):
       (RA,DEC):  tuple of new center coordinates.
     '''
 
-   chip = int(header['OPAMP'])
+   chip = int(header.get('OPAMP',0))
    jd = header['JD']
    RA = header['RA']
    DEC = header['DEC']
    coord = SkyCoord(RA, DEC, unit=(u.hourangle, u.degree), frame='icrs')
+
+   if chip == 0:
+      # No OPAMP, the FITS file was probably stiched
+      newra = coord.ra.to_string(unit=u.hourangle, sep=":", precision=2,
+                                 pad=True)
+      newdec = coord.dec.to_string(unit=u.degree, sep=":", precision=2,
+                                 pad=True, alwayssign=True)
+      return(newra,newdec)
 
    offset = 10.5*u.arcmin
    if ( jd < 2456871.917):
@@ -101,9 +108,8 @@ def update_header(f, fout=None):
    eq = h['EQUINOX']
    etime = h['EXPTIME'] 
    obj = h['OBJECT']
-   st = h['ST']
    utstart = h['UT-TIME']
-   date = h['DATE-OBS']
+   date = h['DATE-OBS'].split('T')[0]
    yyyy,mm,dd = date.split('-')
    date = "{:04d}-{:02d}-{:02d}".format(int(yyyy),int(mm),int(dd))
    h['DATE-OBS'] = (date, "UT DATE AT START OF FRAME")
