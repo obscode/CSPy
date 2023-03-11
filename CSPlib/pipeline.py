@@ -20,7 +20,7 @@ from . import ccdred
 from . import headers
 from . import do_astrometry
 from . import opt_extr
-from . import calibration
+from .fitsutils import qdump
 from .filesystem import CSPname
 from imagematch import ImageMatching_scalerot as ImageMatch
 from .objmatch import WCStoImage
@@ -83,7 +83,7 @@ class Pipeline:
          calibrations (str): location where older calibration files are located
          templates (str): location where templates are stored
          catalogs (str): location where catalog files are stored
-         tmin (floag):  Only FITS files with exposure times > tmin are 
+         tmin (float):  Only FITS files with exposure times > tmin are 
                         reduced (to avoid calibration images).
          update_db (bool):  If True, update the CSP database with the 
                             SN photometry.
@@ -123,6 +123,8 @@ class Pipeline:
       self.skipTemplate = []
       # These are files that are not identified or failed in some other way
       self.ignore = []
+      # These are files that have short exposures and are likely "test"
+      self.short = []
       # These objects have no galaxy template (u-band usually)
       self.no_temp = []
       # These are files that have WCS solved
@@ -260,11 +262,12 @@ class Pipeline:
          self.files['none'].append(fout)
          return
       obtype = headers.obstypes[obstype]
+      # Ignore:  will still be calibrated to 'fcd', but no final photometry
       if obtype == 'astro' and fts[0].header['EXPTIME'] < self.tmin:
-         # Ignore short exposures
-         self.rawfiles.append(filename)
-         self.files['none'].append(fout)
-         return
+         self.log("File {} is considered 'short', no SN photometry will be "\
+                  "done".format(fout))
+         # Flag short exposures
+         self.short.append(fout)
 
       self.rawfiles.append(filename)
       if obtype in ['zero','none']:
@@ -374,6 +377,7 @@ class Pipeline:
             # Find the best flat based on date
             # First, we need the current date JD
             fts = fits.open(self.rawfiles[0])
+            # We don't have a JD in the header yet, so use EPOCH
             jd = Time(fts[0].header['EPOCH'], format='decimalyear').jd
 
             # Now get list of Flats we have in the database
@@ -659,10 +663,15 @@ class Pipeline:
 
       return
 
-   def photometry(self):
+   def photometry(self, bgsubtract=False, crfix=False, computeFWHM=True):
       '''Using the PanSTARRS catalog, we do initial photometry on the field
       and determine a zero-point. Or, if we have stanard fields, we do
-      the aperture photometry on them and determine a zero-point.'''
+      the aperture photometry on them and determine a zero-point.
+      
+      Args:
+          bgsubtract (bool):  If True, do a 2D background estimate.
+          crfix (bool):       If True, fix cosmic rays using LAcosmic
+          computeFWHM (bool): If True, compute FWHM and update header'''
 
       todo = [fil for fil in self.wcsSolved if fil not in self.initialPhot \
             and fil not in self.ignore]
@@ -747,16 +756,41 @@ class Pipeline:
          else:
             cat = ascii.read(catfile)
 
-         if not isfile(allcat):
-            # No calibration for this field. Probably someone else's object.
-            # Skip...
-            self.log('No field star calibration for {}.Skipping...'.format(fil))
-            self.ignore.append(fil)
-            continue
-
-         ap = ApPhot(fil)
+         ap = ApPhot(fil, sigma=fil.replace('.fits','_sigma.fits'))
          ap.loadObjCatalog(table=cat, racol='RA', deccol='DEC', 
                objcol='objID')
+
+         update = False     # Do we need to update the image file?
+         if not standard:
+            self.log("Doing Cosmic ray fix")
+            try:
+               ap.CRReject(fix=crfix, sigclip=5)
+               if crfix: 
+                  update = True
+               qdump(fil.replace('.fits','_bpm.fits'), ap.mask.astype(np.int8), fil)
+            except:
+               pass
+         
+         if not standard:
+            self.log("Modeling 2D background")
+            ap.model2DBackground(boxsize=100)
+            qdump(fil.replace('.fits','_bg.fits'),
+                  ap.background.background.astype(ap.data.dtype), fil)
+            if bgsubtract: 
+               update = True
+               ap.head['MEANSKY'] = np.round(ap.background.background_median, 3)
+               ap.data = ap.data - ap.background.background
+
+         if computeFWHM and not standard:
+            fwhm,tab = ap.fitFWHM(plotfile=fil.replace('.fits','_fwhm.pdf'), 
+                                  profile='Gauss')
+            if fwhm > 0:
+               ap.head['FWHM'] = np.round(fwhm,3)
+               update = True
+         
+         if update:
+            qdump(fil, ap.data, ap.head)
+
          self.log('Doing aperture photometry...')
          try:
             phot = ap.doPhotometry()
@@ -1266,7 +1300,7 @@ class Pipeline:
 
       todo = [fil for fil in self.initialPhot if fil not in self.subtracted \
             and fil not in self.ignore and fil not in self.stdIDs and \
-            fil not in self.no_temp]
+            fil not in self.no_temp and fil not in self.short]
       for fil in todo:
          obj = self.ZIDs[fil]
          diff = fil.replace('.fits','diff.fits')
@@ -1383,7 +1417,7 @@ class Pipeline:
          if not cfg.tasks.InitPhot:
             done = True
             continue
-         self.photometry()
+         self.photometry(bgsubtract=False, crfix=True, computeFWHM=True)
 
          if not cfg.tasks.TempSubt:
             done = True
