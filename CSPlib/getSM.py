@@ -58,7 +58,7 @@ def getImages(ra, dec, size=0.125, filt='g', verbose=False):
    # So if we get here, we have no coverage
    return []
    
-def getFITS(ra, dec, size, filters, mosaic=False, retain=False):
+def getFITS(ra, dec, size, filters, mosaic=False, retain=False, maxtries=3):
    '''Retrieve the FITS files from SkyMapper server, centered on ra,dec
    and with given size.
 
@@ -70,6 +70,7 @@ def getFITS(ra, dec, size, filters, mosaic=False, retain=False):
       mosaic(bool): If more than one PS images is needed to tile the field,
                     do we mosaic them? Requires reproject module if True
       retain(bool): If True, keep the individual FITS files 
+      maxtries (int): Maximum number of retries to download data
 
    Returns:
       list of 2-tupes of FITS instances one element for each filter.
@@ -93,7 +94,19 @@ def getFITS(ra, dec, size, filters, mosaic=False, retain=False):
          from reproject.mosaicking import find_optimal_celestial_wcs
          from reproject.mosaicking import reproject_and_coadd
          
-         fts = [fits.open(url) for url in urls]
+         fts = []
+         for url in urls:
+            tries = 0
+            while (tries < maxtries):
+               try:
+                  newfts = fits.open(url)
+                  fts.append(newfts)
+                  break
+               except:
+                  tries += 1
+         if len(fts) != len(urls):
+            # Something went wrong
+            return None
 
          # Now we get the image with center closest to our position. Easy
          # way is to find image with largest minimum distance to a corner
