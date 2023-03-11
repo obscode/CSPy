@@ -300,7 +300,7 @@ def ShutterCorrect(fts, frame=None, copy=False, tel='SWO',ins='NC',
          frame = fts.open(frame)
    factor = frame[0].data/exptime
       
-   fts[0].data = fts[0].data / (1.0 + factor)
+   fts[0].data = (fts[0].data / (1.0 + factor)).astype(np.float32)
    fts[0].header['COMMENT'] = "Shutter correction using EXPT={}".format(exptime)
 
    return fts
