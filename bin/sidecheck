@@ -1,0 +1,110 @@
+#!/usr/bin/env python
+
+import argparse
+parser = argparse.ArgumentParser(description="Do a side-by-side comparison of two "\
+    "FITS files, centered on the SN")
+parser.add_argument("fits", help='FITS file to compare')    
+parser.add_argument("-template", help='2nd FITS file to compare')
+parser.add_argument("-obj", help='Name of SN')
+args = parser.parse_args()
+
+from matplotlib import pyplot as plt
+from astropy.io import fits
+from astropy.visualization import simple_norm
+from astropy.wcs import WCS
+import os, sys
+import numpy as np
+
+def handleEvent(event):
+    ax = event.inaxes
+    if event.key == 'up':
+        ax.npercent += 0.1
+        ax.norm = simple_norm(ax.images[0].get_array(), percent=ax.npercent)
+        ax.images[0].set_norm(ax.norm)
+    elif event.key == 'down':
+        ax.npercent -= 0.1
+        ax.norm = simple_norm(ax.images[0].get_array(), percent=ax.npercent)
+        ax.images[0].set_norm(ax.norm)
+    plt.draw()
+
+fig = plt.figure(figsize=(15,7))
+
+f1 = fits.open(args.fits)
+if args.obj is None:
+    obj = f1[0].header['OBJECT']
+else:
+    obj = args.obj
+filt = f1[0].header['FILTER']
+print("Obj: ", obj)
+print("Filt: ", filt)
+
+if args.template is not None:
+    f2 = fits.open(args.fits2)
+else:
+    # Retrieve the FITS file from templates
+    if filt in ['B','V','u']:
+        temp = "{}_{}.fits".format(obj,'g')
+    else:
+        temp = "{}_{}.fits".format(obj, filt)
+    if not os.path.isfile(temp):
+
+        cmd = "rclone copy CSP:Swope/templates/{} .".format(temp)
+        res = os.system(cmd)
+        if res != 0:
+            print("No survey image fouind, can't do a side-by-side. Sorry")
+            sys.exit(1)
+    f2 = fits.open(temp)
+
+if not os.path.isfile("{}.cat".format(obj)):
+    # get the catalog file
+    cmd = "rclone copy CSP:Swope/templates/{}.cat .".format(obj)
+    res = os.system(cmd)
+    if res != 0:
+        print("could not find the star catalog. Are you sure this "\
+              "is a SN field?")
+        sys.exit(1)
+with open('{}.cat'.format(obj)) as fin:
+    lines = [line.strip().split() for line in fin.readlines()]
+    found = False
+    for line in lines:
+        if line[0] == '0':
+            ra = float(line[1])
+            dec = float(line[2])
+            found = True
+            break
+    if not found:
+        print("Error:  catalog does not have SN object")
+        sys.exit(1)
+
+wcs1 = WCS(f1[0])
+scale1 = np.absolute(wcs1.pixel_scale_matrix[0,0]*3600)   # arc-sec/pixel
+wcs2 = WCS(f2[0])
+scale2 = np.absolute(wcs2.pixel_scale_matrix[0,0]*3600)
+
+width = 60. # arc-sec
+dp1 = int(width / scale1)
+dp2 = int(width / scale2)
+
+ax1 = plt.subplot(121, projection=wcs1)
+ax1.norm = simple_norm(f1[0].data, percent=99)
+ax1.npercent = 99
+ax1.imshow(f1[0].data, origin='lower', norm=ax1.norm, cmap='gray_r')
+i1,j1 = wcs1.wcs_world2pix(ra,dec,0)        
+ax1.set_xlim(i1-dp1, i1+dp1)
+ax1.set_ylim(j1-dp1, j1+dp1)
+ax1.plot([i1], [j1], 'o', mfc='none', mec='green', ms=25)
+ax1.set_title(args.fits)
+
+ax2 = plt.subplot(122, projection=wcs2)
+ax2.norm = simple_norm(f2[0].data, percent=99)
+ax2.npercent = 99
+ax2.imshow(f2[0].data, origin='lower', norm=ax2.norm, cmap='gray_r')
+i2,j2 = wcs2.wcs_world2pix(ra,dec,0)        
+ax2.set_xlim(i2-dp2, i2+dp2)
+ax2.set_ylim(j2-dp2, j2+dp2)
+ax2.plot([i2], [j2], 'o', mfc='none', mec='green', ms=25)
+ax2.set_title('template')
+
+plt.tight_layout()
+fig.canvas.mpl_connect('key_press_event', handleEvent)
+plt.show()
