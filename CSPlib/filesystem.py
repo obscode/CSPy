@@ -88,7 +88,7 @@ def utname(fitsfile, suffix='.fits'):
    name = template.format(**args)
    return name
 
-def LCOGTname(fitsfile, idx=1, suffix='.fits'):
+def LCOGTname(fitsfile, idx=1, suffix='.fits', HDU=1):
    '''Given a file or fits instance, get a filename using the CSP convention.
    If the file already exists, index it accordingly.
 
@@ -97,6 +97,7 @@ def LCOGTname(fitsfile, idx=1, suffix='.fits'):
                                         instance.
       idx (int): A running index (for repeated observations) default:1
       suffix (str): The suffix for the file. Default:  .fits
+      HDU (int):  The HDU index to use (i.e., the image)
 
    Returns:
       filename (str):  The filename using CSP convention.'''
@@ -114,7 +115,7 @@ def LCOGTname(fitsfile, idx=1, suffix='.fits'):
 
    # Now, DATE-OBS changes at midnight. So the better way to get the "day"
    # is to add 0.5 to JD (push it beyond change-over and get the year/month/day
-   jd = Time(fts[1].header['MJD-OBS'] + 0.5, format='mjd')
+   jd = Time(fts[HDU].header['MJD-OBS'] + 0.5, format='mjd')
    dt = jd.to_datetime()
    YY,MM,DD = dt.year,dt.month,dt.day
    YY = int(YY)
@@ -122,11 +123,11 @@ def LCOGTname(fitsfile, idx=1, suffix='.fits'):
    DD = int(DD)
    
    args = dict(
-       obj=fts[1].header['OBJECT'],
-       filt=fts[1].header['FILTER'],
+       obj=fts[HDU].header['OBJECT'],
+       filt=fts[HDU].header['FILTER'],
        YY=YY, MM=MM, DD=DD,
-       tel=fts[1].header['ORIGIN'],
-       ins=fts[1].header['INSTRUME'],
+       tel=fts[HDU].header['ORIGIN'],
+       ins=fts[HDU].header['INSTRUME'],
        suf=suffix, idx=idx)
    
    name = template.format(**args)
