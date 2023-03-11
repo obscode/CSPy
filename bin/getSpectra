@@ -1,0 +1,22 @@
+#!/usr/bin/env python
+
+import argparse
+from numpy import array,savetxt
+from CSPlib.database import getSpectraList,getSpectrum
+
+parser = argparse.ArgumentParser(description="Get all spectra of a SN")
+parser.add_argument('SN', help='Name of the SN from the database')
+parser.add_argument('-db', help="Name of the database", default='SBS')
+args = parser.parse_args()
+
+SN = args.SN
+
+res = getSpectraList(SN)
+for sp in res:
+   print("Saving {} as {}".format(sp[0], sp[0].replace('.fits','.dat')))
+   wave,spec = getSpectrum(sp[0])
+   savetxt(sp[0].replace('.fits','.dat'),array([wave,spec]).T)
+
+
+
+
