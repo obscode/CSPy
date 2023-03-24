@@ -13,25 +13,41 @@ args = parser.parse_args()
 from astropy.io import fits
 from astropy.table import Table
 from CSPlib.filesystem import LCOGTname
+import sys
 
 for fil in args.fitsfiles:
    fts = fits.open(fil)
+   if args.imHDU > len(fts) -1:  
+      print("Bad imHDU. This FITS file only has {} extensions".format(len(fts)))
+      sys.exit(1)
    oname = LCOGTname(fts, HDU=args.imHDU)
    img = fits.HDUList()
    img.append(fits.PrimaryHDU(header=fts[args.imHDU].header, 
        data=fts[args.imHDU].data))
    img.writeto(oname, overwrite=True)
 
-   cat = Table(fts[args.catHDU].data)
-   cat.write(oname.replace('.fits','.cat'), format='ascii.fixed_width', 
-             delimiter=' ', overwrite=True)
+   if args.catHDU > 0:
+      if args.catHDU > len(fts) -1:  
+         print("Bad catHDU. This FITS file only has {} extensions".format(len(fts)))
+         sys.exit(1)
+      cat = Table(fts[args.catHDU].data)
+      cat.write(oname.replace('.fits','.cat'), format='ascii.fixed_width', 
+                delimiter=' ', overwrite=True)
 
-   bpm = fits.HDUList()
-   bpm.append(fits.PrimaryHDU(header=fts[args.bpmHDU].header, 
-             data=fts[args.bpmHDU].data))
-   bpm.writeto(oname.replace('.fits','_bpm.fits'), overwrite=True)
+   if args.bpmHDU > 0:
+      if args.bpmHDU > len(fts) -1:  
+         print("Bad bpmHDU. This FITS file only has {} extensions".format(len(fts)))
+         sys.exit(1)
+      bpm = fits.HDUList()
+      bpm.append(fits.PrimaryHDU(header=fts[args.bpmHDU].header, 
+                data=fts[args.bpmHDU].data))
+      bpm.writeto(oname.replace('.fits','_bpm.fits'), overwrite=True)
 
-   sig = fits.HDUList()
-   sig.append(fits.PrimaryHDU(header=fts[args.sigHDU].header, 
-              data=fts[args.sigHDU].data))
-   sig.writeto(oname.replace('.fits','_sigma.fits'), overwrite=True)
+   if args.sigHDU > 0:
+      if args.sigHDU > len(fts) -1:  
+         print("Bad sigHDU. This FITS file only has {} extensions".format(len(fts)))
+         sys.exit(1)
+      sig = fits.HDUList()
+      sig.append(fits.PrimaryHDU(header=fts[args.sigHDU].header, 
+                 data=fts[args.sigHDU].data))
+      sig.writeto(oname.replace('.fits','_sigma.fits'), overwrite=True)
