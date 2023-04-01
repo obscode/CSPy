@@ -8,19 +8,27 @@ parser.add_argument('-imHDU', help='HDU index of image', type=int, default=1)
 parser.add_argument('-catHDU', help='HDU index of catalog', type=int, default=2)
 parser.add_argument('-bpmHDU', help='HDU index of BPM', type=int, default=3)
 parser.add_argument('-sigHDU', help='HDU index of sigma', type=int, default=4)
+parser.add_argument('-noCSPname', help="Use original FITS name instead of CSP "\
+                    "name. Original file is saved to *_orig.fits",
+                    action='store_true')
 args = parser.parse_args()
 
 from astropy.io import fits
 from astropy.table import Table
 from CSPlib.filesystem import LCOGTname
 import sys
+import shutil
 
 for fil in args.fitsfiles:
    fts = fits.open(fil)
    if args.imHDU > len(fts) -1:  
       print("Bad imHDU. This FITS file only has {} extensions".format(len(fts)))
       sys.exit(1)
-   oname = LCOGTname(fts, HDU=args.imHDU)
+   if args.noCSPname:
+      shutil.copyfile(fil, fil.replace('.fits','_orig.fits'))
+      oname = fil
+   else:
+      oname = LCOGTname(fts, HDU=args.imHDU)
    img = fits.HDUList()
    img.append(fits.PrimaryHDU(header=fts[args.imHDU].header, 
        data=fts[args.imHDU].data))
