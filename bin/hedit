@@ -14,6 +14,8 @@ parser.add_argument('-delete', help='Delete the given key and value',
       action='store_true')
 parser.add_argument('-update', help='Update (modify) existing key value',
       nargs=1)
+parser.add_argument('-type', help="What type the argument should be: float, int, str",
+                    default='str')
 parser.add_argument('-nobackup', help='Do not make a backup of FITS',
       action='store_true')
 
@@ -35,13 +37,26 @@ for fil in args.files:
          del fts[args.hdu].header[args.key]
 
    if args.add is not None:
-      fts[args.hdu].header[args.key] = args.add[0]
+      if args.type == "float":
+         val = float(args.add[0])
+      elif args.type == "int":
+         val = int(args.add[0])
+      else:
+         val = args.add[0]
+      fts[args.hdu].header[args.key] = val
 
    if args.update is not None:
       if args.key not in fts[args.hdu].header:
          print("Error, {} has no key {}, skipping".format(fil,args.key))
       else:
-         fts[args.hdu].header[args.key] = args.update[0]
+         if args.type == "float":
+            val = float(args.add[0])
+         elif args.type == "int":
+            val = int(args.add[0])
+         else:
+            val = args.add[0]
+
+         fts[args.hdu].header[args.key] = val
 
    fts.writeto(fil, overwrite=True)
    fts.close()
