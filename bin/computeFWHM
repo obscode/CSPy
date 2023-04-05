@@ -48,7 +48,7 @@ for ftsfile in args.fits:
    
    # Do cosmic-ray rejection
    try:
-      fts.CRReject(fix=True, sigclip=6)
+      fts.CRReject(fix=True, sigclip=args.crsig)
    except:
       pass
    # Produce background-subtracted image
