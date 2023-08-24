@@ -7,6 +7,13 @@ parser = argparse.ArgumentParser(description='Transfer a WCS from one image to'\
                                               ' another.')
 parser.add_argument('wcsimage', help='Image with a valid WCS')
 parser.add_argument('images', help='Image(s) to transfer the WCS to', nargs='+')
+parser.add_argument('-t', help='Threshold detection of the target image',
+                    type=float, default=3.)
+parser.add_argument('-t2', help='Threshold detection of the WCS image',
+                    type=float, default=3.)
+parser.add_argument('-dbmc', help='Deblending parameter. Default 0.005. Make larger'\
+                                  ' to blend objects together (e.g. unfocused)', 
+                                  type=float, default=0.005)
 parser.add_argument('-scale', help='The image scale of the targets. Either a'\
                                    ' number or header keyword. Default: SCALE',
                               default='SCALE')
@@ -15,12 +22,16 @@ parser.add_argument('-Nstars', help='Maximum number of stars to consider. The '\
 parser.add_argument('-plotfile', help='If given as a filename, plot the WCS')
 parser.add_argument('-tel', help='Telescope code (default SWO)', default='SWO')
 parser.add_argument('-ins', help='Instrument code (default NC)', default='NC')
+parser.add_argument('-v', help='Be extra verbose', action='store_true')
 
 args = parser.parse_args()
 
 for fil in args.images:
-   newfts = WCStoImage(args.wcsimage, fil, scale=args.scale, tel=args.tel,
-         ins=args.ins, Nstars=args.Nstars, plotfile=args.plotfile)
+   newfts = WCStoImage(args.wcsimage, fil, scale=args.scale, 
+         thresh=args.t, threshw=args.t2, tel=args.tel,
+         ins=args.ins, Nstars=args.Nstars, deblend_mc=args.dbmc,
+         plotfile=args.plotfile,
+         verbose=args.v)
    if newfts is None:
       print("Error, could not compute WCS for {}, skipping...".format(fil))
       continue

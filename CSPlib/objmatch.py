@@ -250,8 +250,9 @@ def iterativeSol(x1, y1, x2, y2, scale1=1.0, scale2=1.0, dtol=1.0, atol=1.0,
    return sol, ui0, ui1
 
 
-def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO', 
-      ins='NC', Nstars=100, verbose=False, angles=[0.0], plotfile=None):
+def WCStoImage(wcsimage, image, thresh=3, threshw=3, scale='SCALE', tel='SWO', 
+      ins='NC', Nstars=100, deblend_mc=0.005, verbose=False, angles=[0.0], 
+      plotfile=None):
    '''Given a FITS image with a WCS, solve for the WCS in a different
    image.
 
@@ -261,8 +262,12 @@ def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO',
       scale (str of float): The plate scale of the images to solve.
                             if a string, get scale from the specified 
                             header keyword.
+      thresh(float):   Threshold for image source detection
+      threshw(float):   Threshold for WCS image source detection
+      deblend_mc(float):  Source extractors DEBLEND_MINCONT parameter
       tel (str):   Telescope code (e.g., SWO)
       ins (str):   Instrument code (e.g., NC)
+      verbose (bool):  extra debug info?
       plotfile (str):  If specified, plot the WCS solution and save to this file
    Returns:
       The original image with WCS header information updated.
@@ -285,13 +290,13 @@ def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO',
    wscale = abs(wcs.pixel_scale_matrix[0,0])*3600   # in arc-sex/pixel
 
    s = SexTractor(image, tel=tel, ins=ins)
-   s.run()
+   s.run(thresh=thresh, deblend_mc=deblend_mc)
    icat = s.parseCatFile()
    s.cleanup()
    icat = icat[argsort(icat['MAG_APER'])]
 
    s = SexTractor(wcsimage, tel=tel, ins=ins, gain=1.0, scale=wscale)
-   s.run()
+   s.run(thresh=threshw, deblend_mc=deblend_mc)
    wcat = s.parseCatFile()
    s.cleanup()
    wcat = wcat[argsort(wcat['MAG_APER'])]
@@ -301,6 +306,9 @@ def WCStoImage(wcsimage, image, scale='SCALE', tel='SWO',
 
    x1,y1 = wcat['X_IMAGE'],wcat['Y_IMAGE']
    x0,y0 = icat['X_IMAGE'],icat['Y_IMAGE']
+   if verbose:
+      savetxt('matches0.txt', [x0,y0])
+      savetxt('matches1.txt', [x1,y1])
 
    res,idx1,idx2 = iterativeSol(x0, y0, x1, y1, scale1=imscale, scale2=wscale,
          dtol=1.0, verb=verbose, angles=angles)
