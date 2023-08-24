@@ -7,6 +7,7 @@ import os
 from numpy import argsort,array
 from datetime import date
 from .config import getconfig
+import re
 
 cfg = getconfig()
 
@@ -32,6 +33,20 @@ dbs = {'SBS': {
           'db':'POISE'},
        }
               
+# Campaign strings to numbers
+camppat = re.compile(r'([0-9]{4,4})([AB])')
+def camp2num(camp):
+   res = camppat.search(camp)
+   if not res:
+      raise ValueError("Unrecognized campaign string")
+   year,code = res.groups()
+   return 19 + (int(year)-2023)*2 + ['A','B'].index(code)
+
+def num2camp(num):
+   code = ['B','A'][num % 2]
+   return str(2023 + (num-19)//2)+code
+
+   
 
 if 'CSPpasswd' in os.environ:
    passwd = os.environ['CSPpasswd']
