@@ -470,9 +470,12 @@ class BasePhot:
             # SN, so don't use that
             gids.append(False)
             continue
+         
+         # Check for saturated pixels
+         mask = self.data > self.datamax
          stat,x,y,fwhm,rchisq,snr = centroid2D(self.data - bg, 
                                   xs[i], ys[i], 
-                                  1.0/self.scale, int(10/self.scale), 
+                                  1.0/self.scale, int(10/self.scale), mask=mask,
                                   var=self.error**2, axis=ax, profile=profile)
          if not stat:
             gids.append(False)
