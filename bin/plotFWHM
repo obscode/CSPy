@@ -1,0 +1,43 @@
+#!/usr/bin/env python
+
+import argparse
+parser = argparse.ArgumentParser(description='plot the FWHM for science'\
+    ' images and templates')
+parser.add_argument('fits', nargs="+", help='FITS files to consider')
+args = parser.parse_args()
+
+from matplotlib import pyplot as plt
+from astropy.io import fits
+import numpy as np
+import os
+
+fwhms = {}
+minfwhm = np.inf
+maxfwhm = -np.inf
+for fit in args.fits:
+    h = fits.getheader(fit, 0)
+    filt = h['FILTER']
+    fwhm = h['FWHM']
+    obj = h['OBJECT']
+    if filt in fwhms:
+        fwhms[filt].append(fwhm)
+    else:
+        fwhms[filt] = [fwhm]
+    minfwhm = min(minfwhm, fwhm)
+    maxfwhm = max(maxfwhm, fwhm)
+
+fig,axes = plt.subplots(2,3, sharex=True, sharey=True, squeeze=True)
+axes = axes.ravel()
+bins = np.linspace(minfwhm, maxfwhm, 20)
+
+for i,filt in enumerate(fwhms.keys()):
+    axes[i].hist(fwhms[filt], bins=bins)
+    temp = "{}_{}.fits".format(obj, filt)
+    if os.path.isfile(temp):
+        h = fits.getheader(temp, 0)
+        axes[i].axvline(h['FWHM'], color='red')
+    axes[i].text(0.05, 0.95, filt, va='top', ha='left',
+                 transform=axes[i].transAxes)
+
+fig.savefig('FWHMs.pdf')
+
