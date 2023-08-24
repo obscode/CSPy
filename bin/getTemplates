@@ -1,18 +1,16 @@
 #!/usr/bin/env python
 
-from CSPlib import getPS,getSM,get2MASS,getRefcat2
+from CSPlib import getPS,getSM,getRefcat2
 #from CSPlib.getPS import getStarCat,getFITS
 from CSPlib.calibration import PSstand2nat,SMstand2nat
 from astropy.io import fits,ascii
 from astropy.table import hstack
-import pymysql
 from matplotlib import pyplot as plt
 from matplotlib import rcParams
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from astropy.visualization import simple_norm
 from astropy.wcs import WCS
 from os.path import join,isfile
-from os import unlink
 import numpy as np
 import sys
 
@@ -21,7 +19,7 @@ rcParams['font.size'] = 18
 # Where to put/look for stuff
 fcharts = '/Users/cburns/CSP/fcharts'
 templates = '/Users/cburns/CSP/templates'
-chart_size = 0.25   # degrees
+chart_size = 0.35   # degrees
 chart_filter = 'r'
 Nstars = 20
 lockfile = '/tmp/make_finders_lock'
@@ -179,10 +177,6 @@ for sn,ra,dec in l:
    ins.axes.get_yaxis().set_visible(False)
    size = max(fts[0].data.shape)
    sni,snj = wcs.wcs_world2pix(ra,dec,0)
-   #x0 = size//2 - size//8
-   #x1 = size//2 + size//8
-   #y0 = size//2 - size//8
-   #y1 = size//2 + size//8
    x0 = int(sni) - size//8
    x1 = int(sni) + size//8
    y0 = int(snj) - size//8
