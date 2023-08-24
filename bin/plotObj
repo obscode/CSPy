@@ -11,6 +11,8 @@ parser.add_argument('-f', help='Filter to plot (default:  all)',
       default='all')
 parser.add_argument('-PS', help='Use PS/SM catalogs for calibration', 
       action='store_true')
+parser.add_argument('-imdir', help='Directory where diff images are kept',
+                    default='/Volumes/ExtData1/POISE')
 args = parser.parse_args()
 
 import matplotlib
@@ -50,7 +52,10 @@ def examine_night(event):
    fits = row['fits']
    mSN = row['mag']
    base = fits.replace('.fits','')
-   jpgs = glob.glob('/Volumes/ExtData1/POISE/*/*/{}SN_diff.jpg'.format(base))
+   if args.imdir == '.':
+      jpgs = glob.glob("{}SN_diff.jpg".format(base))
+   else:
+      jpgs = glob.glob('{}/*/*/{}SN_diff.jpg'.format(args.imdir,base))
    if len(jpgs):
       img = mpimg.imread(jpgs[0])
       if getattr(ax1, '_myimg', None) is not None:
@@ -110,7 +115,7 @@ def examine_night(event):
       ax4.set_xlim(tab['x'].min()-5, tab['x'].max()+5)
       ax4.set_ylim(row['mag']-1, row['mag']+1)
       ax5.set_xlim(tab['y'].min()-5, tab['y'].max()+5)
-      ax4.set_ylim(row['mag']-1, row['mag']+1)
+      ax5.set_ylim(row['mag']-1, row['mag']+1)
    plt.draw()
    fig2.canvas.mpl_connect('pick_event', printit)
    fig2.show()
