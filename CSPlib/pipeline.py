@@ -635,8 +635,12 @@ class Pipeline:
          if os.path.isfile(wcsimage):
             h = fits.getheader(wcsimage)
             if 'TELESCOP' not in h or h['TELESCOP'] != 'SkyMapper':
-               new = WCStoImage(wcsimage, fil, angles=[0],
-                     plotfile=fil.replace('.fits','_wcs.png'))
+               try:
+                  new = WCStoImage(wcsimage, fil, angles=[0],
+                        plotfile=fil.replace('.fits','_wcs.png'))
+               except:
+                  # Something went wrong
+                  new = None
             else:
                new = None
          else:
@@ -773,13 +777,16 @@ class Pipeline:
          
          if not standard:
             self.log("Modeling 2D background")
-            ap.model2DBackground(boxsize=100)
-            qdump(fil.replace('.fits','_bg.fits'),
-                  ap.background.background.astype(ap.data.dtype), fil)
-            if bgsubtract: 
-               update = True
-               ap.head['MEANSKY'] = np.round(ap.background.background_median, 3)
-               ap.data = ap.data - ap.background.background
+            try:
+               ap.model2DBackground(boxsize=100)
+               qdump(fil.replace('.fits','_bg.fits'),
+                     ap.background.background.astype(ap.data.dtype), fil)
+               if bgsubtract: 
+                  update = True
+                  ap.head['MEANSKY'] = np.round(ap.background.background_median, 3)
+                  ap.data = ap.data - ap.background.background
+            except:
+               pass
 
          if computeFWHM and not standard:
             fwhm,tab = ap.fitFWHM(plotfile=fil.replace('.fits','_fwhm.pdf'), 
