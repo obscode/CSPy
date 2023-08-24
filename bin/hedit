@@ -50,11 +50,11 @@ for fil in args.files:
          print("Error, {} has no key {}, skipping".format(fil,args.key))
       else:
          if args.type == "float":
-            val = float(args.add[0])
+            val = float(args.update[0])
          elif args.type == "int":
-            val = int(args.add[0])
+            val = int(args.update[0])
          else:
-            val = args.add[0]
+            val = args.update[0]
 
          fts[args.hdu].header[args.key] = val
 
