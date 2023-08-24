@@ -11,7 +11,7 @@ symbs = ['s', 'o', 'd', '^', 'v','<','>'][::-1]
 
 def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
       offsetcat=None, LScat=None, zoomfac=4, snx='SNX', sny='SNY',
-      sn=None, loffset=0.02):
+      sn=None, loffset=0.02, fixnan=True):
    '''Draw a finder chart for the given FITS image. 
 
    Args:
@@ -27,6 +27,7 @@ def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
       sn (str): SN name. If not specified, get it from the header
       loffset (float):  LS label offset from the marker as a fraction of the
                         figure size. Default: 0.02
+      fixnan (bool):  If true, replace NaN's in image data with data.max()
    
    Returns:
       matplotlib.figure instance:  the finder chart
@@ -45,7 +46,13 @@ def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
    plt.subplots_adjust(left=0.2)
    norm = simple_norm(fts[0].data, percent=percent, 
          max_percent=maxpercent, min_percent=minpercent)
-   ax.imshow(fts[0].data, origin='lower', norm=norm, cmap='gray_r')
+   if fixnan and np.sometrue(np.isnan(fts[0].data)):
+      gids = ~np.isnan(fts[0].data.ravel())
+      maxdata = (fts[0].data.ravel()[gids]).max()
+      fdata = np.where(np.isnan(fts[0].data), maxdata, fts[0].data)
+   else:
+      fdata = fts[0].data
+   ax.imshow(fdata, origin='lower', norm=norm, cmap='gray_r')
 
    jsize,isize= fts[0].data.shape
    # Figure out SN position and scale of image
@@ -117,7 +124,8 @@ def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
       yy0 = int(jsn - size/2)
       yy1 = int(jsn + size/2)
  
-      subdata = fts[0].data[yy0:yy1,xx0:xx1]
+      #subdata = fts[0].data[yy0:yy1,xx0:xx1]
+      subdata = fdata[yy0:yy1,xx0:xx1]
       ins.imshow(subdata,origin='lower', norm=norm, cmap='gray_r')
  
       #centered on SN, so no need for trans.
