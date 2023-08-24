@@ -27,6 +27,8 @@ rm fcd*.axy
 rm fcd*.corr
 
 echo "Removing un-needed template subtraction products..."
+rm *_{g,r,i}.fits
+rm *_{g,r,i}_nonan.fits
 rm *SN.fits
 rm *db.txt
 rm *master.fits
