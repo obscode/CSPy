@@ -11,7 +11,7 @@ symbs = ['s', 'o', 'd', '^', 'v','<','>'][::-1]
 
 def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
       offsetcat=None, LScat=None, zoomfac=4, snx='SNX', sny='SNY',
-      sn=None, loffset=0.02, fixnan=True):
+      sn=None, loffset=0.02, fixnan=True, dx=0, dy=0):
    '''Draw a finder chart for the given FITS image. 
 
    Args:
@@ -70,6 +70,9 @@ def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
       xsn = snx
       ysn = sny
       isn,jsn = wcs.wcs_world2pix(xsn,ysn,0)
+
+   isn += dx
+   jsn += dy
 
    x0,y0 = wcs.wcs_pix2world(0,0,0)
    x1,y1 = wcs.wcs_pix2world(isize,jsize,0)

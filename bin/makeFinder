@@ -23,6 +23,8 @@ parser.add_argument('-p', help="percent of pixels to plot", type=float,
 parser.add_argument('-lp', help="lower percent of pixels to plot", type=float)
 parser.add_argument('-up', help="upper percent of pixels to plot", type=float)
 parser.add_argument('-flipx', help='Flip X (RA)', action='store_true')
+parser.add_argument('-dx', help='Move crosshair by dx pixels', type=float, default=0)
+parser.add_argument('-dy', help='Move crosshair by dy pixels', type=float, default=0)
 parser.add_argument('-objname', help='Object name', default=None)
 parser.add_argument('-fixnan', help='Replace NaN in image data with data.max()',
                     action='store_true')
@@ -70,7 +72,8 @@ pids = np.array(pids)
 
 fig = fchart.Fchart(fts, offsetcat=cat[pids], snx=ra, sny=dec, 
       percent=args.p, maxpercent=args.up, minpercent=args.lp,
-      zoomfac=args.zoom, sn=args.objname, fixnan=args.fixnan)
+      zoomfac=args.zoom, sn=args.objname, fixnan=args.fixnan, dx=args.dx,
+      dy=args.dy)
 if args.flipx:
    fig.axes[0].invert_xaxis()
    fig.axes[1].invert_xaxis()
