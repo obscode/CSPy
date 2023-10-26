@@ -39,7 +39,7 @@ print("Obj: ", obj)
 print("Filt: ", filt)
 
 if args.template is not None:
-    f2 = fits.open(args.fits2)
+    f2 = fits.open(args.template)
 else:
     # Retrieve the FITS file from templates
     if filt in ['B','V','u']:
