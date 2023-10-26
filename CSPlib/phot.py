@@ -320,7 +320,7 @@ class BasePhot:
       egain = self.gain*self.ncombine
       with catch_warnings():
          simplefilter("ignore")
-         self.error = where(self.data > 0,
+         self.error = where(self.data+self.meansky > 0,
                sqrt((self.data+self.meansky)/egain + self.rdnoise**2/self.gain**2),
                self.rdnoise/self.gain)
 
@@ -524,6 +524,7 @@ class BasePhot:
                ax.lines[2*i].set_alpha(0.05)
                ax.lines[2*i+1].set_alpha(0.1)
          ax.set_xlim(0, fwhm*10)
+         ax.set_ylim(-0.1, 1.1)
          fig.tight_layout()
          fig.savefig(plotfile)
       return fwhm,tab
