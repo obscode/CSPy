@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 
-from CSPlib import getPS,getSM,getRefcat2
-#from CSPlib.getPS import getStarCat,getFITS
+from CSPlib import getPS,getSM,getRefcat2,getPOSS
+from CSPlib.fchart import Fchart
 from CSPlib.calibration import PSstand2nat,SMstand2nat
+from CSPlib.config import getconfig
 from astropy.io import fits,ascii
 from astropy.table import hstack
 from matplotlib import pyplot as plt
@@ -16,21 +17,15 @@ import sys
 
 rcParams['font.size'] = 18
 
+cfg = getconfig()
+
 # Where to put/look for stuff
-fcharts = '/Users/cburns/CSP/fcharts'
-templates = '/Users/cburns/CSP/templates'
+fcharts = cfg.data.fcharts
+templates = cfg.data.templates
 chart_size = 0.35   # degrees
 chart_filter = 'r'
 Nstars = 20
-lockfile = '/tmp/make_finders_lock'
 useRefcat = True
-
-# First, check for lockfile
-#if isfile(lockfile):
-#   print("Lock file exists, exiting")
-#   sys.exit(0)
-#with open(lockfile, 'w') as fout:
-#   fout.write('locked\n')
 
 if len(sys.argv) == 4:
    forceRedo = True
@@ -66,12 +61,18 @@ for sn,ra,dec in l:
          flist = getSM.getFITS(ra, dec, chart_size, 'gri', mosaic=True)
          skymap = True
          if flist is None:
-            print("Error, could not download SM image data "
-             "for {}({:.5f}{:.5f})".format(sn,ra,dec))
-            continue
-         # Skymapper comes back with mosaic FITS (first) and template (second)
-         # We save the templates
-         [flist[i][1].writeto(fnames[i], overwrite=True) for i in range(3)]
+            print("Error, could not download SM image data "\
+                  "for {}({:.5f}{:.5f})".format(sn,ra,dec))
+            fts = getPOSS.getFITS(ra, dec, chart_size)
+            flist = [fts,fts,fts]
+            # Can't do template subtractions, so best is skip
+            with open(join(templates, "{}_tskip".format(sn)), 'w') as fout:
+               fout.write("\n")
+            skymap = False
+         else:
+            # Skymapper comes back with mosaic FITS (first) and template (second)
+            # We save the templates
+            [flist[i][1].writeto(fnames[i], overwrite=True) for i in range(3)]
       else:
          # PS comes with just the mosaic
          [flist[i].writeto(fnames[i], overwrite=True) for i in range(3)]
@@ -139,79 +140,12 @@ for sn,ra,dec in l:
             continue
          idx = np.argmin(dists[gids])
          pids.append(np.arange(len(gids))[gids][idx])
+      offcat = cat[pids]
+   else:
+      offcat = None
 
-   fig = plt.figure(figsize=(9,9))
-   ax = fig.add_subplot(111, projection=wcs)
-   plt.subplots_adjust(left=0.2)
-   #if skymap:
-   norm = simple_norm(fts[0].data, percent=99.9)
-   #else:
-   #   norm=simple_norm(fts[0].data, min_cut=-300, max_cut=1000)
-   ax.imshow(fts[0].data, origin='lower', norm=norm, cmap='gray_r')
-   #ii,jj = wcs.wcs_world2pix(cat['RA'][pids], cat['DEC'][pids], 0)
-   #ax.plot(ii, jj, 'o', mec='blue', mfc='none', ms=20)
-   ax.plot([0.3,0.48],[0.5, 0.5], '-', color='red', alpha=0.5,
-      transform=ax.transAxes)
-   ax.plot([0.52,0.7],[0.5, 0.5], '-', color='red', alpha=0.5,
-      transform=ax.transAxes)
-   ax.plot([0.5,0.5],[0.3, 0.48], '-', color='red', alpha=0.5,
-      transform=ax.transAxes)
-   ax.plot([0.5,0.5],[0.52, 0.7], '-', color='red', alpha=0.5,
-      transform=ax.transAxes)
-   ax.set_xlabel('RA (J2000)')
-   ax.set_ylabel('DEC (J2000)')
-   if cat is not None:
-      for i in pids:
-         dx = np.cos(dec*np.pi/180)*(cat['RA'][i]-ra)*3600
-         dy = (cat['DEC'][i]-dec)*3600
-         mag = cat['rmag'][i]
-         ii,jj = wcs.wcs_world2pix(cat['RA'][i], cat['DEC'][i], 0)
-         ax.plot(ii, jj, symbs.pop(), mec='blue', mfc='none', ms=20,
-               label="({:.1f},{:.1f})".format(dx,dy))
-
-   ins = inset_axes(ax, width="100%", height="100%",
-         bbox_to_anchor=(0.7,0.7, 0.4, 0.4), bbox_transform=ax.transAxes)
-   ax.legend(loc='upper left', fontsize=10, markerscale=0.5)
-   ins.tick_params(left=False, right=False, bottom=False, top=False)
-   ins.axes.get_xaxis().set_visible(False)
-   ins.axes.get_yaxis().set_visible(False)
-   size = max(fts[0].data.shape)
-   sni,snj = wcs.wcs_world2pix(ra,dec,0)
-   x0 = int(sni) - size//8
-   x1 = int(sni) + size//8
-   y0 = int(snj) - size//8
-   y1 = int(snj) + size//8
-   print(x0,x1,y0,y1)
-
-   #subdata = fts[0].data[x0:x1,y0:y1]
-   subdata = fts[0].data[y0:y1,x0:x1]
-   ins.imshow(subdata,origin='lower', norm=norm, cmap='gray_r')
-   ins.plot([0.25,0.45],[0.5, 0.5], '-', color='red', alpha=0.5,
-      transform=ins.transAxes)
-   ins.plot([0.55,0.75],[0.5, 0.5], '-', color='red', alpha=0.5,
-      transform=ins.transAxes)
-   ins.plot([0.5,0.5],[0.25, 0.45], '-', color='red', alpha=0.5,
-      transform=ins.transAxes)
-   ins.plot([0.5,0.5],[0.55, 0.75], '-', color='red', alpha=0.5,
-      transform=ins.transAxes)
-
-   ax.plot([0.95,0.85],[0.05,0.05], '-', color='blue', transform=ax.transAxes)
-   ax.plot([0.95,0.95],[0.05,0.15], '-', color='blue', transform=ax.transAxes)
-   ax.text(0.84, 0.05, 'E', fontsize=16, color='blue', transform=ax.transAxes,
-         ha='right', va='center')
-   ax.text(0.95, 0.17, 'N', fontsize=16, color='blue', transform=ax.transAxes,
-         ha='center', va='bottom')
-
-   ax.set_title(sn, loc='left')
-
-
-   i0,j0 = size*0.05,size*0.05
-   x0,y0 = wcs.wcs_pix2world(i0, j0, 0)
-   i1, j1 = wcs.wcs_world2pix(x0 - 1/60, y0, 0)
-   ax.plot([i0,i1],[j0,j1], '-', color='blue')
-   ax.text((i0+i1)/2, j0-10, "1'", color='blue', ha='center', va='top')
-
-
+   fig = Fchart(fts, percent=99.5, offsetcat=offcat, zoomfac=5, fixnan=True,
+                sn=sn)
    fig.savefig(fchart) 
    plt.close(fig)
    
