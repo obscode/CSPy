@@ -29,5 +29,8 @@ args = parser.parse_args()
 
 bindir = os.path.join(args.dir, 'bin')
 
-do_astrometry(args.files, args.trim, args.replace, args.dir, args.other,
+ret = do_astrometry(args.files, args.trim, args.replace, args.dir, args.other,
       verbose=args.v)
+if ret is None:
+   sys.stderr.write("Failed to solve WCS\n")
+   sys.exit(1)
