@@ -1,18 +1,23 @@
 #!/usr/bin/env python
 
+import argparse
+parser = argparse.ArgumentParser(description='Print out SN coordinates')
+parser.add_argument('SN', help="Name of SN")
+parser.add_argument('-db', help="Name of database to query", default='SBS')
+args = parser.parse_args()
+
 from astropy.coordinates import SkyCoord
 from astropy import units as u
 from CSPlib import database
 import sys
 
-db = database.getConnection(db='SBS')
+db = database.getConnection(db=args.db)
 c = db.cursor()
 
-SN = sys.argv[1]
-N = c.execute("SELECT RA*15,DE,NAME_PSN from SNList where SN=%s", (SN,))
+N = c.execute("SELECT RA*15,DE,NAME_PSN from SNList where SN=%s", (args.SN,))
 
 if N == 0:
-   print("SN {} not found".format(SN))
+   print("SN {} not found".format(args.SN))
    sys.exit(1)
 RA,DEC,Name = c.fetchone()
 
@@ -21,4 +26,4 @@ sg = c.to_string(style='hmsdms')
 rah,deg = sg.split()
 rah = rah.replace('h',':').replace('m',':').replace('s','')
 deg = deg.replace('d',':').replace('m',':').replace('s','')
-print("{:19s} {}   {}    {}".format(SN, rah, deg, Name))
+print("{:19s} {}   {}    {}".format(args.SN, rah, deg, Name))
