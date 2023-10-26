@@ -128,7 +128,15 @@ for ftsfile in args.fits:
       qdump(outfile.replace('.fits','bpm.fits'), (~fts.mask).astype(np.int8), ftsfile)
 
    else:
-      # Just update the header of the original file
-      fits.setval(ftsfile, 'FWHM', value=fwhm)
+      # Just update the header of the original file. Note that fits.setval does
+      # not work with non-standard FITS files
+      try:
+         fits.setval(ftsfile, 'FWHM', value=fwhm)
+      except fits.verify.VerifyError:
+         f = fits.open(ftsfile, "update")
+         f[0].header['FWHM'] = fwhm
+         f.close(output_verify="ignore")
+
+
 
 
