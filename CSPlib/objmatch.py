@@ -287,7 +287,7 @@ def WCStoImage(wcsimage, image, thresh=3, threshw=3, scale='SCALE', tel='SWO',
 
    # get scale from WCS, since we have it
    wcs = WCS(wcsimage[0])
-   wscale = abs(wcs.pixel_scale_matrix[0,0])*3600   # in arc-sex/pixel
+   wscale = abs(wcs.pixel_scale_matrix.max())*3600   # in arc-sex/pixel
 
    s = SexTractor(image, tel=tel, ins=ins)
    s.run(thresh=thresh, deblend_mc=deblend_mc)
