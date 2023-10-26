@@ -32,12 +32,22 @@ def getImages(ra, dec, size=0.125, filt='g', verbose=False):
    '''
    # First, we look to see if we can find images that cover the area
    # entirely and have image_type='main'
-   templ = "http://api.skymapper.nci.org.au/public/siap/dr2/query?"\
+   templ = "https://api.skymapper.nci.org.au/public/siap/dr2/query?"\
            "POS={},{}&SIZE={}&BAND={}&FORMAT=image/fits&VERB=3&"\
            "RESPONSEFORMAT=CSV&INTERSECT={}"
    baseurl = templ.format(ra, dec, size, filt, 'COVERS')
    if verbose: print("About to query: " + baseurl)
-   table = Table.read(baseurl, format='ascii')
+   for i in range(3):
+      try:
+         table = Table.read(baseurl, format='ascii')
+         success = True
+      except:
+         success = False
+      if success: break
+   if not success:
+      return []
+
+
    gids = table['image_type'] == 'main'
    if np.sometrue(gids):
       # Pick out the deepest image
@@ -46,7 +56,18 @@ def getImages(ra, dec, size=0.125, filt='g', verbose=False):
 
    # Next, we look for images that contain the SN position
    baseurl = templ.format(ra, dec, size, filt, 'CENTER')
-   table = Table.read(baseurl, format='ascii')
+   for i in range(3):
+      try:
+         table = Table.read(baseurl, format='ascii')
+         success = True
+      except:
+         success = False
+      if success: break
+
+   if not success:
+      # Not able to contact
+      return []
+      
    gids = table['image_type'] == 'main'
    if np.sometrue(gids):
       return list(table[gids]['get_fits'])
@@ -138,7 +159,7 @@ def getFITS(ra, dec, size, filters, mosaic=False, retain=False, maxtries=3):
 def getStarCat(ra, dec, radius):
    '''Get a list of SM stars plus their photometry.'''
 
-   templ = "http://skymapper.anu.edu.au/sm-cone/public/query?RA={}&DEC={}"\
+   templ = "https://skymapper.anu.edu.au/sm-cone/public/query?RA={}&DEC={}"\
           "&SR={}&VERB=3&RESPONSEFORMAT=CSV"
    url = templ.format(ra, dec, radius)
 
