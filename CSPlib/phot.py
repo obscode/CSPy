@@ -13,7 +13,9 @@ from astropy.wcs import WCS
 from astropy.nddata import NDData
 from astropy.visualization import simple_norm
 
-from photutils.segmentation import make_source_mask
+#from photutils.segmentation import make_source_mask
+from photutils.segmentation import detect_threshold, detect_sources
+from photutils.utils import circular_footprint
 from photutils import SkyCircularAperture, SkyCircularAnnulus
 from photutils import aperture_photometry
 from photutils.centroids import centroid_com,centroid_1dg
@@ -142,6 +144,10 @@ def centroid2D(data, i0, j0, fwhm0, radius, var=None, gain=1, rdnoise=0,
    else:
       subvar = deepcopy(var[jmin:jmax, imin:imax])
    
+   print("var: ", var is not None)
+   if var is not None:
+      print(data.shape, var.shape)
+
    bids = ~(isfinite(subdat) & greater(subvar, 0))
    subdat[bids] = 0
    subvar[bids] = 1
@@ -369,6 +375,8 @@ class BasePhot:
       Args:
          boxsize (int):  Box size used to make BG esimate. The larger, the
                          better the stats, but more coarse the estimate.
+         nsigma (float): detection threshold above noise
+         npixels (int):  Minimum number of connected pixels for a source
 
       Returns:
          None
@@ -376,9 +384,14 @@ class BasePhot:
       Effects:
          self.background set to resulting 2D background instance.
       '''
-      mask = make_source_mask(self.data, nsigma=nsigma, npixels=npixels, 
-                              dilate_size=11, mask=self.mask)
+      
       sigma_clip = SigmaClip(sigma=3.)
+      threshold = detect_threshold(self.data, nsigma=nsigma, 
+                                   sigma_clip=sigma_clip)
+      segimg = detect_sources(self.data, threshold, npixels=npixels)
+      footprint = circular_footprint(radius=10)
+      mask = segimg.make_source_mask(footprint=footprint)
+      mask = mask & self.mask
       bkg_estimator = MedianBackground()
       bkg = Background2D(self.data, (boxsize,boxsize), filter_size=(3,3),
                          sigma_clip=sigma_clip, bkg_estimator=bkg_estimator,
