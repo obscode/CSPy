@@ -612,15 +612,15 @@ class Pipeline:
             fts[0].data = fts[0].data[:,::-1]
             fts[0].header['ROTANG'] = 90
             fts.writeto(fil, overwrite=True)
-         fts.close()
+            if isfile(fil.replace('.fits','_sigma.fits')):
+               # Do the same transformation to the noise map
+               fts = fits.open(fil.replace('.fits','_sigma.fits'))
+               fts[0].data = fts[0].data.T
+               fts[0].data = fts[0].data[:,::-1]
+               fts[0].header['ROTANG'] = 90
+               fts.writeto(fil.replace('.fits','_sigma.fits'), overwrite=True)
 
-         if isfile(fil.replace('.fits','_sigma.fits')):
-            # Do the same transformation to the noise map
-            fts = fits.open(fil.replace('.fits','_sigma.fits'))
-            fts[0].data = fts[0].data.T
-            fts[0].data = fts[0].data[:,::-1]
-            fts[0].header['ROTANG'] = 90
-            fts.writeto(fil.replace('.fits','_sigma.fits'), overwrite=True)
+         fts.close()
 
          if standard:
             wcsimage = join(self.templates, "{}_r.fits".format(
@@ -635,12 +635,12 @@ class Pipeline:
          if os.path.isfile(wcsimage):
             h = fits.getheader(wcsimage)
             if 'TELESCOP' not in h or h['TELESCOP'] != 'SkyMapper':
-               try:
-                  new = WCStoImage(wcsimage, fil, angles=[0],
+               #try:
+               new = WCStoImage(wcsimage, fil, angles=[0],
                         plotfile=fil.replace('.fits','_wcs.png'))
-               except:
-                  # Something went wrong
-                  new = None
+               #except:
+               #   # Something went wrong
+               #   new = None
             else:
                new = None
          else:
