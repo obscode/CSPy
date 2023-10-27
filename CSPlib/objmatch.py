@@ -1,4 +1,8 @@
 '''Given two sets of coordinates, match up sets of objects'''
+import matplotlib
+matplotlib.use('Agg')
+from matplotlib import pyplot as plt
+from astropy.visualization import simple_norm
 from numpy import *
 from .npextras import bwt 
 from .basis import svdfit,abasis
@@ -6,7 +10,6 @@ from .sextractor import SexTractor
 from .phot import recenter
 from astropy.wcs import WCS
 from astropy.io import fits
-import aplpy
 
 def normalcoord(ra, dec, rc, dc):
    '''Given ra,dec in degrees, convert to normal coordinates.
@@ -359,9 +362,15 @@ def WCStoImage(wcsimage, image, thresh=3, threshw=3, scale='SCALE', tel='SWO',
       return None
 
    if plotfile is not None:
-      fig = aplpy.FITSFigure(image)
-      fig.show_grayscale(invert=True)
-      fig.show_markers(x, y, marker='o', s=30)
+      fig = plt.figure(figsize=(9,9))
+      ax = fig.add_subplot(111, projection=nwcs)
+      norm = simple_norm(image[0].data, percent=99)
+      ax.imshow(image[0].data, origin='lower', norm=norm)
+      ii,jj = nwcs.wcs_world2pix(x,y,0)
+      ax.plot(ii, jj, 'o', ms=30, mfc='none', mec='red')
+
+      #fig.show_grayscale(invert=True)
+      #fig.show_markers(x, y, marker='o', s=30)
       fig.savefig(plotfile)
 
    return image
