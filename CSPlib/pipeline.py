@@ -15,7 +15,7 @@ from astropy.stats import sigma_clipped_stats
 from .npextras import between
 import numpy as np
 from .phot import ApPhot, compute_zpt, PSFPhot
-from .colorterms import getOptNaturalMag
+from .calibration import getOptNaturalMag
 from . import ccdred
 from . import headers
 from . import do_astrometry
