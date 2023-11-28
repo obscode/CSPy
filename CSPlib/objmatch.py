@@ -301,11 +301,22 @@ def WCStoImage(wcsimage, image, thresh=3, threshw=3, scale='SCALE', tel='SWO',
    s.cleanup()
    wcat = wcat[argsort(wcat['MAG_APER'])]
 
-   icat = icat[:Nstars] 
-   wcat = wcat[:Nstars]
-
    x1,y1 = wcat['X_IMAGE'],wcat['Y_IMAGE']
    x0,y0 = icat['X_IMAGE'],icat['Y_IMAGE']
+
+   # Get rid of edge cases
+   gids0 = (x0 > 10) & (x0 < image[0].data.shape[1]-10) & (y0 > 10) & \
+           (y0 < image[0].data.shape[0]-10)
+   gids1 = (x1 > 10) & (x1 < wcsimage[0].data.shape[1]-10) & (y1 > 10) & \
+           (y1 < wcsimage[0].data.shape[0]-10)
+
+   #icat = icat[:Nstars] 
+   #wcat = wcat[:Nstars]
+   x0 = x0[gids0][:Nstars]
+   y0 = y0[gids0][:Nstars]
+   x1 = x1[gids1][:Nstars]
+   y1 = y1[gids1][:Nstars]
+
    if verbose:
       savetxt('matches0.txt', [x0,y0])
       savetxt('matches1.txt', [x1,y1])
