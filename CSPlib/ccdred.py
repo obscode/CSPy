@@ -377,3 +377,33 @@ def flatCorrect(image, flat, outfile=None, replace=1.0):
    if outfile is not None:
       newfts.writeto(outfile, overwrite=True)
    return newfts
+
+def stitchSWONC(c1,c2,c3,c4):
+   '''Given the 4 "chips" as FITS files (or FITS instances), create a new FITS
+    image as a mosaic with the corect orientations (RA increases to lower x-pixel,
+    DEC increases to higher y-pixel).
+    
+    Args:
+       c1,c2,c2,c4 (str or fits):  filenames or fits instances to mosaic
+       
+    Returns:
+       fits instance of the mosaic'ed data'''
+
+   if isinstance(c1, str): c1 = fits.open(c1)   
+   if isinstance(c2, str): c1 = fits.open(c2)   
+   if isinstance(c3, str): c1 = fits.open(c3)   
+   if isinstance(c4, str): c1 = fits.open(c4)   
+
+   newarr = np.zeros((4096,4112), dtype=float32)
+
+   newarr[:2048,:2056] = c2[0].data.T[:,:]
+   newarr[:2048,2056:] = c3[0].data.T[:,::-1]
+   newarr[2048:,:2056] = c1[0].data.T[::-1,:]
+   newarr[2048:,2056:] = c4[0].data.T[::-1,::-1]
+
+   h = c1[0].header.copy()
+   if 'OPAMP' in h:  h['OPAMP'] = "1-4"
+   if 'DATASEC' in h:  h['DATASEC'] = "[1:4112,1:4096]"
+   hdu = fits.PrimaryHDU(data=newarr, header=h)
+   newfts = fits.HDUList([hdu])
+   return newfts
