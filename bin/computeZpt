@@ -46,6 +46,8 @@ def getRefcatCatalog(ra, dec, size, filt, tel, ins, mmin=args.mmin,
    natural photometry. '''
 
    cat = getRefcat2.getStarCat(ra, dec, size*0.707)  #0.5*sqrt(2)
+   if cat is None:
+      return None
    sids = np.argsort(cat['rmag'])
    cat = cat[sids]
    cat['RA'].info.format = "%.8f"
