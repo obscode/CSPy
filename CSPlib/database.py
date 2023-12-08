@@ -248,6 +248,32 @@ def getCoordsName(ra, dec, db=default_db, tol=0.125):
    # If More than one, use closest (first)
    return l[0]
 
+def getLSMags(SN, filt, db=default_db):
+   '''Retrieve the magnitudes of the local sequence stars.
+   
+   Args:
+      SN(str):  Name of the SN
+      filt(str):  Name of the filter
+      db(sr):   Database to query
+   
+   Returns:
+      tab(astropy.table):  Table of object ID, mag, and emag'''
+
+   try:
+      db = getConnection(db)
+   except:
+      return -2
+   c = db.cursor()
+   res = c.execute("SELECT obj,mag,err,ncal,mag2,err2 FROM MAGLSEQ "\
+                   "where field=%s and filt=%s", (SN,filt))
+   if res < 1:
+      return -1
+   rows = c.fetchall()
+   tab = Table(rows=rows, names=['objID','mag','err','ncal','mag2','err2'])
+   return(tab)
+
+
+
 def getLSCoords(SN, db=default_db):
    '''Retrieve the coordinates of the local sequence stars.
    
