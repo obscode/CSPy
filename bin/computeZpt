@@ -10,6 +10,12 @@ parser.add_argument('-mmax', help='Maximum magnitude to use', type=float)
 parser.add_argument('-mmin', help='Minimum magnitude to use', type=float)
 parser.add_argument('-Nmax', help='Maximum number of stars to use', 
       default=None, type=int)
+parser.add_argument('-ls', help='Use local sequence for Zpt', action='store_true')
+parser.add_argument('-db', help="If using local sequence, which database to use",
+                    default='POISE')
+parser.add_argument('-PS', help="If using local sequence, use transformed refcat",
+                    action="store_true")
+parser.add_argument('-f', help="Assume filter f. Otherwise use headers")
 args = parser.parse_args()
 
 from CSPlib.config import getconfig
@@ -17,6 +23,7 @@ from CSPlib.phot import ApPhot, compute_zpt
 from CSPlib.tel_specs import getTelIns,getTelInfo
 from CSPlib import getRefcat2
 from CSPlib.calibration import PSstand2nat
+from CSPlib import database
 from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.stats import sigma_clipped_stats
@@ -86,23 +93,56 @@ if __name__ == "__main__":
       data = fts[0].data
       print('Working on photometry for {}'.format(fil))
       # Check to see if we've done the photometry already
-      filt = getTelInfo('filter', hdr, args.tel, args.ins)
+      if args.f is None:
+         filt = getTelInfo('filter', hdr, args.tel, args.ins)
+      else:
+         filt = args.f
       scale = getTelInfo('scale', hdr, args.tel, args.ins)
 
-      ra,dec = getCentralCoords(hdr)
-      if ra is None:
-         print('Error! File {} does not have a valid WCS'.format(fil))
-         continue
+      if args.ls:
+         SN = hdr['OBJECT']
+         tab1 = database.getLSMags(SN, filt, db=args.db)
+         tab2 = database.getLSCoords(hdr['OBJECT'], db=args.db)
+         cat = join(tab1, tab2, keys='objID')
+         tab3 = database.getLSMags(SN, 'g', db=args.db)
+         tab4 = database.getLSMags(SN, 'r', db=args.db)
+         ctab = join(tab3,tab4, keys='objID')
+         if args.PS:
+            cat.rename_column('mag2', filt)
+            cat.rename_column('err2', 'e'+filt)
+            ctab['g-r'] = ctab['mag2_1'] - ctab['mag2_2']
+         else:
+            cat.rename_column('mag', filt)
+            cat.rename_column('err', 'e'+filt)
+            ctab['g-r'] = ctab['mag_1'] - ctab['mag_2']
+         cat = join(cat, ctab['objID','g-r'], keys='objID')
+         
+         gids = np.ones((len(cat),), dtype=bool)
+         if args.mmax:
+            gids = gids & np.less(cat[filt], args.mmax)
+         if args.mmin:
+            gids = gids & np.greater(cat[filt], args.mmin)
+         cat = cat[gids]
+         if args.Nmax:
+            sids = np.argsort(cat[filt])
+            cat = cat[sids][:Nmax]
 
-      size = max(data.shape)*scale/3600    # in degrees
-
-      cat = getRefcatCatalog(ra, dec, size, filt, args.tel, args.ins, mmin=15, 
-            mmax=20)
-      if cat is None:
-         print("Error:  could not get catalog for {}".format(fil))
-         continue
+      else:
+         ra,dec = getCentralCoords(hdr)
+         if ra is None:
+            print('Error! File {} does not have a valid WCS'.format(fil))
+            continue
+    
+         size = max(data.shape)*scale/3600    # in degrees
+    
+         cat = getRefcatCatalog(ra, dec, size, filt, args.tel, args.ins, mmin=15, 
+               mmax=20)
+         if cat is None:
+            print("Error:  could not get catalog for {}".format(fil))
+            continue
+         cat['g-r'] = cat['g']-cat['r']
       cat.write(fil.replace(".fits", ".cat"), format='ascii.fixed_width',
-         delimiter=' ', fill_values=[(ascii.masked, '...')])
+            delimiter=' ', fill_values=[(ascii.masked, '...')], overwrite=True)
 
       ap = ApPhot(fil, args.tel, args.ins)
       ap.loadObjCatalog(table=cat, racol='RA', deccol='DEC', 
@@ -113,7 +153,7 @@ if __name__ == "__main__":
          print("Aperture photometry for {} failed.".format(fil))
          continue
       phot.rename_column('OBJ','objID')
-      phot = join(phot, cat['objID',filt,'e'+filt], keys='objID')
+      phot = join(phot, cat['objID',filt,'e'+filt,'g-r'], keys='objID')
       phot.rename_column(filt,filt+'mag')
       phot.rename_column('e'+filt, filt+'err')
 
@@ -124,7 +164,7 @@ if __name__ == "__main__":
 
       # Just the good stuff
       gids = (~np.isnan(phot['ap2er']))*(~np.isnan(phot['ap2']))
-      if not np.sometrue(gids):
+      if not np.any(gids):
          print("Photomery failed for {}, skipping...".format(
             fil))
          continue
@@ -133,7 +173,7 @@ if __name__ == "__main__":
       phot['exptime'] = getTelInfo('exptime', hdr, args.tel, args.ins)
       
       phot.write(fil.replace('.fits','.phot'), format='ascii.fixed_width',
-            delimiter=' ', fill_values=[(ascii.masked, '...')])
+            delimiter=' ', fill_values=[(ascii.masked, '...')], overwrite=True)
 
       if hasattr(phot[filt+'mag'], 'mask'): 
          phot = phot[~phot[filt+'mag'].mask]
@@ -143,7 +183,7 @@ if __name__ == "__main__":
       # throw out 5-sigma outliers with respect to MAD
       mad = 1.5*np.median(np.absolute(diffs - md))
       gids = np.less(np.absolute(diffs - md), 5*mad)
-      if not np.sometrue(gids):
+      if not np.any(gids):
          print("Determining zero-point for frame {} failed, "\
                "skipping...".format(fil))
          continue
@@ -166,7 +206,8 @@ if __name__ == "__main__":
       hdr['EZP'] = ezp
 
       # make some diagnostic plots of aperture correction and zp determ.
-      fig,axes = plt.subplots(2,1, figsize=(6,6))
+      fig,axes = plt.subplots(2,2, figsize=(10,6))
+      axes = axes.ravel()
       diffs = phot[filt+'mag']- phot['ap2']
       x = phot[filt+'mag']
       y = diffs + 30
@@ -175,6 +216,7 @@ if __name__ == "__main__":
       axes[0].plot(x[~gids],y[~gids], 'o', mfc='red', label='rejected',
             zorder=10)
       axes[0].axhline(zp, color='k')
+      axes[1].axhline(0, color='k', zorder=100)
       axes[0].set_xlim(12,20)
       axes[0].set_ylim(zp-1,zp+1)
       axes[0].legend()
@@ -204,6 +246,22 @@ if __name__ == "__main__":
       axes[1].set_xlabel('apsize (arc-sec) + random')
       axes[1].set_ylabel('mag(7") - mag(ap)')
       axes[1].set_ylim(-1,1)
+
+      axes[2].errorbar(phot['g-r'], y, fmt='o', 
+                       yerr=np.sqrt(phot[filt+'err']**2 + phot['ap2er']**2))
+      axes[2].axhline(zp, color='k', zorder=100)
+      axes[2].set_xlabel('g-r (mag)')
+      axes[2].set_ylabel('m(std) - m(ins)')
+      axes[2].set_ylim(zp-1,zp+1)
+      
+      coefs =np.polyfit(phot['g-r'], y, deg=1, 
+                        w=np.power(phot[filt+'err']**2 + phot['ap2er']**2,-1)) 
+      print("Color-term: {}".format(coefs[0]))
+      resids = y - coefs[0]*phot['g-r'] - coefs[1]
+      print("RMS: {}".format(np.sqrt(np.mean(np.power(resids,2)))))
+      xx = np.linspace(min(phot['g-r']),max(phot['g-r']),2)
+      axes[2].plot(xx, coefs[0]*xx + coefs[1])
+
       fts[0].writeto(fil, overwrite=True)
       fig.savefig(fil.replace('.fits','_zp.jpg'))
       fts.writeto(fil, overwrite=True)
