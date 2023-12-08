@@ -19,11 +19,12 @@ from photutils.utils import circular_footprint
 from photutils import SkyCircularAperture, SkyCircularAnnulus
 from photutils import aperture_photometry
 from photutils.centroids import centroid_com,centroid_1dg
-from photutils.psf import BasicPSFPhotometry, IntegratedGaussianPRF, DAOGroup
+from photutils.psf import PSFPhotometry, IntegratedGaussianPRF, SourceGrouper
+#from photutils.psf import BasicPSFPhotometry, IntegratedGaussianPRF, DAOGroup
 #from photutils.psf import EPSFBuilder, extract_stars
 from .myepsfbuilder import FlowsEPSFBuilder as EPSFBuilder
 from photutils.psf import extract_stars
-from photutils.background import MMMBackground, MedianBackground,Background2D
+from photutils.background import MMMBackground, MedianBackground,Background2D,LocalBackground
 from astropy.modeling.fitting import LevMarLSQFitter
 from astropy.modeling import models
 from scipy.optimize import least_squares
@@ -103,6 +104,20 @@ def objfunc(p, mod, x, y, z, w):
    res = (z - mod.evaluate(x, y, p[0], p[1], p[2], p[3], p[3], 0))*w
    return res.ravel()
 
+def readMag(magfile):
+   '''Read the .mag file format produced by MAGINS'''
+   tab = ascii.read(magfile, names=['night','fits','tel','ins','filter', 
+            'airmass','expt','ncombine','date','SN','OBJ','ra','dec','xc','yc',
+            'mag1','merr1','mag2','merr2','mag3','merr3','mag4','merr4',
+            'flux','msky','mskyer' ,'shart','chi','g1','g2','perr'])
+
+   tab['msky'].info.format = "%.3f"
+   tab['mskyer'].info.format = "%.3f"
+   tab['date'].info.format = "%.2f"
+   tab['airmass'].info.format = "%.3f"
+
+   return tab
+
 def centroid2D(data, i0, j0, fwhm0, radius, var=None, gain=1, rdnoise=0,
                      bg=0, mask=None, axis=None, profile='Gauss'):
    '''Using a 1D Gausssian, fit the centroid and FWHM of a stellar object.
@@ -144,9 +159,9 @@ def centroid2D(data, i0, j0, fwhm0, radius, var=None, gain=1, rdnoise=0,
    else:
       subvar = deepcopy(var[jmin:jmax, imin:imax])
    
-   print("var: ", var is not None)
-   if var is not None:
-      print(data.shape, var.shape)
+   #print("var: ", var is not None)
+   #if var is not None:
+   #   print(data.shape, var.shape)
 
    bids = ~(isfinite(subdat) & greater(subvar, 0))
    subdat[bids] = 0
@@ -204,7 +219,7 @@ def centroid2D(data, i0, j0, fwhm0, radius, var=None, gain=1, rdnoise=0,
    if mask is not None:
       rads = sqrt((xx - xm)**2 + (yy - ym)**2)
       gids = less(rads, 2*fwhm*FtoS).ravel()
-      if sometrue(submask.ravel()[gids]):
+      if any(submask.ravel()[gids]):
          return(False, imin+xm, jmin+ym, fwhm, rchisq, peakSNR)
 
    if axis is not None:
@@ -606,15 +621,7 @@ class PSFPhot(BasePhot):
          com = "{} {} {} {} {}".format(magins, self.ftsfile, catfile, stdcat, 
                magfile)
          os.system(com)
-         tab = ascii.read(magfile, names=['night','fits','tel','ins','filter', 
-            'airmass','expt','ncombine','date','SN','OBJ','ra','dec','xc','yc',
-            'mag1','merr1','mag2','merr2','mag3','merr3','mag4','merr4',
-            'flux','msky','mskyer' ,'shart','chi','g1','g2','perr'])
-
-      tab['msky'].info.format = "%.3f"
-      tab['mskyer'].info.format = "%.3f"
-      tab['date'].info.format = "%.2f"
-      tab['airmass'].info.format = "%.3f"
+         tab = readMag(magfile)
 
       # Do some flags
       flags = zeros(len(tab), dtype=int)
@@ -623,7 +630,7 @@ class PSFPhot(BasePhot):
       flags = where(tab['yc'] < 5, flags|1, flags)
       flags = where(tab['yc'] > self.data.shape[0]-5,flags|1,flags)
       flags = where(tab['perr'] != "No_error",flags|2,flags)
-
+  
       tab['flags'] = flags
       self.phot = tab
 
@@ -662,9 +669,9 @@ class PSFPhot2(BasePhot):
       stars = extract_stars(nddata, tab, size=psize)
 
       # check to see if "saturated" (non-linear) pixels in cutouts
-      bids = array([sometrue(s.data + md > self.datamax) for s in stars])
+      bids = array([any(s.data + md > self.datamax) for s in stars])
       self.saturated = bids
-      if sometrue(bids):
+      if any(bids):
          tab = tab[~bids]
       stars = extract_stars(nddata, tab, size=psize)
 
@@ -675,7 +682,7 @@ class PSFPhot2(BasePhot):
       epsf,fstars = eps_builder(stars)
       return epsf
 
-   def doPhotometry(self, psfModel=None):
+   def doPhotometry(self, psfModel=None, init_params=None):
       '''Do the PSF photometry using the astropy photutils package.
 
       Args:
@@ -705,23 +712,23 @@ class PSFPhot2(BasePhot):
          raise RuntimeError("No RA/DEC loaded, run loadObjCatalog first")
 
       # Instantiate the stuff we need
-      mmm_bkg = MMMBackground()
+      mmm_bkg = LocalBackground(9/self.scale, 11/self.scale)
       finder = FixedStarFinder(self.wcs, RAs=self.RAs, DECs=self.DEs, ids=self.objs)
-      group = DAOGroup(10/self.scale)   # 10 arc-sec
+      group = SourceGrouper(min_separation=10/self.scale)   # 10 arc-sec
       fitter = LevMarLSQFitter()
       if psfModel is None:
          psfModel = IntegratedGaussianPRF(sigma=1.0/self.scale)
 
       # Fit Size of the image:  10x10 arcsec
-      pix = int(10.0/self.scale) 
+      pix = int(20.0/self.scale) 
       if pix % 2 == 0:  pix +=1
       fitshape = (pix,pix)
 
-      psf = BasicPSFPhotometry(group_maker=group, bkg_estimator=mmm_bkg,
-            psf_model=psfModel, fitshape=fitshape, finder=finder,
-            fitter=fitter)
-      self.tab = psf(self.data)
-      self.resids = psf.get_residual_image()
+      self.psf = PSFPhotometry(psfModel, fitshape, grouper=group, 
+            localbkg_estimator=mmm_bkg, finder=finder, fitter=fitter,
+            aperture_radius=5./self.scale)
+      self.tab = self.psf(self.data, init_params=init_params)
+      self.resids = self.psf.make_residual_image(self.data, fitshape)
 
 
 class ApPhot(BasePhot):
@@ -921,9 +928,9 @@ class ApPhot(BasePhot):
       # Check if masked pixels occurred in the apertures
       ap_masks = [ap.to_mask() for ap in self.apps[0:-1]]
       # indexed by [ap,obj]
-      maps = [[sometrue(am.multiply(self.mask)) for am in ams] \
+      maps = [[any(am.multiply(self.mask)) for am in ams] \
                for ams in ap_masks]
-      flags = where(sometrue(maps, axis=0), flags | 8, flags)
+      flags = where(any(maps, axis=0), flags | 8, flags)
       phot_table['flags'] = flags
       self.phot = phot_table
 
@@ -1061,7 +1068,7 @@ def compute_zpt(phot, std_key, stderr_key, inst_key='ap2', ierr_key='ap2er',
    flags[greater(phot[stderr_key],emagmax)+greater(phot[ierr_key],emagmax)] += 8
    flags[~between(phot[std_key], magmin, magmax)] += 2
    gids[omit] = False   # get rid of objects found above
-   if not sometrue(gids):
+   if not any(gids):
       mesg = "Not enough good photometric points to solve for zp"
       return None,None,None,mesg
    diffs = phot[std_key]- phot[inst_key]
@@ -1071,7 +1078,7 @@ def compute_zpt(phot, std_key, stderr_key, inst_key='ap2', ierr_key='ap2er',
    mad = 1.5*median(absolute(diffs - md))
    gids = gids*less(absolute(diffs - md), 5*mad)
    flags[~less(absolute(diffs - md), 5*mad)] += 4
-   if not sometrue(gids):
+   if not any(gids):
       mesg = "Too many outliers in the photometry, can't solve for zp"
       return None,None,None,mesg
 
