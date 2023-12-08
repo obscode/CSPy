@@ -1,0 +1,191 @@
+#!/usr/bin/env python
+
+import argparse
+parser = argparse.ArgumentParser(description="Compute SN mag from a single"\
+                                 " mag file using database LS photometry.")
+parser.add_argument('mag', help='.mag file to compute SN photometry from')
+parser.add_argument('-tel', help='Telescope code, default: SWO', default='SWO')
+parser.add_argument('-ins', help='Instrument code, default: NC', default='NC')
+parser.add_argument('-mmax', help='Maximum magnitude to use', type=float)
+parser.add_argument('-mmin', help='Minimum magnitude to use', type=float)
+parser.add_argument('-Nmax', help='Maximum number of stars to use', 
+      default=None, type=int)
+parser.add_argument('-db', help="If using local sequence, which database to use",
+                    default='POISE')
+parser.add_argument('-PS', help="If using local sequence, use transformed refcat",
+                    action="store_true")
+parser.add_argument('-f', help="Assume filter f. Otherwise use headers")
+args = parser.parse_args()
+
+from CSPlib import getRefcat2
+from CSPlib.calibration import PSstand2nat
+from CSPlib import database
+from astropy.io import fits
+from astropy.wcs import WCS
+from astropy.stats import sigma_clipped_stats
+from astropy.table import hstack, join
+from astropy.io import ascii
+import numpy as np
+from matplotlib import pyplot as plt
+from CSPlib.phot import readMag
+from CSPlib.tel_specs import getTelInfo
+
+
+def getRefcatCatalog(ra, dec, size, filt, tel, ins, mmin=args.mmin, 
+      mmax=args.mmax, Nmax=args.Nmax):
+   '''Construct a catalog of Refcat2 sources in the field and convert to
+   natural photometry. '''
+
+   cat = getRefcat2.getStarCat(ra, dec, size*0.707)  #0.5*sqrt(2)
+   sids = np.argsort(cat['rmag'])
+   cat = cat[sids]
+   cat['RA'].info.format = "%.8f"
+   cat['DEC'].info.format = "%.8f"
+
+   # Now make natural system catalog
+   nats = PSstand2nat(cat['gmag'],cat['rmag'],cat['imag'], cat['gerr'],
+            cat['rerr'], cat['ierr'])
+   if filt not in nats.colnames:
+      return None
+   newtab = hstack([cat,nats])
+   newtab.remove_columns(['gmag','gerr','rmag','rerr','imag','ierr'])
+
+   # get rid of masked data
+   gids = getattr(newtab[filt], 'mask', np.zeros(len(newtab), dtype=bool))
+   cat = newtab[~gids]
+   if mmax is not None:
+      cat = cat[np.array(cat[filt] < mmax)]
+   if mmin is not None:
+      cat = cat[np.array(cat[filt] > mmin)]
+   if Nmax is not None:
+      cat = cat[:Nmax]
+   cat = cat['RA','DEC',filt,'e'+filt]
+   cat['objID'] = np.arange(1, len(cat)+1)
+   return cat
+
+
+if __name__ == "__main__":
+   '''Using the PSF photometry and local standard field photometry,
+   determine the magnitude of the SN. Assumed to be tempalte-subtracted.
+   '''
+
+   phot = readMag(args.mag)
+   phot.rename_column('OBJ','objID')
+
+   # Check to see if we've done the photometry already
+   if args.f is not None:
+      filt = args.f
+   else:
+      filt = phot[0]['filter']
+   SN = phot[0]['SN']
+   print(SN)
+   print(filt)
+
+   tab1 = database.getLSMags(SN, filt, db=args.db)
+   tab2 = database.getLSCoords(SN, db=args.db)
+   print(tab1)
+   print(tab2)
+   cat = join(tab1, tab2, keys='objID')
+   tab3 = database.getLSMags(SN, 'g', db=args.db)
+   tab4 = database.getLSMags(SN, 'r', db=args.db)
+   ctab = join(tab3,tab4, keys='objID')
+   if args.PS:
+      cat.rename_column('mag2', filt)
+      cat.rename_column('err2', 'e'+filt)
+      ctab['g-r'] = ctab['mag2_1'] - ctab['mag2_2']
+   else:
+      cat.rename_column('mag', filt)
+      cat.rename_column('err', 'e'+filt)
+      ctab['g-r'] = ctab['mag_1'] - ctab['mag_2']
+   cat = join(cat, ctab['objID','g-r'], keys='objID')
+   
+   gids = np.ones((len(cat),), dtype=bool)
+   if args.mmax:
+      gids = gids & np.less(cat[filt], args.mmax)
+   if args.mmin:
+      gids = gids & np.greater(cat[filt], args.mmin)
+   cat = cat[gids]
+   if args.Nmax:
+      sids = np.argsort(cat[filt])
+      cat = cat[sids][:Nmax]
+
+
+   SNidx = list(phot['objID']).index(-1)
+   SNphot = phot[SNidx]
+   phot = join(phot, cat['objID',filt,'e'+filt,'g-r'], keys='objID')
+   phot.rename_column(filt,filt+'mag')
+   phot.rename_column('e'+filt, filt+'err')
+
+   phot[filt+'mag'].info.format='%.4f'
+   phot[filt+'err'].info.format='%.4f'
+
+   # Just the good stuff
+   phot.sort('objID')
+
+   if hasattr(phot[filt+'mag'], 'mask'): 
+      phot = phot[~phot[filt+'mag'].mask]
+   # Differential PSF photometry
+   diffs = SNphot['mag1'] - phot['mag1']
+   vdiffs = SNphot['merr1']**2 + phot['merr1']**2
+   # Now add the standard photometry
+   SNphots = diffs + phot[filt+'mag']
+   vSNphots = vdiffs + phot[filt+'err']**2
+   mn,md,st = sigma_clipped_stats(SNphots, sigma=3)
+
+   # throw out 5-sigma outliers with respect to MAD
+   mad = 1.5*np.median(np.absolute(SNphots - md))
+   gids = np.less(np.absolute(SNphots - md), 5*mad)
+   if not np.any(gids):
+      print("Determining zero-point for frame {} failed, "\
+            "skipping...".format(fil))
+      sys.exit(1)
+
+   # Weight by inverse variance
+   wts = np.power(vSNphots, -1)*gids
+
+   # 30 is used internall in photometry code as arbitrary zero-point
+   magSN = np.sum(SNphots*wts)/np.sum(wts)
+   errSN = np.sqrt(1.0/np.sum(wts))
+
+   print('Determined SN mag to be {:.3f} +/- {:.3f}'.format(magSN,errSN))
+
+   # make some diagnostic plots of aperture correction and zp determ.
+   fig,axes = plt.subplots(2,2, figsize=(10,6))
+   axes = axes.ravel()
+   x = phot[filt+'mag']
+   axes[0].errorbar(x, SNphots, fmt='o', xerr=phot[filt+'err'], 
+         yerr=np.sqrt(vSNphots))
+   axes[0].plot(x[~gids],SNphots[~gids], 'o', mfc='red', label='rejected',
+         zorder=10)
+   axes[0].axhline(magSN, color='k')
+   axes[0].set_xlim(12,20)
+   axes[0].set_ylim(magSN-0.1,magSN+0.1)
+   axes[0].legend()
+   axes[0].set_ylabel('mSN(psf) - m(psf) + m(std)')
+   axes[0].set_xlabel('m(std)')
+
+   x = phot['objID']
+   axes[1].errorbar(x, SNphots, fmt='o', yerr=np.sqrt(vSNphots))
+   axes[1].plot(x[~gids],SNphots[~gids], 'o', mfc='red', label='rejected',
+         zorder=10)
+   axes[1].axhline(magSN, color='k')
+   axes[1].set_ylim(magSN-0.1,magSN+0.1)
+   axes[1].legend()
+   axes[1].set_xlabel('Object ID')
+   axes[0].set_ylabel('mSN(psf) - m(psf) + m(std)')
+
+   axes[2].errorbar(phot['g-r'], SNphots, fmt='o', yerr=np.sqrt(vSNphots))
+   axes[2].axhline(magSN, color='k', zorder=100)
+   axes[2].set_xlabel('g-r (mag)')
+   axes[2].set_ylim(magSN-0.1,magSN+0.1)
+   axes[2].set_ylabel('mSN(psf) - m(psf) + m(std)')
+   
+   coefs =np.polyfit(phot['g-r'], SNphots, deg=1, 
+                     w=np.power(vSNphots,-1)*gids)
+   print("Color-term: {}".format(coefs[0]))
+   resids = SNphots - coefs[0]*phot['g-r'] - coefs[1]
+   print("RMS: {}".format(np.sqrt(np.mean(np.power(resids[gids],2)))))
+   xx = np.linspace(min(phot['g-r']),max(phot['g-r']),2)
+   axes[2].plot(xx, coefs[0]*xx + coefs[1])
+
+   fig.savefig(args.mag.replace('.mag','_SNmag.jpg'))
