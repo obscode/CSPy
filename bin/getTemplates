@@ -136,7 +136,7 @@ for sn,ra,dec in l:
          gids = np.greater_equal(cat['rmag'],magmin)*np.less(cat['rmag'],magmax)
          gids = gids*np.less(dists, chart_size/2.1)*\
                np.greater(dists, chart_size/10)
-         if not np.sometrue(gids):
+         if not np.any(gids):
             continue
          idx = np.argmin(dists[gids])
          pids.append(np.arange(len(gids))[gids][idx])
