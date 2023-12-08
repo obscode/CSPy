@@ -169,7 +169,7 @@ for sn,ra,dec in l:
    symbs = ['s', 'o', 'd', '^', 'v','<','>'][::-1]
    for magmin,magmax in [(11,12),(12,13),(13,14),(14,15),(16,17)]:
       gids = np.greater_equal(cat['rmag'], magmin)*np.less(cat['rmag'],magmax)
-      if not np.sometrue(gids):
+      if not np.any(gids):
          continue
       idx = np.argmin(dists[gids])
       pids.append(np.arange(len(gids))[gids][idx])

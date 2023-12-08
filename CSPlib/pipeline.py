@@ -543,6 +543,8 @@ class Pipeline:
             # check if template exists, or if we have a skip directive
             if isfile(join(self.templates, skipf)):
                self.skipTemplate.append(f)
+            elif not isfile(join(self.templates, tmpname)) and filt =='u':
+               self.skipTemplate.append(f)
             elif not isfile(join(self.templates, tmpname)):
                res = self.Rclone('CSP:Swope/templates/{}'.format(tmpname),
                      self.templates)
@@ -825,7 +827,7 @@ class Pipeline:
 
          # Just the good stuff
          gids = (~np.isnan(phot['ap2er']))*(~np.isnan(phot['ap2']))
-         if not np.sometrue(gids):
+         if not np.any(gids):
             self.log("Initial photomery failed for {}, skipping...".format(
                fil))
             self.ignore.append(fil)
@@ -854,7 +856,7 @@ class Pipeline:
          if hasattr(phot[filt+'mag'], 'mask'): 
             gids = gids*(~phot[filt+'mag'].mask)
          gids = gids*between(phot[filt+'mag'], 15, 20)
-         if not np.sometrue(gids):
+         if not np.any(gids):
             self.log("Determining zero-point for frame {} failed, "\
                   "skipping...".format(fil))
             self.ignore.append(fil)
@@ -866,7 +868,7 @@ class Pipeline:
          # throw out 5-sigma outliers with respect to MAD
          mad = 1.5*np.median(np.absolute(diffs - md))
          gids = np.less(np.absolute(diffs - md), 5*mad)
-         if not np.sometrue(gids):
+         if not np.any(gids):
             self.log("Determining zero-point for frame {} failed, "\
                   "skipping...".format(fil))
             self.ignore.append(fil)

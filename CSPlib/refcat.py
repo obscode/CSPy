@@ -265,7 +265,7 @@ def read_csv(fname, mlim, rlim, rect, p1, t1, p2, t2):
    converters = {}
    # Deal with hex-format for bitmaps
    for f in ['g','r','i','z']:
-      converters[f+'contrib'] = [ascii.convert_numpy(np.str)]
+      converters[f+'contrib'] = [ascii.convert_numpy(str)]
 
    tab = ascii.read(fname, names=[v[0] for v in varnames],
          converters=converters)

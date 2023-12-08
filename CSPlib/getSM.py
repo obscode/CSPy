@@ -49,7 +49,7 @@ def getImages(ra, dec, size=0.125, filt='g', verbose=False):
 
 
    gids = table['image_type'] == 'main'
-   if np.sometrue(gids):
+   if np.any(gids):
       # Pick out the deepest image
       idx = np.argmax(table['zpapprox'])
       return [table[idx]['get_fits']]
@@ -69,7 +69,7 @@ def getImages(ra, dec, size=0.125, filt='g', verbose=False):
       return []
       
    gids = table['image_type'] == 'main'
-   if np.sometrue(gids):
+   if np.any(gids):
       return list(table[gids]['get_fits'])
 
    # Ugh, gotta settle for shorts I guess

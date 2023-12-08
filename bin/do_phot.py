@@ -77,7 +77,7 @@ if __name__ == "__main__":
       for i in range(0,Naps):
          gids = gids*~np.isnan(phot['ap{}'.format(i)])
          gids = gids*~np.isnan(phot['ap{}er'.format(i)])
-      if not np.sometrue(gids):
+      if not np.any(gids):
          print('All the apertures for {} had problems, skipping...'.format(
             imgfile))
          continue

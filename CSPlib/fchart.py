@@ -46,7 +46,7 @@ def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
    plt.subplots_adjust(left=0.2)
    norm = simple_norm(fts[0].data, percent=percent, 
          max_percent=maxpercent, min_percent=minpercent)
-   if fixnan and np.sometrue(np.isnan(fts[0].data)):
+   if fixnan and np.any(np.isnan(fts[0].data)):
       gids = ~np.isnan(fts[0].data.ravel())
       maxdata = (fts[0].data.ravel()[gids]).max()
       fdata = np.where(np.isnan(fts[0].data), maxdata, fts[0].data)

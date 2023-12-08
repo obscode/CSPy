@@ -802,7 +802,7 @@ class OptExtrPhot:
       # First we find the mean sky.
       clip_array = self.data[iyslo:iyshi,ixslo:ixshi]
 
-      if np.sometrue(clip_array.ravel() > self.datamax):
+      if np.any(clip_array.ravel() > self.datamax):
          cflag = 'M'
 
       clip_flg = self.pix_flg[iyslo:iyshi,ixslo:ixshi]
@@ -1000,7 +1000,7 @@ class OptExtrPhot:
 
       # Check to see if pixels exceed datamax
       bids = (dist < cliprad+0.5)*(subdata > self.datamax)
-      if np.sometrue(bids):
+      if np.any(bids):
          cflag = 'M'
    
       return(sum_flux, error, cflag)

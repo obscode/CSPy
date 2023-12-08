@@ -212,7 +212,7 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
       mask = greater(resids, -sigma*lsigma)*less(resids,sigma*hsigma)
       keep = sum(mask, axis=0)
       if verbose: print("Using sigclip rejected {} pixels".format(sum(~mask)))
-      while sometrue(greater(keep, 3)):
+      while any(greater(keep, 3)):
          center = computeCenter(cube, axis=0, mclip=mclip, exclude_ends=False,
                mask=mask)
          resids = cube-center[newaxis,:,:]
@@ -240,7 +240,7 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
       mask = greater(resids, -sigma*lsigma)*less(resids,sigma*hsigma)
       if verbose: print("Using avsigclip rejected {} pixels".format(sum(~mask)))
       keep = sum(mask, axis=0)
-      while sometrue(greater(keep, 3)):
+      while any(greater(keep, 3)):
          center = computeCenter(cube, axis=0, mclip=mclip, exclude_ends=False,
                mask=mask)
          resids = cube-center[newaxis,:,:]
@@ -255,7 +255,7 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
          reject))
    if reject in ['sigclip','avsigclip']:
       keep = sum(mask, axis=0)
-      if sometrue(keep < nkeep):
+      if any(keep < nkeep):
          resids = absolute(resids)
          sids = argsort(resids, axis=0)
          # number that need to be added
