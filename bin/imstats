@@ -1,0 +1,38 @@
+#!/usr/bin/env python
+
+from argparse import ArgumentParser
+import os,sys
+from astropy.io import fits
+import numpy as np
+import re
+
+pat = re.compile(r'\[(\d+)\:(\d+),(\d+)\:(\d+)\]')
+
+parser = ArgumentParser(description="Compute image statistics")
+parser.add_argument('files', help='List of FITS files to examine', nargs='*')
+parser.add_argument('-hdu', help='specify header data unit (default=0)',
+      type=int, default=0)
+parser.add_argument('-buff', help='omit this many pixels on borders',
+      type=int, default=10)
+
+args = parser.parse_args()
+
+
+for fil in args.files:
+   try:
+      fts = fits.open(fil)
+   except:
+      print("Error, {} not a valid FITS file, skipping".format(fil))
+      continue
+   if 'DATASEC' in fts[args.hdu].header:
+      res = pat.search(fts[args.hdu].header['DATASEC'])
+      if res:
+         j0,j1,i0,i1 = list(map(int,res.groups()))
+         j0 -= 1; i0 -=1
+      else:
+         j0,j1,i0,i1 = [0,fts[args.hdu].data.shape[1],
+                        0,fts[args.hdu].data.shape[0]]
+
+   d = fts[0].data[j0+args.buff:j1-args.buff,i0+args.buff:i1-args.buff]
+   print("{}:  {.1f}/{.1f}/{.1f}".format(d.min(),np.median(d), np.max(d)))
+
