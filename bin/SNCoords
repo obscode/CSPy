@@ -1,0 +1,43 @@
+#!/usr/bin/env python
+
+import argparse
+
+parser = argparse.ArgumentParser(description=\
+      "Download supernova coordinates from DB, in the format required for"\
+      " photometry.")
+parser.add_argument('mode', help="Kind of photometry:  opt, nir or all")
+parser.add_argument('SNname', help="Name of the SN in the DB")
+parser.add_argument('-db', help="Which database to query:  SBS (default) "\
+                                "or LCO", default='SBS')
+args = parser.parse_args()
+
+from CSPlib import database
+import sys
+import os
+
+if args.mode not in ['opt','nir','all']:
+   print("Error:  mode must be one of 'opt','nir', or 'all'")
+   sys.exit(1)
+
+if args.mode == 'opt':
+   query = "SELECT SN,OBJ,RA*15,DE FROM Coords WHERE OBJ < 100 AND SN=%s ORDER"\
+         " BY OBJ"
+elif args.mode == 'nir':
+   query = "SELECT SN,OBJ,RA*15,DE FROM Coords WHERE (OBJ < 100 or OBJ = 0) "\
+         "AND SN=%s ORDER BY OBJ"
+else:
+   query = "SELECT SN,OBJ,RA*15,DE FROM Coords WHERE SN=%s ORDER by OBJ"
+
+d = database.getConnection(db=args.db)
+c = d.cursor()
+
+n = c.execute(query, (args.SNname,))
+if n == 0:
+   print("Error:  {} not found in the database.".format(args.SNname))
+   sys.exit(1)
+
+data = c.fetchall()
+for item in data:
+   print("{:s}   {:d} {:15.6f} {:15.6f}".format(*item))
+
+d.close()
