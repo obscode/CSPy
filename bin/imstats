@@ -34,5 +34,7 @@ for fil in args.files:
                         0,fts[args.hdu].data.shape[0]]
 
    d = fts[0].data[j0+args.buff:j1-args.buff,i0+args.buff:i1-args.buff]
-   print("{}:  {.1f}/{.1f}/{.1f}".format(d.min(),np.median(d), np.max(d)))
+   print("{}:  {:.1f} / {:.1f} / {:.1f} {:.1f}%".format(
+      fil,d.min(),np.median(d), np.max(d), 
+      np.sum(np.greater(d, 50000))/(d.shape[0]*d.shape[1])*100))
 

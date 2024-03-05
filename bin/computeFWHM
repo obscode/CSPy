@@ -80,6 +80,10 @@ for ftsfile in args.fits:
       profile = 'Gauss'
    # Compute the FWHM
    fwhm,tab = fts.fitFWHM(plotfile=ftsfile.replace('.fits','_fwhm.pdf'), profile=profile)
+   if fwhm < 0:
+      # failure
+      print("Error:  FWHM for {} failed".format(ftsfile))
+      continue
 
    # Now create a new FITS file with multiple extensions for all the nice
    # stuff we've computed
@@ -113,7 +117,8 @@ for ftsfile in args.fits:
          outfile = ftsfile
       else:
          outfile = args.out
-      hdu1 = fits.PrimaryHDU(fts.data-fts.background.background, header=fts.head)
+      newdata = fts.data-fts.background.background 
+      hdu1 = fits.PrimaryHDU(newdata.astype(np.float32), header=fts.head)
       hdu1.header['FWHM'] = np.round(fwhm,3)
       hdu1.header['MEANSKY'] = np.round(fts.background.background_median,3)
       if 'IMMATBG' in hdu1.header:  del hdu1.header['IMMATBG']
@@ -131,7 +136,7 @@ for ftsfile in args.fits:
       # Just update the header of the original file. Note that fits.setval does
       # not work with non-standard FITS files
       try:
-         fits.setval(ftsfile, 'FWHM', value=fwhm)
+         fits.setval(ftsfile, 'FWHM', value=np.round(fwhm,3))
       except fits.verify.VerifyError:
          f = fits.open(ftsfile, "update")
          f[0].header['FWHM'] = fwhm
