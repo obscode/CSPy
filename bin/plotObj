@@ -132,7 +132,8 @@ query1 = '''SELECT MAGLSEQ.{0}-MAGINS.psf,
                and MAGINS.field=%s and MAGLSEQ.field=MAGINS.field and
                MAGLSEQ.obj=MAGINS.obj and
                MAGINS.qual<2 and MAGINS.psfer!=0 and MAGINS.psfer<0.2
-               and MAGLSEQ.obj>0 and MAGLSEQ.rxi<20 and MAGLSEQ.ncal>{2}'''
+               and MAGLSEQ.obj>0 and MAGLSEQ.rxi<20 and MAGLSEQ.ncal>{2}
+               and MAGLSEQ.good > 0'''
 
 # SN differential photometry
 query2 = '''SELECT t2.obj, t1.psf-t2.psf+t3.{0}, 
@@ -143,7 +144,7 @@ query2 = '''SELECT t2.obj, t1.psf-t2.psf+t3.{0},
                   and t1.filt=t2.filt and t3.filt=t1.filt and t1.obj = -1 and
                   t2.obj > 0 and t1.qual < 2 and t2.qual < 2 and t2.psfer != 0
                   and t2.psfer < 0.2 and t3.rxi < 20 and t3.ncal > {2} 
-                  and t1.fits=%s'''
+                  and t3.good > 0 and t1.fits=%s'''
 
 # LS colors
 query3 = '''SELECT t1.obj, t1.mag2-t2.mag2, 

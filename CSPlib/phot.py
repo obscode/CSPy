@@ -164,6 +164,9 @@ def centroid2D(data, i0, j0, fwhm0, radius, var=None, gain=1, rdnoise=0,
    #   print(data.shape, var.shape)
 
    bids = ~(isfinite(subdat) & greater(subvar, 0))
+   if not any(~bids):
+      # No good pixels??  bail!
+      return False,i0,j0,fwhm0,-1,-1
    subdat[bids] = 0
    subvar[bids] = 1
    norm = subdat[~bids].max()
@@ -225,7 +228,7 @@ def centroid2D(data, i0, j0, fwhm0, radius, var=None, gain=1, rdnoise=0,
    if axis is not None:
       #rads = sqrt((xx - res.x[1])**2 + (yy - res.x[2])**2)
       rads = sqrt((xx - xm)**2 + (yy - ym)**2)
-      axis.plot(rads.ravel(), subdat.ravel(), '.', color='k', alpha=0.5)
+      axis.plot(rads.ravel(), subdat.ravel()/fit.amplitude, '.', color='k', alpha=0.5)
       sids = argsort(rads.ravel())
       axis.plot(rads.ravel()[sids], model.ravel()[sids], '-', color='red', 
                 alpha=0.5, zorder=1000)

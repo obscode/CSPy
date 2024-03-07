@@ -1,15 +1,20 @@
 #!/usr/bin/env python
 
+import argparse
+parser = argparse.ArgumentParser(description="Convert standard mag catalog to natural")
+parser.add_argument('cat', help="Catalog of standard (refcat2) magnitudes", nargs="+")
+parser.add_argument('-SM', help="Use SkyMapper transform instead of PanSTARRs",
+                    action='store_true')
+args = parser.parse_args()
+
 from astropy.io import ascii,fits
 from astropy.table import hstack
 import sys
 from CSPlib.calibration import PSstand2nat,SMstand2nat
 
-for fil in sys.argv[1:]:
+for fil in args.cat:
    tab = ascii.read(fil)
-   ftsfile = fil.replace('.cat','_g.fits')
-   fts = fits.open(ftsfile)
-   if 'TELESCOP' in fts[0].header and fts[0].header['TELESCOP'] == 'SkyMapper':
+   if args.SM:
       nats = SMstand2nat(tab['gmag'],tab['rmag'],tab['imag'], tab['gerr'],
             tab['rerr'], tab['ierr'])
    else:

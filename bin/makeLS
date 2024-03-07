@@ -1,14 +1,5 @@
 #!/usr/bin/env python
-
-from astropy.io import fits,ascii
-from matplotlib import pyplot as plt
-from matplotlib.patches import Circle,Rectangle
-from astropy.wcs import WCS
-from astropy.visualization import simple_norm
-from CSPlib import fchart
-import numpy as np
 import argparse
-
 
 def keyvent(event):
    global cut
@@ -23,8 +14,8 @@ def keyvent(event):
 
 parser = argparse.ArgumentParser(description="Given an inital catalog, this"\
       " script helps you interactively select good LS stars")
-parser.add_argument('FITS', help='FITS file to get images from')
-parser.add_argument('cat', help='Initial catalog file')
+parser.add_argument('FITS', help='FITS files to get images from', nargs="+")
+parser.add_argument('-cat', help='Initial catalog file')
 parser.add_argument('-cutout', help="cutout size in pixels", type=int,
       default=50)
 parser.add_argument('-output', help='Final output LS catalog',
@@ -38,56 +29,98 @@ parser.add_argument('-n', help='number of rows/columns to show', default=10,
 parser.add_argument('-scale', help='Image scale arc-sec/pix', default=0.435)
 parser.add_argument('-aps', help='list of aperture radii in arc-sec',
       default=[], nargs='*')
+parser.add_argument('-db', help='Database to query if we need coordinates',
+                    default='POISE')
+
 args = parser.parse_args()
 
-fts = fits.open(args.FITS)
-obj = fts[0].header['OBJECT']
-wcs = WCS(fts[0])
-naxis2,naxis1 = fts[0].data.shape
+from astropy.io import fits,ascii
+from matplotlib import pyplot as plt
+from matplotlib.patches import Circle,Rectangle
+from astropy.wcs import WCS
+from astropy.visualization import simple_norm
+from CSPlib import fchart, database
+from CSPlib.getRefcat2 import getStarCat
+import numpy as np
+import sys
+
 cut = args.cutout
-cat = ascii.read(args.cat)
+
+if args.cat is None:
+   # Query the refcat2 catalog
+   fts = fits.open(args.FITS[0])
+   obj = fts[0].header['OBJECT']
+   res = database.getNameCoords(obj, db=args.db)
+   if res == -1:
+      print("Error, object {} not found in database".format(obj))
+      sys.exit(1)
+   elif res == -2:
+      print("Database connection failed")
+      sys.exit(1)
+   cat = getStarCat(res[0], res[1], np.sqrt(2)*0.125, mmin=11, mmax=20)
+   print(cat.colnames)
+   cat.sort(keys='rmag')
+   cat.insert_row(0, [0, res[0],res[1],-1,-1,-1,-1,-1,-1])
+
+else:
+   cat = ascii.read(args.cat)
 cat['good'] = False
-cat['ii'],cat['jj'] = wcs.wcs_world2pix(cat['RA'], cat['DEC'], 0)
-gids = np.greater(cat['ii'], cut) * np.less(cat['ii'], naxis1-cut) *\
-       np.greater(cat['jj'], cut) * np.less(cat['jj'], naxis2-cut)
-cat = cat[gids]
+# First object (SN) must be good
+cat[0]['good'] = True
 
 outf = open(args.cspoutput, 'a')
 outfmt = "{:20s} {:3d} {:10.6f}    {:10.6f}\n"
 
-norm = simple_norm(fts[0].data, percent=99)
+ftss = [fits.open(f) for f in args.FITS]
+gids = np.ones((len(cat),), dtype=bool)
+for fts in ftss:
+   wcs = WCS(fts[0])
+   ii,jj = wcs.wcs_world2pix(cat['RA'], cat['DEC'], 0)
+   naxis2,naxis1 = fts[0].data.shape
+   gids = gids * np.greater(ii, cut) * np.less(ii, naxis1-cut) *\
+          np.greater(jj, cut) * np.less(jj, naxis2-cut)
+      
+cat = cat[gids]
 
+# How many plots are needed to fit all postage stamps
 n = args.n
 nplots = len(cat)//n**2 + ((len(cat) % n**2) > 0)
-for i in range(nplots):
-   fig = plt.figure(figsize=(10,10), constrained_layout=False)
-   grid = fig.add_gridspec(n,n, wspace=0, hspace=0)
-   axes = grid.subplots()
-   axes = axes.ravel()
-   [ax.xaxis.set_visible(False) for ax in axes]
-   [ax.yaxis.set_visible(False) for ax in axes]
-   for j in range(n**2):
-      idx = i*100 + j
-      if idx > len(cat)-1: break
-      ii,jj = wcs.wcs_world2pix(cat['RA'][idx],cat['DEC'][idx], 0)
-      ii = int(ii)
-      jj = int(jj)
-      subd = fts[0].data[jj-cut:jj+cut,ii-cut:ii+cut]
-      axes[j]._im = axes[j].imshow(subd, origin='lower', norm=norm)
-      axes[j].idx = idx
-      axes[j].aps = []
-      for ap in args.aps:
-         circ = plt.Circle((cut,cut), float(ap)/args.scale,
-               color='red', linewidth=1, fill=False, alpha=0.5)
-         axes[j].aps.append(axes[j].add_patch(circ))
+
+obj = None
+for fts in ftss:
+   if not obj: obj = fts[0].header['OBJECT']
+
+   norm = simple_norm(fts[0].data, percent=99)
+   wcs = WCS(fts[0])
+
+   for i in range(nplots):
+      fig = plt.figure(figsize=(10,10), constrained_layout=False)
+      grid = fig.add_gridspec(n,n, wspace=0, hspace=0)
+      axes = grid.subplots()
+      axes = axes.ravel()
+      [ax.xaxis.set_visible(False) for ax in axes]
+      [ax.yaxis.set_visible(False) for ax in axes]
+      for j in range(n**2):
+         idx = i*100 + j
+         if idx > len(cat)-1: break
+         ii,jj = wcs.wcs_world2pix(cat['RA'][idx],cat['DEC'][idx], 0)
+         ii = int(ii)
+         jj = int(jj)
+         subd = fts[0].data[jj-cut:jj+cut,ii-cut:ii+cut]
+         axes[j]._im = axes[j].imshow(subd, origin='lower', norm=norm)
+         axes[j].idx = idx
+         axes[j].aps = []
+         for ap in args.aps:
+            circ = plt.Circle((cut,cut), float(ap)/args.scale,
+                  color={False:'red',True:'green'}[cat[idx]['good']], 
+                  linewidth=1, fill=False, alpha=0.5)
+            axes[j].aps.append(axes[j].add_patch(circ))
       
-   fig.canvas.mpl_connect('key_press_event', keyvent)
-   plt.show()
+      fig.canvas.mpl_connect('key_press_event', keyvent)
+      plt.show()
 
 cat = cat[cat['good']]
 cat.remove_column('good')
-cat.remove_column('ii')
-cat.remove_column('jj')
 cat.write(args.output, format='ascii.fixed_width', delimiter=' ', overwrite=True)
 for i in range(len(cat)):
    outf.write(outfmt.format(obj, i, cat['RA'][i], cat['DEC'][i]))
@@ -95,6 +128,7 @@ outf.close()
 
 if args.plot:
    cat['objID'] = np.arange(len(cat))
-   fig = fchart.Fchart(fts, LScat=cat[1:], snx=cat[0]['RA'], sny=cat[0]['DEC'])
-   fig.savefig(args.FITS.replace('.fits','_fchart.pdf'))
+   fig = fchart.Fchart(ftss[0], LScat=cat[1:], snx=cat[0]['RA'], 
+                       sny=cat[0]['DEC'], zoomfac=None)
+   fig.savefig(args.FITS[0].replace('.fits','_fchart.pdf'))
 

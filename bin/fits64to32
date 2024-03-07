@@ -1,0 +1,23 @@
+#!/usr/bin/env python
+
+import argparse
+
+parser = argparse.ArgumentParser(description="Downgrade 64-bit float to"\
+      "32-bit float in FITS file")
+parser.add_argument('fits', help='FITS file(s) to analyze', nargs='+')
+args = parser.parse_args()
+
+from astropy.io import fits
+import numpy as np
+
+for f in args.fits:
+   fts = fits.open(f)
+   if fts[0].header['BITPIX'] != -64:
+      print("warning:  skipping {}, since BITPIX != -64".format(f))
+      fts.close()
+      continue
+   newdata = fts[0].data.astype(np.float32)
+   hdu1 = fits.PrimaryHDU(newdata, header=fts[0].header)
+   newfts = fits.HDUList([hdu1])
+   newfts.writeto(f, overwrite=True)
+

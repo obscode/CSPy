@@ -23,8 +23,11 @@ for fit in args.fits:
         fwhms[filt].append(fwhm)
     else:
         fwhms[filt] = [fwhm]
-    minfwhm = min(minfwhm, fwhm)
-    maxfwhm = max(maxfwhm, fwhm)
+    try:
+       minfwhm = min(minfwhm, fwhm)
+       maxfwhm = max(maxfwhm, fwhm)
+    except:
+        print(fit,fwhm, type(fwhm))
 
 fig,axes = plt.subplots(2,3, sharex=True, sharey=True, squeeze=True)
 axes = axes.ravel()

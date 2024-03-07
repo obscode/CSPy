@@ -10,6 +10,8 @@ parser.add_argument('-mmax', help='Maximum magnitude to use', type=float)
 parser.add_argument('-mmin', help='Minimum magnitude to use', type=float)
 parser.add_argument('-Nmax', help='Maximum number of stars to use', 
       default=None, type=int)
+parser.add_argument('-Niter', help='Number of iterations in sigma-clip', 
+      default=3, type=int)
 parser.add_argument('-ls', help='Use local sequence for Zpt', action='store_true')
 parser.add_argument('-db', help="If using local sequence, which database to use",
                     default='POISE')
@@ -29,8 +31,10 @@ from astropy.wcs import WCS
 from astropy.stats import sigma_clipped_stats
 from astropy.table import hstack, join
 from astropy.io import ascii
+from scipy.optimize import curve_fit
 import numpy as np
 from matplotlib import pyplot as plt
+import matplotlib as mpl
 
 
 cfg = getconfig()
@@ -81,6 +85,11 @@ def getRefcatCatalog(ra, dec, size, filt, tel, ins, mmin=args.mmin,
    cat['objID'] = np.arange(1, len(cat)+1)
    return cat
 
+def bendfunc(x, zp, xb, a):
+   '''A bent-linear function. For x < xb, a linear slope. For x > xb,
+   a constant zp'''
+   return np.where(x < xb, a*(x-xb)+zp, zp)
+
 
 if __name__ == "__main__":
    '''Using the PanSTARRS catalog, we do initial photometry on the field
@@ -117,15 +126,6 @@ if __name__ == "__main__":
             ctab['g-r'] = ctab['mag_1'] - ctab['mag_2']
          cat = join(cat, ctab['objID','g-r'], keys='objID')
          
-         gids = np.ones((len(cat),), dtype=bool)
-         if args.mmax:
-            gids = gids & np.less(cat[filt], args.mmax)
-         if args.mmin:
-            gids = gids & np.greater(cat[filt], args.mmin)
-         cat = cat[gids]
-         if args.Nmax:
-            sids = np.argsort(cat[filt])
-            cat = cat[sids][:Nmax]
 
       else:
          ra,dec = getCentralCoords(hdr)
@@ -141,6 +141,16 @@ if __name__ == "__main__":
             print("Error:  could not get catalog for {}".format(fil))
             continue
          cat['g-r'] = cat['g']-cat['r']
+
+      gids = np.ones((len(cat),), dtype=bool)
+      if args.mmax:
+         gids = gids & np.less(cat[filt], args.mmax)
+      if args.mmin:
+         gids = gids & np.greater(cat[filt], args.mmin)
+      cat = cat[gids]
+      if args.Nmax:
+         sids = np.argsort(cat[filt])
+         cat = cat[sids][:Nmax]
       cat.write(fil.replace(".fits", ".cat"), format='ascii.fixed_width',
             delimiter=' ', fill_values=[(ascii.masked, '...')], overwrite=True)
 
@@ -178,11 +188,28 @@ if __name__ == "__main__":
       if hasattr(phot[filt+'mag'], 'mask'): 
          phot = phot[~phot[filt+'mag'].mask]
       diffs = phot[filt+'mag'] - phot['ap2']
-      mn,md,st = sigma_clipped_stats(diffs, sigma=3)
+
+      # First, we will try to fit a bent-linear function
+      bounds = (np.array([diffs.min(),phot[filt+'mag'].min(),-np.inf]),
+                np.array([diffs.max(),phot[filt+'mag'].max(),np.inf]))
+      sig = np.sqrt(phot[filt+'err']**2 + phot['ap2er']**2)
+      p0 = [np.median(diffs), np.mean(phot[filt+'mag']), 0]
+      popt,pcov = curve_fit(bendfunc, phot[filt+'mag'], diffs, p0=p0,
+                            sigma=sig, bounds=bounds)
+      popt[0] += 30
+
+      # Mask objects with magnitude > non-linear point (the bend)
+      gids = np.greater(phot[filt+'mag'], popt[1])
+      if sum(gids)/len(gids) < 0.2:
+         # Looks like we went too far.
+         print('Warning:  bend function eliminated more than 80% of stars')
+         gids = np.ones((len(gids),), dtype=bool)
+
+      mn,md,st = sigma_clipped_stats(diffs[gids], sigma=3)
 
       # throw out 5-sigma outliers with respect to MAD
-      mad = 1.5*np.median(np.absolute(diffs - md))
-      gids = np.less(np.absolute(diffs - md), 5*mad)
+      mad = 1.5*np.median(np.absolute(diffs[gids] - md))
+      gids = gids*np.less(np.absolute(diffs - md), 5*mad)
       if not np.any(gids):
          print("Determining zero-point for frame {} failed, "\
                "skipping...".format(fil))
@@ -204,6 +231,7 @@ if __name__ == "__main__":
       print('Determined zero-point to be {:.3f} +/- {:.3f}'.format(zp,ezp))
       hdr['ZP'] = zp
       hdr['EZP'] = ezp
+      hdr['MAGMAX'] = np.round(popt[1],2)
 
       # make some diagnostic plots of aperture correction and zp determ.
       fig,axes = plt.subplots(2,2, figsize=(10,6))
@@ -211,10 +239,12 @@ if __name__ == "__main__":
       diffs = phot[filt+'mag']- phot['ap2']
       x = phot[filt+'mag']
       y = diffs + 30
-      axes[0].errorbar(x, y, fmt='o', xerr=phot[filt+'err'], 
+      axes[0].errorbar(x, y, fmt='o', 
             yerr=np.sqrt(phot[filt+'err']**2 + phot['ap2er']**2))
       axes[0].plot(x[~gids],y[~gids], 'o', mfc='red', label='rejected',
             zorder=10)
+      X = np.linspace(x.min(),x.max(),100)
+      axes[0].plot(X, bendfunc(X, *popt), '--', color='k')
       axes[0].axhline(zp, color='k')
       axes[1].axhline(0, color='k', zorder=100)
       axes[0].set_xlim(12,20)
@@ -223,21 +253,41 @@ if __name__ == "__main__":
       axes[0].set_ylabel('m(std) - m(ins)')
       axes[0].set_xlabel('m(std)')
 
+      x2 = np.arange(len(phot))
+      axes[3].errorbar(x2, y, fmt='o', 
+            yerr=np.sqrt(phot[filt+'err']**2 + phot['ap2er']**2))
+      axes[3].plot(x2[~gids],y[~gids], 'o', mfc='red', label='rejected',
+            zorder=10)
+      axes[3].set_xticks(x2)
+      axes[3].set_xticklabels([str(o) for o in phot['objID']]) 
+      dx = 0
+      dy = -8/72.   # offset in y for x lables so they don't squish
+      offset = mpl.transforms.ScaledTranslation(dx, dy, fig.dpi_scale_trans)
+      for lab in axes[3].xaxis.get_majorticklabels()[::2]:
+         lab.set_transform(lab.get_transform() + offset)
+
+      axes[3].axhline(zp, color='k')
+      axes[3].axhline(0, color='k', zorder=100)
+      axes[3].set_ylim(zp-1,zp+1)
+      axes[3].set_ylabel('m(std) - m(ins)')
+
+
+
       # Now aperture corrections
       for i,r in [('0',3.0),('1',5.0)]:
          ap = 'ap'+i
          aper = 'ap'+i+'er'
-         gids = (~np.isnan(phot[ap]))*(~np.isnan(phot[aper]))*\
-               (np.greater(phot['objID'], 0))
-         diffs = np.where(gids, phot['ap2']-phot[ap], 0)
-         wts = np.where(gids,np.power(phot['ap2er']**2+phot[aper]**2,-1), 0)
-         apcor = np.sum(wts*diffs)/np.sum(wts)
-         eapcor = np.sqrt(1.0/np.sum(wts))
+         ggids = (~np.isnan(phot[ap]))*(~np.isnan(phot[aper]))*\
+               (np.greater(phot['objID'], 0))*gids
+         diffs = np.where(ggids, phot['ap2']-phot[ap], 0)
+         ws = np.where(ggids,np.power(phot['ap2er']**2+phot[aper]**2,-1), 0)
+         apcor = np.sum(ws*diffs)/np.sum(ws)
+         eapcor = np.sqrt(1.0/np.sum(ws))
          print('   Aperture correction 2 -> {} is {:.3f}'.format( i,apcor))
          hdr['APCOR2'+i] = apcor
          hdr['EAPCOR2'+i] = eapcor
-         xs = np.linspace(r-0.25,r+0.25, sum(gids))
-         axes[1].errorbar(xs, diffs[gids], yerr=np.power(wts[gids],-0.5),
+         xs = np.linspace(r-0.25,r+0.25, sum(ggids))
+         axes[1].errorbar(xs, diffs[ggids], yerr=np.power(wts[ggids],-0.5),
                fmt='o')
          axes[1].errorbar([r], [apcor], fmt='o', yerr=[eapcor],
                color='red')
@@ -249,13 +299,13 @@ if __name__ == "__main__":
 
       axes[2].errorbar(phot['g-r'], y, fmt='o', 
                        yerr=np.sqrt(phot[filt+'err']**2 + phot['ap2er']**2))
+      axes[2].plot(phot['g-r'][~gids], y[~gids], 'o', color='red', zorder=100)
       axes[2].axhline(zp, color='k', zorder=100)
       axes[2].set_xlabel('g-r (mag)')
       axes[2].set_ylabel('m(std) - m(ins)')
       axes[2].set_ylim(zp-1,zp+1)
       
-      coefs =np.polyfit(phot['g-r'], y, deg=1, 
-                        w=np.power(phot[filt+'err']**2 + phot['ap2er']**2,-1)) 
+      coefs =np.polyfit(phot['g-r'], y, deg=1, w=wts) 
       print("Color-term: {}".format(coefs[0]))
       resids = y - coefs[0]*phot['g-r'] - coefs[1]
       print("RMS: {}".format(np.sqrt(np.mean(np.power(resids,2)))))
