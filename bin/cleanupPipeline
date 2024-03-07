@@ -26,9 +26,22 @@ rm fcd*.log
 rm fcd*.axy
 rm fcd*.corr
 
+echo "Removing photomery intermediate products"
+rm -f psf*.fits
+rm cat
+rm *.psf
+rm psf.als
+rm SNphot.temp
+rm psf.pst
+rm psf.m
+rm psf.out psf.m1 psf.fits.psg.1
+rm lfcd catxy psf.rd.cat LS.cat psf.xy psf2.xy psf.xy2
+rm psf.m?
+
 echo "Removing un-needed template subtraction products..."
 rm *_{g,r,i}.fits
 rm *_{g,r,i}_nonan.fits
+rm *_{g,r,i}.cat
 rm *SN.fits
 rm *db.txt
 rm *master.fits
@@ -40,3 +53,7 @@ rm *master.fits
 rm *rdv.fits
 rm *seg.fits
 rm *weight.fits
+rm fcd*SN_diff.jpg
+rm fcd*.cat
+rm pass*.np
+rm all*.np
