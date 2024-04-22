@@ -31,6 +31,10 @@ dbs = {'SBS': {
           'host':'sql.obs.carnegiescience.edu',
           'user':'cburns',
           'db':'POISE'},
+       'POISEtest':{
+          'host':'sql.obs.carnegiescience.edu',
+          'user':'CSP',
+          'db':'POISEtest'},
        }
               
 # Campaign strings to numbers
