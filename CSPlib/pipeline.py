@@ -705,8 +705,12 @@ class Pipeline:
          if not standard:
             obj = self.ZIDs[fil]
             catfile = join(self.templates, '{}_LS.cat'.format(obj))
-            allcat = ascii.read(join(self.templates, '{}.nat'.format(obj)),
-                  fill_values=[('...',0)])
+            natfile = join(self.templates, '{}.nat'.format(obj))
+            if not os.path.isfile(natfile):
+               self.log("Natural photometry not found. Skipping this object")
+               self.ignore.append(fil)
+               continue
+            allcat = ascii.read(natfile, fill_values=[('...',0)])
          else:
             obj = self.stdIDs[fil]
             catfile = join(self.templates, '{}_LS.cat'.format(obj))
