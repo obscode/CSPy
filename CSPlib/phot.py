@@ -558,6 +558,7 @@ class BasePhot:
          ax.set_ylim(-0.1, 1.1)
          fig.tight_layout()
          fig.savefig(plotfile)
+         plt.close(fig)
       return fwhm,tab
 
    def plot_field(self, percent=99.):

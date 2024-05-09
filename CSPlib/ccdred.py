@@ -390,11 +390,11 @@ def stitchSWONC(c1,c2,c3,c4):
        fits instance of the mosaic'ed data'''
 
    if isinstance(c1, str): c1 = fits.open(c1)   
-   if isinstance(c2, str): c1 = fits.open(c2)   
-   if isinstance(c3, str): c1 = fits.open(c3)   
-   if isinstance(c4, str): c1 = fits.open(c4)   
+   if isinstance(c2, str): c2 = fits.open(c2)   
+   if isinstance(c3, str): c3 = fits.open(c3)   
+   if isinstance(c4, str): c4 = fits.open(c4)   
 
-   newarr = np.zeros((4096,4112), dtype=float32)
+   newarr = np.zeros((4096,4112), dtype=np.float32)
 
    newarr[:2048,:2056] = c2[0].data.T[:,:]
    newarr[:2048,2056:] = c3[0].data.T[:,::-1]

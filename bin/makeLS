@@ -101,7 +101,7 @@ for fts in ftss:
       [ax.xaxis.set_visible(False) for ax in axes]
       [ax.yaxis.set_visible(False) for ax in axes]
       for j in range(n**2):
-         idx = i*100 + j
+         idx = i*n**2 + j
          if idx > len(cat)-1: break
          ii,jj = wcs.wcs_world2pix(cat['RA'][idx],cat['DEC'][idx], 0)
          ii = int(ii)

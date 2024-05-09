@@ -80,6 +80,10 @@ def update_header(f, fout=None):
    if h['OBJECT'].find(' ') > 0:
       h['OBJECT'] = h['OBJECT'].replace(' ','_')
 
+   # Strip out any excess strings from FILTERS
+   if len(h['FILTER']) > 0:
+      h['FILTER'] = h['FILTER'][0]
+
    # First, update the OBSTYPE, as per PREV_SWONC
    obj = h['OBJECT'].lower()
    exptype = h['EXPTYPE'].lower()
