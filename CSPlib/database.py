@@ -301,7 +301,7 @@ def getLSCoords(SN, db=default_db):
    return(tab)
 
 
-def updateSNPhot(SN, JD, filt, fits, mag, emag, db=default_db):
+def updateSNPhot(SN, JD, filt, fits, mag, emag, db=default_db, final=False):
    '''Update the SN photometry in the database.
 
    Args:
@@ -312,6 +312,7 @@ def updateSNPhot(SN, JD, filt, fits, mag, emag, db=default_db):
       mag(float):  magnitude
       emag(float):  error in magnitude
       db(str):  name of the database
+      final(bool):  If final=True, update with obj=-1
 
    Returns:
       None
@@ -335,10 +336,14 @@ def updateSNPhot(SN, JD, filt, fits, mag, emag, db=default_db):
          (fits,t))
    if n > 0:
       c.execute('delete from MAGSN where fits=%s and night=%s', (fits,t))
+   if final:
+      SNid = -1
+   else:
+      SNid = 0
 
    c.execute('INSERT INTO MAGSN (night,field,obj,filt,fits,mag,err,jd) '\
              'VALUES (%s,%s,%s,%s,%s,%s,%s,%s)', 
-             (t, SN, 0, filt, fits, mag, emag, JD))
+             (t, SN, SNid, filt, fits, mag, emag, JD))
 
 
    db.close()
