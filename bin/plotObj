@@ -13,6 +13,7 @@ parser.add_argument('-PS', help='Use PS/SM catalogs for calibration',
       action='store_true')
 parser.add_argument('-imdir', help='Directory where diff images are kept',
                     default='/Volumes/ExtData1/POISE')
+parser.add_argument('-out', help='PLot is output to this file')
 args = parser.parse_args()
 
 import matplotlib
@@ -197,3 +198,5 @@ ax.set_ylabel('mag')
 ax.legend()
 fig1.canvas.mpl_connect('pick_event', examine_night)
 plt.show()
+if args.out:
+   fig1.savefig(args.out)
