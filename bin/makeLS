@@ -2,7 +2,12 @@
 import argparse
 
 def keyvent(event):
-   global cut
+   global cut,keep_going
+   if event.key == 'Q':
+      keep_going = False
+      plt.close(event.inaxes.figure)
+      return
+
    if cat[event.inaxes.idx]['good']:
       cat[event.inaxes.idx]['good'] = False
       [ap.set_color('red') for ap in event.inaxes.aps]
@@ -93,7 +98,10 @@ for fts in ftss:
    norm = simple_norm(fts[0].data, percent=99)
    wcs = WCS(fts[0])
 
+   keep_going = True
    for i in range(nplots):
+      if not keep_going:
+         break
       fig = plt.figure(figsize=(10,10), constrained_layout=False)
       grid = fig.add_gridspec(n,n, wspace=0, hspace=0)
       axes = grid.subplots()
