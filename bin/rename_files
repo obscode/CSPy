@@ -1,12 +1,24 @@
 #!/usr/bin/env python
 
+import argparse
+parser = argparse.ArgumentParser(description="Rename FITS files using CSP "\
+                                 "convention")
+parser.add_argument('files', help="Files to rename", nargs='*')
+parser.add_argument('-rename', help="Actually rename instead of symlink",
+                    action="store_true")
+parser.add_argument('-object', help="Specify name of object")
+args = parser.parse_args()
+
 import os
 from glob import glob
 from astropy.io import fits
 from astropy.time import Time
 from CSPlib import filesystem
 
-files = glob("fcd?*c3.fits")
+if args.files is None:
+   files = glob("fcd?*c3.fits")
+else:
+   files = args.files
 files.sort()
 
 template = "{obj}_{filt}{idx:02d}_{tel}_{ins}_{YY}_{MM:02d}_{DD:02d}{suf}"
@@ -16,7 +28,7 @@ for fil in files:
    idx = 1
    done = False
    while True:
-      name = filesystem.CSPname(fts, idx,'.fits')
+      name = filesystem.CSPname(fts, idx,'.fits',object=args.object)
       if os.path.islink(name):
          if os.path.basename(os.path.realpath(name)) == fil:
             done = True
@@ -26,12 +38,21 @@ for fil in files:
       else:
          break
 
-   if not done: os.symlink(fil, filesystem.CSPname(fts, idx, '.fits'))
+   if not done: 
+      if not args.rename:
+         os.symlink(fil, filesystem.CSPname(fts, idx, '.fits', object=args.object))
+      else:
+         os.rename(fil, filesystem.CSPname(fts, idx, '.fits', object=args.object))
+
    for suf in ['SN.fits','temp.fits','diff.fits','_zp.jpg',
          '.phot0','.phot','diff.opt']:
       newf = fil.replace('.fits',suf)
       if os.path.isfile(newf):
-         target = filesystem.CSPname(fts, idx, suf)
-         if not os.path.islink(target):
-            os.symlink(newf,target)
+         target = filesystem.CSPname(fts, idx, suf, object=args.object)
+         if args.rename:
+            if not os.path.exists(target):
+               os.rename(newf,target)
+         else:
+            if not os.path.exists(target):
+               os.symlink(newf,target)
 
