@@ -3,7 +3,7 @@ from astropy.io import fits
 from glob import glob
 from astropy.time import Time
 
-def CSPname(fitsfile, idx=1, suffix='.fits'):
+def CSPname(fitsfile, idx=1, suffix='.fits', object=None):
    '''Given a file or fits instance, get a filename using the CSP convention.
    If the file already exists, index it accordingly.
 
@@ -29,20 +29,38 @@ def CSPname(fitsfile, idx=1, suffix='.fits'):
 
    # Now, DATE-OBS changes at midnight. So the better way to get the "day"
    # is to add 0.5 to JD (push it beyond change-over and get the year/month/day
-   jd = Time(fts[0].header['JD'] + 0.5, format='jd')
+   if 'JD' in fts[0].header:
+      jd = Time(fts[0].header['JD'] + 0.5, format='jd')
+   elif 'JD-OBS' in fts[0].header:
+      jd = Time(fts[0].header['JD-OBS'] + 0.5, format='jd')
+   elif 'MJD' in fts[0].header:
+      jd = Time(fts[0].header['MJD'] + 0.5, format='mjd')
+   elif 'MJD-OBS' in fts[0].header:
+      jd = Time(fts[0].header['MJD-OBS'] + 0.5, format='mjd')
+      
    dt = jd.to_datetime()
    YY,MM,DD = dt.year,dt.month,dt.day
    YY = int(YY)
    MM = int(MM)
    DD = int(DD)
+
+   if object is None:
+      # check OBJECT keyword
+      object = fts[0].header.get('OBJECT','unknown')
+      object = object.replace(' ','_')
+   
+   filt = fts[0].header.get('FILTER','X')
+   filt = filt[0]
+
+   tel = fts[0].header.get('TELESCOP','UNK')
+   tel = tel.split()[0]
+   ins = fts[0].header.get('INSTRUME','UNK')
+   ins = ins.split()[0]
    
    args = dict(
-       obj=fts[0].header['OBJECT'],
-       filt=fts[0].header['FILTER'],
-       YY=YY, MM=MM, DD=DD,
-       tel=fts[0].header['TELESCOP'],
-       ins=fts[0].header['INSTRUM'],
-       suf=suffix, idx=idx)
+       obj=object,
+       filt=filt, YY=YY, MM=MM, DD=DD,
+       tel=tel, ins=ins, suf=suffix, idx=idx)
    
    name = template.format(**args)
    return name
