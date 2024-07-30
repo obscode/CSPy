@@ -94,6 +94,42 @@ def getPhotometricNights(SN, db=default_db):
    db.close()
    return [item[0] for item in nights]
 
+def getMAGINS(SN=None, fitsfile=None, db=default_db):
+   '''Retrieve a table of MAGINS entries from the database as a table
+   
+   Args:
+      SN (str):  Supernova name. All rows with field=SN are retrieved
+      fitsfile(str): Name of specific FITS file. Only rows with fits=fitsfile
+                     are retrieved
+                     
+   Returns:
+      table:  astropy.Table with MAGINS rows.   
+   '''
+   if SN is None and fitsfile is None:
+      raise RuntimeError("You must specify either SN or fitsfile")
+   db = getConnection(db=db)
+   c = db.cursor()
+   if SN is not None:
+      if fitsfile is not None:
+         raise RuntimeError("You must specify EITHER SN or fitsfile")
+      N = c.execute("SELECT * from MAGINS where field=%s", (SN,))
+      if N == 0:
+         raise RuntimeError(f"No entries in MAGINS for SN={SN} found")
+      rows = c.fetchall()
+   else:
+      N= c.execute("SELECT * from MAGINS where fits=%s", (fitsfile,))
+      if N == 0:
+         raise RuntimeError(f"No entries in MAGINS for fits={fitsfile} found")
+      rows = c.fetchall()
+   tab = Table(rows=rows, names=["night","fits","tel","ins","filt","airm",
+                                 "expt","ncombine","jd","field","obj","alpha",
+                                 "delta","xc","yc","psf","psfer","ap3","ap3er",
+                                 "ap5","ap5er","ap7","ap7er","flux","sky","stdev",
+                                 "sharp","chi","gau1","gau2","qual"])
+   return tab
+   
+   
+
 def getPhotometricZeroPoints(SN, filt, db=default_db):
    '''Given a supernova and filter, find all photometric nights and
    return their zero-points.
