@@ -17,7 +17,8 @@ maxfwhm = -np.inf
 for fit in args.fits:
     h = fits.getheader(fit, 0)
     filt = h['FILTER']
-    fwhm = h['FWHM']
+    fwhm = float(h.get('FWHM', -1))
+    if fwhm < 0: continue
     obj = h['OBJECT']
     if filt in fwhms:
         fwhms[filt].append(fwhm)
@@ -36,9 +37,14 @@ bins = np.linspace(minfwhm, maxfwhm, 20)
 for i,filt in enumerate(fwhms.keys()):
     axes[i].hist(fwhms[filt], bins=bins)
     temp = "{}_{}.fits".format(obj, filt)
+    q1 = np.quantile(fwhms[filt], 0.25)
     if os.path.isfile(temp):
         h = fits.getheader(temp, 0)
         axes[i].axvline(h['FWHM'], color='red')
+        print("{}: Q1 = {:.3f}  Templ = {:.3f} ({:+.3f})".format(filt,q1, h['FWHM'], 
+                                                q1 - h['FWHM']))
+    else:
+        print("{}: Q1 = {:.3f}".format(filt,q1,))
     axes[i].text(0.05, 0.95, filt, va='top', ha='left',
                  transform=axes[i].transAxes)
 
