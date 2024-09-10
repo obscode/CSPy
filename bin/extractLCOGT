@@ -15,9 +15,22 @@ args = parser.parse_args()
 
 from astropy.io import fits
 from astropy.table import Table
+from astropy.time import Time
 from CSPlib.filesystem import LCOGTname
 import sys
 import shutil
+
+def fixHeaders(hdr):
+   '''Update headers to match CSP standards'''
+   h['WAIRMASS'] = h['AIRMASS']
+   h['NEWEXPT'] = h['EXPTIME']
+   h['JD'] = h['MJD-OBS'] + 2400000.5
+   h['MEANSKY'] = 0
+   h['INSTRUM'] = 'CCD'
+   start = Time(h['DATE-OBS'])
+   mid = start + h['EXPTIME']/2
+   h['UTMID'] = mid.strftime("%H:%M:%S.%f")
+   h['FILTER'] = f['FILTER'][0]
 
 for fil in args.fitsfiles:
    fts = fits.open(fil)
@@ -32,6 +45,7 @@ for fil in args.fitsfiles:
    img = fits.HDUList()
    img.append(fits.PrimaryHDU(header=fts[args.imHDU].header, 
        data=fts[args.imHDU].data))
+   fixHeaders(img[0].header)
    img.writeto(oname, overwrite=True)
 
    if args.catHDU > 0:
