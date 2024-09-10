@@ -20,7 +20,7 @@ from CSPlib.filesystem import LCOGTname
 import sys
 import shutil
 
-def fixHeaders(hdr):
+def fixHeaders(h):
    '''Update headers to match CSP standards'''
    h['WAIRMASS'] = h['AIRMASS']
    h['NEWEXPT'] = h['EXPTIME']
