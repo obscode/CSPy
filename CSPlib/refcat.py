@@ -191,7 +191,7 @@ def RefcatQuery(ra0, dec0, rect, dra, ddec, mlim, rlim, rootdir, exten='rc2',
                   continue
             else:
                if(np.dot(P,pointing) < cosa): continue
-            print(i,j)
+            #print(i,j)
             idx = i + j*360
             if idx not in inds: inds.append(idx)
             break

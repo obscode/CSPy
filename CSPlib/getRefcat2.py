@@ -62,7 +62,7 @@ def getStarCat(ra, dec, radius, mmin=-10, mmax=100):
    if use_local:
       tabs = []
       if mmin < 16:
-         print(ra,dec)
+         #print(ra,dec)
          tabs.append(refcat.RefcatQuery(ra, dec, 1, radius, radius, mmax, 0,
             [os.path.join(refcatdir, '00_m_16')], 'rc2', verbose=0))
       if mmin < 17 and mmax > 16:
@@ -79,14 +79,17 @@ def getStarCat(ra, dec, radius, mmin=-10, mmax=100):
       tab = tab[gids]
  
       tab['objID'] = np.arange(1, len(tab)+1)
-      tab = tab['objID','RA','Dec','g','dg','r','dr','i','di']
+      tab = tab['objID','RA','Dec','g','dg','gcontrib','r','dr','rcontrib',\
+                'i','di','icontrib']
       tab.rename_column('Dec','DEC')
       for filt in ['g','r','i']:
          tab.rename_column(filt, filt+'mag')
          tab.rename_column('d'+filt, filt+'err')
+         tab.rename_column(filt+'contrib', filt+'con')
       return tab
    elif jobs is not None:
-      query = "select r.objid,r.RA,r.Dec,r.g,r.dg,r.r,r.dr,r.i,r.di "\
+      query = "select r.objid,r.RA,r.Dec,r.g,r.dg,r.gcontrib,r.r,r.dr,"\
+              "r.rcontrib,r.i,r.di,r.icontrib "\
               "from refcat2 as r, dbo.fGetNearbyObjEq({},{},{}) as n "\
               "where r.objid=n.objid".format(ra,dec,radius)
       tab = jobs.quick(query, task_name='my task')
@@ -94,11 +97,13 @@ def getStarCat(ra, dec, radius, mmin=-10, mmax=100):
       tab = tab[gids]
       
       tab['objID'] = np.arange(1, len(tab)+1)
-      tab = tab['objID','RA','Dec','g','dg','r','dr','i','di']
+      tab = tab['objID','RA','Dec','g','dg','gcontrib','r','dr','rcontrib',\
+                'i','di','icontrib']
       tab.rename_column('Dec','DEC')
       for filt in ['g','r','i']:
          tab.rename_column(filt, filt+'mag')
          tab.rename_column('d'+filt, filt+'err')
+         tab.rename_column(filt+'contrib', filt+'con')
       #gids = np.greater_equal(tab['r'], mmin)*np.less_equal(tab['r'], mmax)
       return tab
 
