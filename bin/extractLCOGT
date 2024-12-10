@@ -30,7 +30,7 @@ def fixHeaders(h):
    start = Time(h['DATE-OBS'])
    mid = start + h['EXPTIME']/2
    h['UTMID'] = mid.strftime("%H:%M:%S.%f")
-   h['FILTER'] = f['FILTER'][0]
+   h['FILTER'] = h['FILTER'][0]
 
 for fil in args.fitsfiles:
    fts = fits.open(fil)
