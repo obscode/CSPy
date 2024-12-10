@@ -7,7 +7,6 @@ from astropy.wcs import WCS
 '''Fchart.py:   Make a finder chart with cut-out closeup and offset stars or
 catalog stars.'''
 
-symbs = ['s', 'o', 'd', '^', 'v','<','>'][::-1]
 
 def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
       offsetcat=None, LScat=None, zoomfac=4, snx='SNX', sny='SNY',
@@ -32,6 +31,7 @@ def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
    Returns:
       matplotlib.figure instance:  the finder chart
    '''
+   symbs = ['s', 'o', 'd', '^', 'v','<','>'][::-1]
 
    if sn is None:
       if 'OBJECT' not in fts[0].header:
