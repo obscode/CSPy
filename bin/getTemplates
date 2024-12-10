@@ -43,6 +43,7 @@ for sn,ra,dec in l:
 
    # Skip if we've already done the work
    if isfile(fchart) and not forceRedo:
+      #print('Done already')
       continue
    fnames = [join(templates, "{}_{}.fits".format(sn,filt)) \
          for filt in ['g','r','i']]
@@ -145,7 +146,7 @@ for sn,ra,dec in l:
       offcat = None
 
    fig = Fchart(fts, percent=99.5, offsetcat=offcat, zoomfac=5, fixnan=True,
-                sn=sn)
+                sn=sn+" (archival)")
    fig.savefig(fchart) 
    plt.close(fig)
    
