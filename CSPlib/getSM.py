@@ -32,7 +32,7 @@ def getImages(ra, dec, size=0.125, filt='g', verbose=False):
    '''
    # First, we look to see if we can find images that cover the area
    # entirely and have image_type='main'
-   templ = "https://api.skymapper.nci.org.au/public/siap/dr2/query?"\
+   templ = "https://api.skymapper.nci.org.au/public/siap/dr4/query?"\
            "POS={},{}&SIZE={}&BAND={}&FORMAT=image/fits&VERB=3&"\
            "RESPONSEFORMAT=CSV&INTERSECT={}"
    baseurl = templ.format(ra, dec, size, filt, 'COVERS')
