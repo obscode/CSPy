@@ -1,8 +1,10 @@
 '''Given two sets of coordinates, match up sets of objects'''
 import matplotlib
-matplotlib.use('Agg')
+#matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 from astropy.visualization import simple_norm
+from astropy.coordinates import SkyCoord
+from astropy import units as u
 from numpy import *
 from .npextras import bwt 
 from .basis import svdfit,abasis
@@ -450,3 +452,91 @@ def TweakWCS(wcsimage, image, tel='SWO', ins='NC', Nstars=100, verbose=False,
 
    return image
 
+def FindIsolatedStars(stab, cat, wcs, mindist, Nmin):
+   ''' Given a table of sources from SourceFinder and a catalog of calibration
+   stars, find isolated ones (min sep > mindist).
+   
+   Args:
+      stab (astroy.table):  table of detected sources. Must have X_IMAGE,Y_IMAGE,
+                           and MAG_BEST columns.
+      cat (astropy.table):  table of catalog sources. Must have 'RA' and 'DEC'
+                            columns.
+      wcs (astropy.coordinates):  The wcs of the image from which sources were
+                            detected
+      mindist (float):  minimum separation of sources (ideally outside sky annulus)
+                        in arc-sec
+      Nmin (int):  Minimum number of sources we want. If not enough separated ones,
+                   then we give back ones with minimal flux-ratio.
+      scale(float):  pixel scale
+      rmax(float):  radius to within which we consider stars for flux ratio limit
+   '''
+   # Right off get rid of close pairs of catalog objects
+   dists = power((cat['RA'][:,newaxis]-cat['RA'][newaxis,:])*cos(cat['DEC']*pi/180),2) +\
+           power((cat['DEC'][:,newaxis]-cat['DEC'][newaxis,:]),2)
+   dists = sqrt(dists)*3600
+   Nnn = sum(less(dists, mindist), axis=0)
+   gids = equal(Nnn, 1)
+   cat = cat[gids]
+   # First, figure out the pixel locations of the catalog sources and RA/DEC of the
+   #  detected sources
+   i,j = wcs.wcs_world2pix(cat['RA'],cat['DEC'], 0)
+   ra,dec = wcs.wcs_pix2world(stab['X_IMAGE'], stab['Y_IMAGE'], 0)
+
+   c1 = SkyCoord(cat['RA'], cat['DEC'], unit=(u.degree,u.degree))
+   c2 = SkyCoord(ra, dec, unit=(u.degree, u.degree))
+   idx,sep,sep2d = c1.match_to_catalog_sky(c2)
+   # Find the catalog objects within the frame and corresponsing detections
+   gids = less(sep.to(u.arcsec).value, 0.5)   # less than 0.5 arc-second
+   cat = cat[gids]
+   print(len(cat))
+   i = i[gids]
+   j = j[gids]
+   c1 = c1[gids]
+   idx = idx[gids]
+   # remove corresponding source detections
+   hits = array([i in idx for i in range(len(stab))])
+   mags = stab[idx]['MAG_BEST']
+   stab = stab[~hits]
+
+   # Next, we find distances between catalog sources and detected sources
+   # dists[i,j] = distance between catalog object i and detected object j
+   dists = sqrt((i[:,newaxis]-stab['X_IMAGE'][newaxis,:])**2 + \
+                (j[:,newaxis]-stab['Y_IMAGE'][newaxis,:])**2)
+
+   # Minimum distances:
+   mdists = dists.min(axis=1)*wcs.pixel_scale_matrix.max()*3600
+   cat['good'] = mdists > mindist
+
+   # If we have enough, we're done!
+   if sum(cat['good']) >= Nmin:
+      return cat
+
+   # Okay, not enough. Let's compute the maximum flux ratio of objects within 
+   #   mindist
+   maxfluxrats = []
+   for i in range(len(cat)):
+      if cat[i]['good']: 
+         maxfluxrats.append(-1)
+         continue
+      rids = dists[i] < mindist
+      if not any(rids):
+         cat[i]['good'] = True
+         maxfluxrats.append(-1)
+         continue
+      fluxrats = power(10, -0.4*(stab[rids]['MAG_BEST']-mags[i]))
+      if all(fluxrats < 0.01): cat[i]['good'] = True
+      maxfluxrats.append(fluxrats.max())
+   
+   if sum(cat['good']) > Nmin: return cat
+
+   # Okay, not all sources are clean. Get to Nmin by giving the minimum maxfluxrat
+   N = sum(cat['good'])
+   sids = argsort(maxfluxrats)
+   for i in sids:
+      if cat[i]['good']: continue
+      cat[i]['good'] = True
+      N += 1
+      if N >= Nmin: break
+   
+   # finally done
+   return cat

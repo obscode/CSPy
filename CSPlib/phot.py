@@ -12,13 +12,14 @@ from astropy.coordinates import SkyCoord
 from astropy.wcs import WCS
 from astropy.nddata import NDData
 from astropy.visualization import simple_norm
+from astropy.convolution import Gaussian2DKernel,convolve
 
 #from photutils.segmentation import make_source_mask
-from photutils.segmentation import detect_threshold, detect_sources
-from photutils.utils import circular_footprint
+from photutils.segmentation import detect_threshold, detect_sources,SourceCatalog
+from photutils.utils import circular_footprint, calc_total_error
 from photutils import SkyCircularAperture, SkyCircularAnnulus
 from photutils import aperture_photometry
-from photutils.centroids import centroid_com,centroid_1dg
+from photutils.centroids import centroid_com,centroid_1dg,centroid_quadratic
 from photutils.psf import PSFPhotometry, IntegratedGaussianPRF, SourceGrouper
 #from photutils.psf import BasicPSFPhotometry, IntegratedGaussianPRF, DAOGroup
 #from photutils.psf import EPSFBuilder, extract_stars
@@ -34,7 +35,7 @@ from astropy.visualization import simple_norm
 
 from warnings import catch_warnings, simplefilter
 import os
-from numpy import *
+import numpy as np
 from .npextras import between
 from astropy.table import vstack,Table
 import tempfile
@@ -98,7 +99,7 @@ def recenter(xs, ys, data, cutoutsize=40, method='1dg'):
             xout.append(x - interv + xx)
             yout.append(y - interv + yy)
             flags.append(0)
-   return array(xout),array(yout),array(flags)
+   return np.array(xout),np.array(yout),np.array(flags)
 
 def objfunc(p, mod, x, y, z, w):
    res = (z - mod.evaluate(x, y, p[0], p[1], p[2], p[3], p[3], 0))*w
@@ -163,8 +164,8 @@ def centroid2D(data, i0, j0, fwhm0, radius, var=None, gain=1, rdnoise=0,
    #if var is not None:
    #   print(data.shape, var.shape)
 
-   bids = ~(isfinite(subdat) & greater(subvar, 0))
-   if not any(~bids):
+   bids = ~(np.isfinite(subdat) & np.greater(subvar, 0))
+   if not np.any(~bids):
       # No good pixels??  bail!
       return False,i0,j0,fwhm0,-1,-1
    subdat[bids] = 0
@@ -173,8 +174,8 @@ def centroid2D(data, i0, j0, fwhm0, radius, var=None, gain=1, rdnoise=0,
    subdat /= norm
    subvar /= norm**2
 
-   peakSNR = power(subvar,-0.5).max()
-   weights = power(subvar, -0.5)*~bids    # zero-weight the bad data
+   peakSNR = np.power(subvar,-0.5).max()
+   weights = np.power(subvar, -0.5)*~bids    # zero-weight the bad data
 
    # Setup fitting
    fitter = LevMarLSQFitter(calc_uncertainties=True)
@@ -199,14 +200,14 @@ def centroid2D(data, i0, j0, fwhm0, radius, var=None, gain=1, rdnoise=0,
       g2.y_0.bounds = (radius/2, radius*2)
       g2.gamma.bounds = (fwhm0/10, 5*fwhm0)
 
-   yy,xx = mgrid[:subdat.shape[1], :subdat.shape[0]]
+   yy,xx = np.mgrid[:subdat.shape[1], :subdat.shape[0]]
    fit = fitter(g2, x=xx, y=yy, z=subdat, weights=weights)
    #p0 = [1.0, radius, radius, fwhm0*FtoS]
    #res = least_squares(objfunc, p0, args=(g2, xx, yy, subdat, weights))
    #model = g2.evaluate(xx, yy, res.x[0], res.x[1], res.x[2], res.x[3], res.x[3], 0)
 
    model = fit(xx,yy)
-   chisq = sum((subdat-model)**2/subvar)
+   chisq = np.sum((subdat-model)**2/subvar)
    rchisq = chisq / (subdat.shape[0]*subdat.shape[1] - 4)
 
    if getattr(g2, 'x_mean', None) is not None:
@@ -216,20 +217,20 @@ def centroid2D(data, i0, j0, fwhm0, radius, var=None, gain=1, rdnoise=0,
    else:
       xm = fit.x_0
       ym = fit.y_0
-      fwhm = fit.fwhm
+      fwhm = fit.f
 
    # Now check to see if any masked pixels are "close" to the core
    if mask is not None:
-      rads = sqrt((xx - xm)**2 + (yy - ym)**2)
-      gids = less(rads, 2*fwhm*FtoS).ravel()
-      if any(submask.ravel()[gids]):
+      rads = np.sqrt((xx - xm)**2 + (yy - ym)**2)
+      gids = np.less(rads, 2*fwhm*FtoS).ravel()
+      if np.any(submask.ravel()[gids]):
          return(False, imin+xm, jmin+ym, fwhm, rchisq, peakSNR)
 
    if axis is not None:
-      #rads = sqrt((xx - res.x[1])**2 + (yy - res.x[2])**2)
-      rads = sqrt((xx - xm)**2 + (yy - ym)**2)
+      #rads = np.sqrt((xx - res.x[1])**2 + (yy - res.x[2])**2)
+      rads = np.sqrt((xx - xm)**2 + (yy - ym)**2)
       axis.plot(rads.ravel(), subdat.ravel()/fit.amplitude, '.', color='k', alpha=0.5)
-      sids = argsort(rads.ravel())
+      sids = np.argsort(rads.ravel())
       axis.plot(rads.ravel()[sids], model.ravel()[sids], '-', color='red', 
                 alpha=0.5, zorder=1000)
 
@@ -344,16 +345,16 @@ class BasePhot:
       egain = self.gain*self.ncombine
       with catch_warnings():
          simplefilter("ignore")
-         self.error = where(self.data+self.meansky > 0,
-               sqrt((self.data+self.meansky)/egain + self.rdnoise**2/self.gain**2),
+         self.error = np.where(self.data+self.meansky > 0,
+               np.sqrt((self.data+self.meansky)/egain + self.rdnoise**2/self.gain**2),
                self.rdnoise/self.gain)
 
    def _makeMask(self):
       # Look for bad pixels.  Start with NaN's
-      mask = isnan(self.data)
+      mask = np.isnan(self.data)
 
       # Next if datamax is specified:
-      mask = mask | greater(self.data, self.datamax)
+      mask = mask | np.greater(self.data, self.datamax)
 
       return mask
 
@@ -379,13 +380,63 @@ class BasePhot:
          raise ModuleNotFoundError("Error:  you need astroscrappy to do"\
                " CR rejection")
       m,a = astroscrappy.detect_cosmics(self.data, sigclip=sigclip,
-                                        invar=power(self.error,2),
+                                        invar=np.power(self.error,2),
                                         cleantype=cleantype)
       self.mask = self.mask | m
       if fix:
          self.data = a
 
       return
+
+   
+   def SourceFinder(self, thresh=3, minarea=10):
+      '''Detect sources in the FITS image above a threshold.
+      
+      Args:
+         thresh (float):  Source detection threshold in units of RMS
+                          above the background.
+      
+      Returns:
+         catalog (astropy.Table):  source catalog (see photutils docs)
+         
+      '''
+      '''Use photutils to generate a segmentation map.'''
+      # Kernel to smooth the image
+      k = Gaussian2DKernel(1.27, x_size=3, y_size=3)
+      k.normalize()
+      cdata = convolve(self.data, k)
+
+      # Next, compute the background.
+      if 'IMMATBG' in self.head and 'IMMATSTD' in self.head:
+         # Use imagematch values
+         bg,rms = self.head['IMMATBG'],self.head['IMMATSD']
+      elif self.background is not None:
+         bg,rms = self.background.background,self.background.background_rms
+      else:
+         # all else fails, do the quick and dirty
+         print("Warning:  using simple median/MAD background estimates")
+         bg = np.median(self.data)
+         rms = 1.49*np.median(np.absolute(self.data-bg))
+
+      threshold = bg + thresh*rms
+      seg = detect_sources(cdata, threshold, npixels=minarea)
+      self.seg = seg.data
+
+      # get the source locations and photometry
+      error = calc_total_error(self.data, rms, 1.0)
+      tab = SourceCatalog(self.data, seg, error=error, 
+                          convolved_data=cdata).to_table()
+      tab.rename_column('xcentroid','X_IMAGE')
+      tab.rename_column('ycentroid','Y_IMAGE')
+      tab['MAG_BEST'] = -2.5*np.log10(tab['segment_flux']) + 30
+      tab['MAGERR_BEST'] = 1.087*tab['segment_fluxerr']/tab['segment_flux']
+      tab['FLAGS'] = 0  # for now, need to figure out bad objects
+
+      tab['X_IMAGE'].info.format = '{:10.4f}'
+      tab['Y_IMAGE'].info.format = '{:10.4f}'
+      tab['MAG_BEST'].info.format = '{:7.3f}'
+      tab['MAGERR_BEST'].info.format = '{:7.3f}'
+      return tab
 
    def model2DBackground(self, boxsize=50, nsigma=2, npixels=10):
       '''Construct a 2D background estimate of the image.
@@ -482,7 +533,7 @@ class BasePhot:
          raise ValueError("You need to load a catalog first")
 
       if self.background is None:
-         bg = median(self.data.ravel())
+         bg = np.median(self.data.ravel())
       else:
          bg = self.background.background
 
@@ -531,15 +582,15 @@ class BasePhot:
       #   raise ValueError("Less than Nmin ({}) stars fit".format(Nmin))
 
       mask = (tab['snr'] > SNRmin)
-      if sum(mask) > Nmin:
-         fwhm = median(tab['fwhm'][mask])
+      if np.sum(mask) > Nmin:
+         fwhm = np.median(tab['fwhm'][mask])
       elif len(tab) > Nmin:
-         sids = argsort(tab['snr'])
-         fwhm = median(tab['fwhm'][sids][:Nmin])
+         sids = np.argsort(tab['snr'])
+         fwhm = np.median(tab['fwhm'][sids][:Nmin])
          for i in range(Nmin):
             mask[sids[i]] = True
       elif len(tab) > 0:
-         idx = argmax(tab['snr'])
+         idx = np.argmax(tab['snr'])
          fwhm = tab['fwhm'][idx]
          mask[idx] = True
       else:
@@ -628,12 +679,12 @@ class PSFPhot(BasePhot):
          tab = readMag(magfile)
 
       # Do some flags
-      flags = zeros(len(tab), dtype=int)
-      flags = where(tab['xc'] < 5, flags|1, flags)
-      flags = where(tab['xc'] > self.data.shape[1]-5,flags|1,flags)
-      flags = where(tab['yc'] < 5, flags|1, flags)
-      flags = where(tab['yc'] > self.data.shape[0]-5,flags|1,flags)
-      flags = where(tab['perr'] != "No_error",flags|2,flags)
+      flags = np.zeros(len(tab), dtype=int)
+      flags = np.where(tab['xc'] < 5, flags|1, flags)
+      flags = np.where(tab['xc'] > self.data.shape[1]-5,flags|1,flags)
+      flags = np.where(tab['yc'] < 5, flags|1, flags)
+      flags = np.where(tab['yc'] > self.data.shape[0]-5,flags|1,flags)
+      flags = np.where(tab['perr'] != "No_error",flags|2,flags)
   
       tab['flags'] = flags
       self.phot = tab
@@ -673,9 +724,9 @@ class PSFPhot2(BasePhot):
       stars = extract_stars(nddata, tab, size=psize)
 
       # check to see if "saturated" (non-linear) pixels in cutouts
-      bids = array([any(s.data + md > self.datamax) for s in stars])
+      bids = np.array([np.any(s.data + md > self.datamax) for s in stars])
       self.saturated = bids
-      if any(bids):
+      if np.any(bids):
          tab = tab[~bids]
       stars = extract_stars(nddata, tab, size=psize)
 
@@ -801,7 +852,7 @@ class ApPhot(BasePhot):
                xout.append(x - interv + xx)
                yout.append(y - interv + yy)
                flags.append(0)
-      ra,dec = self.wcs.wcs_pix2world(array(xout), array(yout), 0)
+      ra,dec = self.wcs.wcs_pix2world(np.array(xout), np.array(yout), 0)
       self.centroids = SkyCoord(ra*u.deg, dec*u.deg)
 
 
@@ -846,14 +897,14 @@ class ApPhot(BasePhot):
       for mask in annmasks:
          anndata = mask.multiply(self.data)
          if anndata is None:
-            skies.append(nan)
-            eskies.append(nan)
+            skies.append(np.nan)
+            eskies.append(np.nan)
             continue
          anndata = anndata[mask.data > 0]
          _,md,st = sigma_clipped_stats(anndata, sigma=3.0)
          skies.append(md)
-         eskies.append(st/sqrt(anndata.shape[0]))
-      return array(skies), array(eskies)
+         eskies.append(st/np.sqrt(anndata.shape[0]))
+      return np.array(skies), np.array(eskies)
 
    def doPhotometry(self):
       '''Do the actual photometry.
@@ -893,8 +944,8 @@ class ApPhot(BasePhot):
          key = 'aperture_sum_{}'.format(i)
          ekey = 'aperture_sum_err_{}'.format(i)
          flux = phot_table[key] -  msky*self.apps[i].area
-         eflux = sqrt(power(esky*self.apps[i].area,2) +
-                        power(phot_table[ekey],2))
+         eflux = np.sqrt(np.power(esky*self.apps[i].area,2) +
+                        np.power(phot_table[ekey],2))
          phot_table.remove_column(key)
          phot_table.remove_column(ekey)
          fkey = 'flux{}'.format(i)
@@ -905,7 +956,7 @@ class ApPhot(BasePhot):
          phot_table[efkey].info.format = "%.3f"
          akey = 'ap{}'.format(i)
          eakey = 'ap{}er'.format(i)
-         phot_table[akey] = -2.5*log10(phot_table[fkey]/self.exposure) + 30
+         phot_table[akey] = -2.5*np.log10(phot_table[fkey]/self.exposure) + 30
          phot_table[akey].info.format = "%.3f"
          phot_table[eakey] = phot_table[efkey]/phot_table[fkey]*1.087
          phot_table[eakey].info.format = "%.3f"
@@ -918,23 +969,23 @@ class ApPhot(BasePhot):
       phot_table['fits'] = self.ftsfile
 
       # Do some flags
-      flags = zeros(len(phot_table), dtype=int)
-      flags = where(phot_table['xcenter'].value < 5, flags|1, flags)
-      flags = where(phot_table['xcenter'].value > self.data.shape[1]-5, flags|1,flags)
-      flags = where(phot_table['ycenter'].value < 5, flags|1, flags)
-      flags = where(phot_table['ycenter'].value > self.data.shape[0]-5, flags|1,flags)
+      flags = np.zeros(len(phot_table), dtype=int)
+      flags = np.where(phot_table['xcenter'].value < 5, flags|1, flags)
+      flags = np.where(phot_table['xcenter'].value > self.data.shape[1]-5, flags|1,flags)
+      flags = np.where(phot_table['ycenter'].value < 5, flags|1, flags)
+      flags = np.where(phot_table['ycenter'].value > self.data.shape[0]-5, flags|1,flags)
       for i in range(len(self.apps)-1):
-         flags = where(isnan(phot_table['ap{}'.format(i)]),
+         flags = np.where(np.isnan(phot_table['ap{}'.format(i)]),
                        flags | 2, flags)
-         flags = where(isnan(phot_table['ap{}er'.format(i)]),
+         flags = np.where(np.isnan(phot_table['ap{}er'.format(i)]),
                        flags | 4, flags)
 
       # Check if masked pixels occurred in the apertures
       ap_masks = [ap.to_mask() for ap in self.apps[0:-1]]
       # indexed by [ap,obj]
-      maps = [[any(am.multiply(self.mask)) for am in ams] \
+      maps = [[np.any(am.multiply(self.mask)) for am in ams] \
                for ams in ap_masks]
-      flags = where(any(maps, axis=0), flags | 8, flags)
+      flags = np.where(np.any(maps, axis=0), flags | 8, flags)
       phot_table['flags'] = flags
       self.phot = phot_table
 
@@ -984,35 +1035,35 @@ def NN1(phot, std_key, inst_key='ap2', sigma=3, niter=3, fthresh=0.3):
    j, the differece m_inst(i) - m_inst(j) should be close to
    m_stand(i) - m_stand(j).'''
 
-   idiff = phot[inst_key][newaxis,:] - phot[inst_key][:,newaxis]
-   sdiff = phot[std_key][newaxis,:] - phot[std_key][:,newaxis]
-   oids = indices(idiff.shape)
+   idiff = phot[inst_key][np.newaxis,:] - phot[inst_key][:,np.newaxis]
+   sdiff = phot[std_key][np.newaxis,:] - phot[std_key][:,np.newaxis]
+   oids = np.indices(idiff.shape)
 
    # Now we are only interested in the upper-triangular portion by symmetry
-   idiff = triu(idiff).ravel()
-   sdiff = triu(sdiff).ravel()
-   oid1 = triu(oids[0]).ravel()
-   oid2 = triu(oids[1]).ravel()
+   idiff = np.triu(idiff).ravel()
+   sdiff = np.triu(sdiff).ravel()
+   oid1 = np.triu(oids[0]).ravel()
+   oid2 = np.triu(oids[1]).ravel()
 
    # Now raval() and take out the zeros lower triangular and diagonal as well
    # as the supernova object
-   gids = greater(oid1, 0) & greater(oid2,0)
-   gids = gids*~equal(oid1,oid2)   # remove the trivial cases
+   gids = np.greater(oid1, 0) & np.greater(oid2,0)
+   gids = gids*~np.equal(oid1,oid2)   # remove the trivial cases
    idiff = idiff[gids]
    sdiff = sdiff[gids]
    oid1 = oid1[gids]
    oid2 = oid2[gids]
 
-   bids = isnan(sdiff-idiff)   # should give all False
+   bids = np.isnan(sdiff-idiff)   # should give all False
    omit = []
    thresh = int(len(phot)*fthresh)
    # Now we look for outliers
    for i in range(niter):
-      mad = 1.5*median(absolute(sdiff-idiff)[~bids])
-      bids = greater(absolute(sdiff-idiff), sigma*mad)
+      mad = 1.5*np.median(np.absolute(sdiff-idiff)[~bids])
+      bids = np.greater(np.absolute(sdiff-idiff), sigma*mad)
       # These have the ids and counts of objects that produce large outliers
-      u1,c1 = unique(oid1[bids], return_counts=True)
-      u2,c2 = unique(oid1[bids], return_counts=True)
+      u1,c1 = np.unique(oid1[bids], return_counts=True)
+      u2,c2 = np.unique(oid1[bids], return_counts=True)
 
       # Because 1 outlier can cause N discrepancies, we want counts that
       # exceed some fraction of the whole (fthresh).
@@ -1059,51 +1110,51 @@ def compute_zpt(phot, std_key, stderr_key, inst_key='ap2', ierr_key='ap2er',
    Effects:
       if plot is a filename, a plot is made with that filename
    '''
-   flags = zeros((len(phot),), dtype=int)
+   flags = np.zeros((len(phot),), dtype=int)
 
    # First, we're going to look for objects with inconsistent differentials
    idiff,sdiff,oid1,oid2,omit = NN1(phot, std_key, inst_key)
    flags[omit] += 1
 
-   gids = greater(phot[objkey], 0)        # remove SN
-   gids = gids*equal(phot['flags'], 0)    # Get rid of photometry prolems
+   gids = np.greater(phot[objkey], 0)        # remove SN
+   gids = gids*np.equal(phot['flags'], 0)    # Get rid of photometry prolems
    gids = gids*between(phot[std_key], magmin, magmax)
-   gids = gids*less(phot[stderr_key], emagmax)*less(phot[ierr_key],emagmax)
-   flags[greater(phot[stderr_key],emagmax)+greater(phot[ierr_key],emagmax)] += 8
+   gids = gids*np.less(phot[stderr_key], emagmax)*np.less(phot[ierr_key],emagmax)
+   flags[np.greater(phot[stderr_key],emagmax)+np.greater(phot[ierr_key],emagmax)] += 8
    flags[~between(phot[std_key], magmin, magmax)] += 2
    gids[omit] = False   # get rid of objects found above
-   if not any(gids):
+   if not np.any(gids):
       mesg = "Not enough good photometric points to solve for zp"
       return None,None,None,mesg
    diffs = phot[std_key]- phot[inst_key]
    mn,md,st = sigma_clipped_stats(diffs[gids], sigma=3)
 
    # throw out 5-sigma outliers with respect to MAD
-   mad = 1.5*median(absolute(diffs - md))
-   gids = gids*less(absolute(diffs - md), 5*mad)
-   flags[~less(absolute(diffs - md), 5*mad)] += 4
-   if not any(gids):
+   mad = 1.5*np.median(np.absolute(diffs - md))
+   gids = gids*np.less(np.absolute(diffs - md), 5*mad)
+   flags[~np.less(np.absolute(diffs - md), 5*mad)] += 4
+   if not np.any(gids):
       mesg = "Too many outliers in the photometry, can't solve for zp"
       return None,None,None,mesg
 
    if use_pymc and pymc is not None:
-      mvar = array(phot[gids][ierr_key]**2 + phot[gids][stderr_key]**2)
+      mvar = np.array(phot[gids][ierr_key]**2 + phot[gids][stderr_key]**2)
       with pymc.Model() as model:
          zp = pymc.Uniform('zp', -10, 10)
          sigma = pymc.Uniform('sigma', 0, 5)
-         sigtot = sqrt(mvar + sigma**2)
-         mod = pymc.Normal('obs', mu=zp, sd=sigtot, observed=array(diffs[gids]))
+         sigtot = np.sqrt(mvar + sigma**2)
+         mod = pymc.Normal('obs', mu=zp, sd=sigtot, observed=np.array(diffs[gids]))
          trace = pymc.sample(5000, chains=4, cores=4, tune=1000, 
                progressbar=False)
-      zp = median(trace['zp'])
-      ezp = std(trace['zp'])
+      zp = np.median(trace['zp'])
+      ezp = np.std(trace['zp'])
    else:
       # Weight by inverse variance
-      wts = power(phot[ierr_key]**2 + phot[stderr_key]**2,-1)*gids
+      wts = np.power(phot[ierr_key]**2 + phot[stderr_key]**2,-1)*gids
 
       # zpins is used internall in photometry code as arbitrary zero-point
-      zp = sum(diffs*wts)/sum(wts) + zpins
-      ezp = sqrt(1.0/sum(wts))
+      zp = np.sum(diffs*wts)/np.sum(wts) + zpins
+      ezp = np.sqrt(1.0/np.sum(wts))
 
    if plot is not None:
       if isinstance(plot, plt.Axes):
@@ -1113,13 +1164,13 @@ def compute_zpt(phot, std_key, stderr_key, inst_key='ap2', ierr_key='ap2er',
          fig,ax = plt.subplots()
       ax.errorbar(phot[std_key], diffs + zpins - zp, fmt='o', 
             xerr=phot[stderr_key], 
-            yerr=sqrt(phot[ierr_key]**2 + phot[stderr_key]**2))
+            yerr=np.sqrt(phot[ierr_key]**2 + phot[stderr_key]**2))
       ax.plot(phot[std_key][~gids], diffs[~gids] + zpins - zp, 'o', mfc='red',
             zorder=100)
       ax.axhline(0, color='k')
       if use_pymc and pymc is not None:
-         ax.axhline(median(trace['sigma']), color='k', linestyle='--')
-         ax.axhline(median(-trace['sigma']), color='k', linestyle='--')
+         ax.axhline(np.median(trace['sigma']), color='k', linestyle='--')
+         ax.axhline(np.median(-trace['sigma']), color='k', linestyle='--')
 
       ax.set_xlim(12,20)
       ax.set_ylim(-1,1)
@@ -1141,7 +1192,7 @@ class FixedStarFinder(StarFinderBase):
       elif catalog is not None:
          self.tab = ascii.read(catalog)
          if 'RA' not in self.tab.colnames or 'DEC' not in self.tab.colnames \
-             or 'id' not in tab.colnames:
+             or 'id' not in self.tab.colnames:
             raise ValueError("Error:  the input catalog must have RA, DEC, and "\
                   "id columns")
       else:
@@ -1167,7 +1218,7 @@ class FixedStarFinder(StarFinderBase):
             self.tab['flux'][idx] = 0
          else:
             cutout = data[j0:j1,i0:i1]
-            self.tab[idx]['flux'] = sum(cutout.ravel())
+            self.tab[idx]['flux'] = np.sum(cutout.ravel())
       self.tab = self.tab[self.tab['xcentroid'] > 0]
 
       return(self.tab)
