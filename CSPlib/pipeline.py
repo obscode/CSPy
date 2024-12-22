@@ -503,7 +503,7 @@ class Pipeline:
                self.ZIDs[f] = obj
             else:
                # Next, try to lookup csp2 database
-               res = database.getNameCoords(obj)
+               res = database.getNameCoords(obj, db=cfg.remote.CSPdb)
                if res == -2:
                   self.log('Could not contact csp2 database, trying gdrive...')
                   ret = self.Rclone('CSP:Swope/templates/{}.nat'.format(obj),
@@ -520,7 +520,8 @@ class Pipeline:
                   ra = self.getHeaderData(f,'RA')
                   dec = self.getHeaderData(f,'DEC')
                   c = SkyCoord(ra, dec, unit=(u.hourangle, u.degree))
-                  res = database.getCoordsName(c.ra.value, c.dec.value)
+                  res = database.getCoordsName(c.ra.value, c.dec.value, 
+                                               db=cfg.remote.CSPdb)
                   if res == -1 or res == -2:
                      self.log('Coordinate lookup failed, assuming other...')
                      self.ignore.append(f)
@@ -746,7 +747,7 @@ class Pipeline:
                Nnn = np.sum(np.less(dists, 11.0/3600), axis=0)
                gids = gids*np.equal(Nnn,1)
                # Check for no more than 400 objects
-               while sum(gids) > 200:
+               while sum(gids) > 400:
                   maxdist += 1
                   Nnn = np.sum(np.less(dists, maxdist/3600), axis=0)
                   gids = gids*np.equal(Nnn,1)
@@ -1058,7 +1059,8 @@ class Pipeline:
          if self.update_db:
             self.log("Updating CSP database with photometry for {},{}".format(
                obj,filt))
-            res = database.updateSNPhot(obj, jd, filt, basename(fil), mag, emag)
+            res = database.updateSNPhot(obj, psf.date, filt, basename(fil), mag, emag,
+                                        db=cfg.remote.CSPdb)
             if res == -2:
                self.log('Failed to udpate csp2 database')
          self.finalPhot.append(fil)
@@ -1224,7 +1226,7 @@ class Pipeline:
             self.log("Updating CSP database with photometry for {},{}".format(
                obj,filt))
             res = database.updateSNPhot(obj, opt.date, filt, basename(fil), 
-                  mag, emag)
+                  mag, emag, db=cfg.remote.CSPdb)
             if res == -2:
                self.log('Failed to udpate csp2 database')
          self.finalPhot.append(fil)
@@ -1301,7 +1303,8 @@ class Pipeline:
          if self.update_db:
             self.log("Updating CSP database with photometry for {},{}".format(
                obj,filt))
-            res = database.updateSNPhot(obj, jd, filt, basename(fil), mag, emag)
+            res = database.updateSNPhot(obj, jd, filt, basename(fil), mag, emag,
+                                        db=cfg.remote.CSPdb)
             if res == -2:
                self.log('Failed to udpate csp2 database')
          self.finalPhot.append(fil)
@@ -1355,7 +1358,7 @@ class Pipeline:
                   nord=3, match=True, subt=True, quick_convolve=True, 
                   do_sex=True, thresh=3., sexdir=sex_dir, diff_size=35,bs=False,
                   usewcs=True, xwin=[200,1848], ywin=[200,1848], vcut=1e8,
-                  magcat=magcat, magcol='r')
+                  magcat=magcat, magcol='r', maxdist=700)
             if res != 0:
                self.log('Template subtraction failed for {}, skipping'.format(
                      fil))
