@@ -39,7 +39,7 @@ if not use_local:
       jobs = None
 
 
-def getStarCat(ra, dec, radius, mmin=-10, mmax=100):
+def getStarCat(ra, dec, radius, mmin=-10, mmax=100, cflags=False):
    '''Get a list of refcat2 stars plus their photometry.
 
    Args:
@@ -48,6 +48,7 @@ def getStarCat(ra, dec, radius, mmin=-10, mmax=100):
       radius (float):  cone radius in decimal degrees
       mmin (float): minimum magnitude to return
       mmax (float): maximum magnitude to return
+      cflags (bool): include contrib flags?
 
    Returns:
       astropy.table with catalog data or None if something went wrong
@@ -79,8 +80,16 @@ def getStarCat(ra, dec, radius, mmin=-10, mmax=100):
       tab = tab[gids]
  
       tab['objID'] = np.arange(1, len(tab)+1)
+<<<<<<< HEAD
       tab = tab['objID','RA','Dec','g','dg','gcontrib','r','dr','rcontrib',\
                 'i','di','icontrib']
+=======
+      if not cflags:
+         tab = tab['objID','RA','Dec','g','dg','r','dr','i','di']
+      else:
+         tab = tab['objID','RA','Dec','g','dg','gcontrib','r','dr','rcontrib','i','di',
+                   'icontrib']
+>>>>>>> 8d5e32d (Add option for returning contrib flags)
       tab.rename_column('Dec','DEC')
       for filt in ['g','r','i']:
          tab.rename_column(filt, filt+'mag')
