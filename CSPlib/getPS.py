@@ -24,6 +24,7 @@ def getRemoteFITS(url, tries=5):
       except:
          print("******** timeout, retrying *********")
          ntry += 1
+         return None
 
 def getImages(ra, dec, size=240, filt='g', verbose=False):
    '''Query the PS data server to get a list of images for the given 
@@ -89,7 +90,7 @@ def getFITS(ra, dec, size, filters, mosaic=False):
                     do we mosaic them? Requires reproject module if True
 
    Returns:
-      list of FITS instances
+      list of FITS instances or None if failed
    '''
    isize = int(size/PSscale)
    # If the size is big enough, we can hit the limits of PS fields, in which
@@ -109,6 +110,10 @@ def getFITS(ra, dec, size, filters, mosaic=False):
          baseurl = urls[0]
          #basefts = fits.open(baseurl)
          basefts = getRemoteFITS(baseurl)
+         if basefts is None:
+            # Timeouts
+            return None
+
          for url in urls[1:]:
             #ft = fits.open(url)
             ft = getRemoteFITS(url)
