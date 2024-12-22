@@ -54,7 +54,7 @@ def CSPname(fitsfile, idx=1, suffix='.fits', object=None):
 
    tel = fts[0].header.get('TELESCOP','UNK')
    tel = tel.split()[0]
-   ins = fts[0].header.get('INSTRUME','UNK')
+   ins = fts[0].header.get('INSTRUM','UNK')
    ins = ins.split()[0]
    
    args = dict(
