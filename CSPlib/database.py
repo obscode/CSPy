@@ -27,6 +27,10 @@ dbs = {'SBS': {
           'host':'localhost',
           'user':'cburns',
           'db':'Phot'},
+       'cspSSH': {
+          'host':'localhost',
+          'user':'csp',
+          'db':'Phot'},
        'POISE':{
           'host':'sql.obs.carnegiescience.edu',
           'user':'cburns',
@@ -65,7 +69,7 @@ else:
 def getConnection(db=default_db):
    global passwd, dbs
    if db not in dbs:
-      raise ValueError("db must be either SBS or LCO")
+      raise ValueError("db must be one of: " + ",".join(dbs.keys()))
    if passwd is None:
       resp = getpass.getpass(
             prompt="SQL passwd:")
@@ -337,7 +341,8 @@ def getLSCoords(SN, db=default_db):
    return(tab)
 
 
-def updateSNPhot(SN, JD, filt, fits, mag, emag, db=default_db, final=False):
+def updateSNPhot(SN, JD, filt, fits, mag, emag, fiterr=0, nstars=0, db=default_db, 
+                 final=False):
    '''Update the SN photometry in the database.
 
    Args:
@@ -377,9 +382,9 @@ def updateSNPhot(SN, JD, filt, fits, mag, emag, db=default_db, final=False):
    else:
       SNid = 0
 
-   c.execute('INSERT INTO MAGSN (night,field,obj,filt,fits,mag,err,jd) '\
-             'VALUES (%s,%s,%s,%s,%s,%s,%s,%s)', 
-             (t, SN, SNid, filt, fits, mag, emag, JD))
+   c.execute('INSERT INTO MAGSN (night,field,obj,filt,fits,mag,err,jd,nstars,fiterr) '\
+             'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)', 
+             (t, SN, SNid, filt, fits, mag, emag, JD, nstars,fiterr))
 
 
    db.close()
