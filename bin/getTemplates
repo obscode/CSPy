@@ -132,7 +132,6 @@ for sn,ra,dec in l:
       dists = np.sqrt(np.power(cat['RA']-ra,2)*np.cos(dec*np.pi/180)**2 + 
             np.power(cat['DEC']-dec,2))
       pids = []
-      symbs = ['s', 'o', 'd', '^', 'v','<','>'][::-1]
       for magmin,magmax in [(11,12),(12,13),(13,14),(14,15),(16,17)]:
          gids = np.greater_equal(cat['rmag'],magmin)*np.less(cat['rmag'],magmax)
          gids = gids*np.less(dists, chart_size/2.1)*\
