@@ -18,7 +18,7 @@ parser.add_argument('-scale', help='The image scale of the targets. Either a'\
                                    ' number or header keyword. Default: SCALE',
                               default='SCALE')
 parser.add_argument('-Nstars', help='Maximum number of stars to consider. The '\
-                                    'problem scales as N^2', type=int)
+                                    'problem scales as N^2', type=int, default=30)
 parser.add_argument('-plotfile', help='If given as a filename, plot the WCS')
 parser.add_argument('-tel', help='Telescope code (default SWO)', default='SWO')
 parser.add_argument('-ins', help='Instrument code (default NC)', default='NC')
