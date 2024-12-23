@@ -89,7 +89,8 @@ def getStarCat(ra, dec, radius, mmin=-10, mmax=100, cflags=False):
       for filt in ['g','r','i']:
          tab.rename_column(filt, filt+'mag')
          tab.rename_column('d'+filt, filt+'err')
-         tab.rename_column(filt+'contrib', filt+'con')
+         if cflags:
+            tab.rename_column(filt+'contrib', filt+'con')
       return tab
    elif jobs is not None:
       query = "select r.objid,r.RA,r.Dec,r.g,r.dg,r.gcontrib,r.r,r.dr,"\
