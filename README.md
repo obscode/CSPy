@@ -8,7 +8,7 @@ Currently in this repository:
 
 To install the python-based software, simply do:
    
-`python setup.py install`
+`pip install .`
 
 ## Note about Database access:
 
