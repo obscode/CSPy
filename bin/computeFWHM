@@ -11,6 +11,8 @@ parser.add_argument('-msig', help="Number of sigma for making mask for BG estima
                    type=float, default=2)
 parser.add_argument('-crsig', help='Cosmic ray sigma-threshold', type=float,
                     default=6.0)
+parser.add_argument('-profile', help="Fit 'Gauss' or 'Moffat' profile",
+                    default=None)
 parser.add_argument('-tel', help='Telescope code (default SWO)', default='SWO')
 parser.add_argument('-ins', help='Instrument code (default NC)', default='NC')
 parser.add_argument('-obj', help='Object name')
@@ -75,9 +77,15 @@ for ftsfile in args.fits:
    if args.tel == 'PS':
       # Add backbround rms to the error
       fts.error += fts.background.background_rms
-      profile = 'Moffat'
+      if args.profile is None:
+         profile = 'Moffat'
+      else:
+         profile = args.profile
    else:
-      profile = 'Gauss'
+      if args.profile is None:
+         profile = 'Gauss'
+      else:
+         profile = args.profile
    # Compute the FWHM
    fwhm,tab = fts.fitFWHM(plotfile=ftsfile.replace('.fits','_fwhm.pdf'), profile=profile)
    if fwhm < 0:

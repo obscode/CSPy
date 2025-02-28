@@ -217,7 +217,7 @@ def centroid2D(data, i0, j0, fwhm0, radius, var=None, gain=1, rdnoise=0,
    else:
       xm = fit.x_0
       ym = fit.y_0
-      fwhm = fit.f
+      fwhm = fit.fwhm
 
    # Now check to see if any masked pixels are "close" to the core
    if mask is not None:
