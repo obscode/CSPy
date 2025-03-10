@@ -29,7 +29,7 @@ for fil in files:
    done = False
    while True:
       name = filesystem.CSPname(fts, idx,'.fits',object=args.object)
-      if os.path.islink(name):
+      if os.path.exists(name):
          if os.path.basename(os.path.realpath(name)) == fil:
             done = True
             break
