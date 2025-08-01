@@ -13,14 +13,14 @@ p.add_argument('-justcalib', help='Just make the calibrations',
       action='store_true')
 p.add_argument('-workdir', default=None, type=str,
       help='Working folder with LOTS of space available')
-p.add_argument('-templates', default=cfg.data.templates, type=str,
-      help='Folder where galaxy host templates are found/stored')
 p.add_argument('-calibrations', default=cfg.data.calibrations, type=str,
       help='Folder where photometric calibrations from previous nights are')
-p.add_argument('-prefix', default='ccd', 
+p.add_argument('-prefix', default=cfg.data.prefix,
       help='prefix for data files to process.')
-p.add_argument('-suffix', default='c3.fits', 
+p.add_argument('-suffix', default=cfg.data.suffix, 
       help='suffix for datafiles to process')
+p.add_argument('-templates', default=cfg.data.templates, type=str,
+      help='Folder where galaxy host templates are found/stored')
 p.add_argument('-fsize', default=cfg.data.fsize, type=int, 
       help="Expected CCD filesize")
 p.add_argument('-poll', default=10, 
