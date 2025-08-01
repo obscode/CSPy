@@ -119,6 +119,8 @@ class Pipeline:
       self.ZIDs = {}
       # The standards
       self.stdIDs = {}
+      # Object names that are not found, but we can still reduced part way
+      self.Unknowns = []
       # These are files that are flagged as not needing template subtractions
       self.skipTemplate = []
       # These are files that are not identified or failed in some other way
@@ -193,23 +195,25 @@ class Pipeline:
 
       # Lists of types of files
       self.files = {
-            'dflat':{},  # dome flats
-            'sflat':{},  # Sky flats
-            'astro':{},  # astronomical objects of interest
-            'zero':[],   # bias frames
+            'dflat':{},  # dome flats (indexed by filter, opamp)
+            'sflat':{},  # Sky flats (indexed by filter, opamp)
+            'astro':{},  # astronomical objects of interest (indexed by filter,opamp)
+            'zero':{},   # bias frames (indexed by opamp)
             'none':[],   # ignored
       }
       for filt in filtlist: 
-         self.files['dflat'][filt] = []
-         self.files['sflat'][filt] = []
-         self.files['astro'][filt] = []
+         self.files['dflat'][filt] = {1:[],2:[],3:[],4:[]}
+         self.files['sflat'][filt] = {1:[],2:[],3:[],4:[]}
+         self.files['astro'][filt] = {1:[],2:[],3:[],4:[]}
 
-      self.biasFrame = None
-      self.shutterFrames = {}
-      self.flatFrame = {}
+      self.biasFrames = {}     # indexed by opamp
+      self.shutterFrames = {}  # indexed by opamp
+      self.flatFrames = {}      # indexed by filter,opamp
       for filt in filtlist:
-         self.flatFrame[filt] = None
+         self.flatFrames[filt] = {}
 
+      self.filters = []       # List of filters observed
+      self.opamps = []        # List of opamps to process
 
    def log(self, message):
       '''log the message to the log file and print it to the screen.'''
@@ -248,13 +252,13 @@ class Pipeline:
 
       fil = basename(filename)
       self.headerData[fil] = {}
-      for h in ['OBJECT','OBSTYPE','FILTER','EXPTIME','OPAMP','RA','DEC']:
+      for h in ['OBJECT','OBSTYPE','FILTER','OPAMP','EXPTIME','OPAMP','RA','DEC']:
          self.headerData[fil][h] = fts[0].header[h]
 
       # Figure out what kind of file we're dealing with
       obstype = fts[0].header['OBSTYPE']
-      obj = fts[0].header['OBJECT']
       filt = fts[0].header['FILTER']
+      opamp = fts[0].header['OPAMP']
       if obstype not in headers.obstypes:
          self.log("Warning!  File {} has unrecognized OBSTYPE {}".format(
             filename,obstype))
@@ -270,14 +274,27 @@ class Pipeline:
          self.short.append(fout)
 
       self.rawfiles.append(filename)
-      if obtype in ['zero','none']:
+      if obtype == 'none':
          self.files[obtype].append(fout)
+      elif obtype == 'zero':
+         if opamp in self.files['zero']:
+            self.files['zero'][opamp].append(fout)
+         else:
+            self.files['zero'][opamp] = [fout]
       else:
          if filt in self.files[obtype]:
-            self.files[obtype][filt].append(fout)
+            if opamp in self.files[obtype][filt]:
+               self.files[obtype][filt][opamp].append(fout)
+            else:
+               self.files[obtype][filt][opamp] = [fout]
          else:
             self.files['none'].append(fout)
 
+      # keep track of filters and opamps to deal with
+      if obtype == 'astro' or obtype == 'sflat':
+         if opamp not in self.opamps:  self.opamps.append(opamp)
+         if filt not in self.filters:  self.filters.append(filt)
+         
       self.log("New file {} added to queue, is of type {}".format(fout,obtype))
 
    def getNewFiles(self):
@@ -330,93 +347,106 @@ class Pipeline:
    def makeBias(self):
       '''Make BIAS frame from the data, or retrieve from other sources.'''
       # Can we make a bias frame?
-      bfile = join(self.workdir, 'Zero{}'.format(self.suffix))
-      if isfile(bfile):
-         self.biasFrame = fits.open(bfile, memmap=False)
-         self.log("Found existing BIAS: {}, using that".format(bfile))
-         return
-      if len(self.files['zero']) :
-         self.log("Found {} bias frames, building an average...".format(
-            len(self.files['zero'])))
-         self.biasFrame = ccdred.makeBiasFrame(self.files['zero'], 
-               outfile=bfile)
-         self.log("BIAS frame saved to {}".format(bfile))
-      else:
-         # We need a backup BIAS frame
-         res = self.Rclone(
-               "CSP:Swope/Calibrations/latest/Zero{}".format(self.suffix),
-               self.workdir)
-         if res == 0:
-            self.log("Retrieved BIAS frame from latest reductions")
-            self.biasFrame = fits.open(join(self.workdir, 
-               'Zero{}'.format(self.suffix)), memmap=False)
+      for opamp in self.opamps:
+         bfile = join(self.workdir, 'Zeroc{}.fits'.format(opamp))
+         if isfile(bfile):
+            self.biasFrames[opamp] = fits.open(bfile, memmap=False)
+            self.log("Found existing BIAS: {}, using that".format(bfile))
+            #return
+            continue
+         if len(self.files['zero'][opamp]) :
+            self.log("Found {} bias frames, building an average...".format(
+               len(self.files['zero'][opamp])))
+            self.biasFrames[opamp] = ccdred.makeBiasFrame(self.files['zero'][opamp], 
+                  outfile=bfile)
+            self.log("BIAS frame saved to {}".format(bfile))
          else:
-            cfile = join(self.calibrations, "CAL", "Zero{}".format(
-               self.suffix))
-            self.biasFrame = fits.open(cfile)
-            self.biasFrame.writeto(bfile, output_verify='ignore')
-            self.log("Retrieved backup BIAS frame from {}".format(cfile))
+            # We need a backup BIAS frame
+            cfile = join(self.calibrations, "CAL", "Zeroc{}.fits".format(
+               opamp))
+            if os.path.exists(cfile):
+               self.biasFrames[opamp] = fits.open(cfile)
+               self.biasFrames[opamp].writeto(bfile, output_verify='ignore')
+               self.log("Retrieved backup BIAS frame from {}".format(cfile))
+            else:
+               res = self.Rclone(
+                     "CSP:Swope/Calibrations/latest/Zeroc{}.fits".format(opamp),
+                     self.workdir)
+               if res == 0:
+                  self.log("Retrieved BIAS frame from latest reductions")
+                  self.biasFrames[opamp] = fits.open(join(self.workdir, 
+                     'Zeroc{}.fits'.format(opamp)), memmap=False)
+               else:
+                  print("Error! could not make BIAS for c{}, or find it in calibration "\
+                        " library".format(opamp))
+                  self.biasFrames[opamp] = None
 
    def makeFlats(self):
       '''Make flat Frames from the data or retrieve from backup sources.'''
 
-      for filt in filtlist:
-         fname = join(self.workdir, "SFlat{}{}".format(filt,
-               self.suffix))
-         if isfile(fname):
-             self.flatFrame[filt] = fits.open(fname, memmap=False)
-             self.log("Found existing flat {}. Using that.".format(fname))
-             continue
-         if len(self.files['sflat'][filt]) > 3:
-            self.log("Found {} {}-band sky flats, bias and flux correcting..."\
-                  .format(len(self.files['sflat'][filt]), filt))
-            files = [self.getWorkName(f,'b') for f in self.files['sflat'][filt]]
-            self.flatFrame[filt] = ccdred.makeFlatFrame(files, outfile=fname)
-            self.log("Flat field saved to {}".format(fname))
-         else:
-            # Find the best flat based on date
-            # First, we need the current date JD
-            fts = fits.open(self.rawfiles[0])
-            # We don't have a JD in the header yet, so use EPOCH
-            jd = Time(fts[0].header['EPOCH'], format='decimalyear').jd
-
-            # Now get list of Flats we have in the database
-            cmd = [cfg.software.rclone, 'ls','--include',
-                   'ut*/SFlat{}{}'.format(filt,self.suffix),
-                   'CSP:Swope/Calibrations']
-
-            res = subprocess.run(cmd, stdout=subprocess.PIPE)
-            lines = res.stdout.decode('utf-8').split('\n')
-            lines = [line for line in lines if len(line) > 0]
-            flats = [line.split()[1] for line in lines]
-            if len(flats) > 0:
-               # Pick the closest
-               flat = closestNight(jd, flats)
-               res = self.Rclone("CSP:Swope/Calibrations/{}".format(flat),
-                        self.workdir)
-               if res == 0:
-                  self.log("Retrieved Flat SFlat{}{} from latest reductions".\
-                        format(filt,self.suffix))
-                  self.flatFrame[filt] = fits.open(fname, memmap=False)
+      for filt in self.filters:
+         for opamp in self.opamps:
+            fname = join(self.workdir, "SFlat{}c{}.fits".format(filt, opamp))
+            if isfile(fname):
+                self.flatFrames[filt][opamp] = fits.open(fname, memmap=False)
+                self.log("Found existing flat {}. Using that.".format(fname))
+                continue
+            if len(self.files['sflat'][filt][opamp]) > 3:
+               self.log("Found {} {}-band sky flats for c{}, bias and flux correcting..."\
+                     .format(len(self.files['sflat'][filt][opamp]), filt, opamp))
+               files = [self.getWorkName(f,'b') for f in self.files['sflat'][filt][opamp]]
+               self.flatFrames[filt][opamp] = ccdred.makeFlatFrame(files, outfile=fname)
+               self.log("Flat field saved to {}".format(fname))
             else:
+               # Get from calibration location
                cfile = join(self.calibrations, "CAL", 
-                     "SFlat{}{}".format(filt, self.suffix))
-               self.flatFrame[filt] = fits.open(cfile, memmap=False)
-               self.flatFrame[filt].writeto(fname)
-               self.log("Retrieved backup FLAT frame from {}".format(cfile))
+                     "SFlat{}c{}.fits".format(filt, opamp))
+               if os.path.exists(cfile):
+                  self.flatFrames[filt][opamp] = fits.open(cfile, memmap=False)
+                  self.flatFrames[filt][opamp].writeto(fname)
+                  self.log("Retrieved backup FLAT frame from {}".format(cfile))
+               else:
+                  # Find the best flat based on date
+                  # First, we need the current date JD
+                  fts = fits.open(self.rawfiles[0])
+                  # We don't have a JD in the header yet, so use EPOCH
+                  jd = Time(fts[0].header['EPOCH'], format='decimalyear').jd
+             
+                  # Now get list of Flats we have in the database
+                  cmd = [cfg.software.rclone, 'ls','--include',
+                         'ut*/SFlat{}{}'.format(filt,self.suffix),
+                         'CSP:Swope/Calibrations']
+             
+                  res = subprocess.run(cmd, stdout=subprocess.PIPE)
+                  if res != 0:
+                     print("Error:  can't contact CSP google drive")
+                     self.flatFrames[filt][opamp] = None
+                  lines = res.stdout.decode('utf-8').split('\n')
+                  lines = [line for line in lines if len(line) > 0]
+                  flats = [line.split()[1] for line in lines]
+                  if len(flats) > 0:
+                     # Pick the closest
+                     flat = closestNight(jd, flats)
+                     res = self.Rclone("CSP:Swope/Calibrations/{}".format(flat),
+                              self.workdir)
+                     if res == 0:
+                        self.log("Retrieved Flat SFlat{}{} from latest reductions".\
+                              format(filt,self.suffix))
+                        self.flatFrame[filt] = fits.open(fname, memmap=False)
 
    def BiasLinShutCorr(self):
       '''Do bias, linearity, and shutter corrections to all files except bias 
       frames.'''
-      if self.biasFrame is None:
-         self.log('Abort due to lack of bias frame')
-         raise RuntimeError("Error:  can't proceed without a bias frame!")
+      for opamp in self.opamps:
+         if self.biasFrames[opamp] is None:
+            self.log('Abort due to lack of bias frame for c{}'.format(opamp))
+            raise RuntimeError("Error:  can't proceed without a bias frame!")
       todo = []
       for f in self.rawfiles:
          base = basename(f)
          wfile = self.getWorkName(f, 'c')
          bfile = self.getWorkName(f, 'b')
-         if wfile not in self.files['zero'] and bfile not in self.bfiles:
+         if wfile not in self.files['zero'][opamp] and bfile not in self.bfiles:
             if isfile(bfile):
                self.bfiles.append(bfile)
                continue
@@ -424,15 +454,15 @@ class Pipeline:
 
       for f in todo:
          self.log('Bias correcting CCD frames...')
-         fts = ccdred.biasCorrect(f, overscan=True, frame=self.biasFrame)
+         opamp = self.getHeaderData(f,'OPAMP')
+         fts = ccdred.biasCorrect(f, overscan=True, frame=self.biasFrames[opamp])
          err = ccdred.makeSigmaMap(fts)
          # Get the correct shutter file
-         opamp = self.getHeaderData(f,'OPAMP')
          if opamp not in self.shutterFrames:
             shfile = join(self.calibrations, 'CAL', "SH{}.fits".format(opamp))
             self.shutterFrames[opamp] = fits.open(shfile, memmap=False)
-         fts = ccdred.LinearityCorrect(fts)
-         err = ccdred.LinearityCorrect(fts, sigma=err)
+         fts = ccdred.LinearityCorrect(fts, chip=opamp)
+         err = ccdred.LinearityCorrect(fts, sigma=err, chip=opamp)
          fts = ccdred.ShutterCorrect(fts, frame=self.shutterFrames[opamp])
          err = ccdred.ShutterCorrect(err, frame=self.shutterFrames[opamp])
          bfile = self.getWorkName(f, 'b')
@@ -447,26 +477,28 @@ class Pipeline:
       # Process files in 'astro' type that we haven't done yet and that have
       # been bias-corrected
       todo = []
-      for filt in self.files['astro']:
-         for f in self.files['astro'][filt]:
-            bfile = self.getWorkName(f, 'b')
-            ffile = self.getWorkName(f, 'f')
-            if bfile in self.bfiles and ffile not in self.ffiles:  
-               if isfile(ffile):
-                  self.ffiles.append(ffile)
-                  continue
-               todo.append(bfile)
+      for filt in self.filters:
+         for opamp in self.opamps:
+            for f in self.files['astro'][filt][opamp]:
+               bfile = self.getWorkName(f, 'b')
+               ffile = self.getWorkName(f, 'f')
+               if bfile in self.bfiles and ffile not in self.ffiles:  
+                  if isfile(ffile):
+                     self.ffiles.append(ffile)
+                     continue
+                  todo.append(bfile)
 
       for f in todo:
          filt = self.getHeaderData(f,'FILTER')
+         opamp = self.getHeaderData(f,'OPAMP')
          bfile = self.getWorkName(f, 'b')
          ffile = self.getWorkName(f, 'f')
          sfile1 = bfile.replace('.fits','_sigma.fits')
          sfile2 = ffile.replace('.fits','_sigma.fits')
-         if filt not in self.flatFrame:
-            raise RuntimeError("No flat for filter {}. Abort!".format(filt))
+         if filt not in self.flatFrames and opamp not in self.flatFrames[filt]:
+            raise RuntimeError("No c{} flat for filter {}. Abort!".format(opamp, filt))
          self.log("Flat field correcting {} --> {}".format(bfile,ffile))
-         fts = ccdred.flatCorrect(bfile, self.flatFrame[filt],
+         fts = ccdred.flatCorrect(bfile, self.flatFrames[filt][opamp],
                outfile=ffile)
          # Copying should be fine, since flat is scaled to have mode = 1.0
          os.system('cp {} {}'.format(sfile1,sfile2))
@@ -484,57 +516,71 @@ class Pipeline:
 
          # First, if this is a standard, and keep in different list
          if obj.find('CSF') == 0 or obj.find('PS') == 0:
-            self.log("This is a standard star field")
-            ref = join(self.templates, "{}_r.fits".format(obj))
-            if not isfile(ref):
-               ret = self.Rclone('CSP:Swope/templates/{}_r.fits'.format(obj),
-                     self.templates)
-               if ret != 0:
-                  self.log("Can't get reference image from gdrive. skipping")
-                  self.ignore.append(f)
-                  continue
-            # All's good, we'll consider it
-            self.stdIDs[f] = obj
-
-         else:
-            # First, check to see if the catalog exists locally
-            catfile = join(self.templates, obj+'.nat')
-            if isfile(catfile):
-               self.ZIDs[f] = obj
+            if obj in self.stdIDs.values():
+               # Seen this already, don't need to look again
+               self.stdIDs[f] = obj
             else:
-               # Next, try to lookup csp2 database
-               res = database.getNameCoords(obj, db=cfg.remote.CSPdb)
-               if res == -2:
-                  self.log('Could not contact csp2 database, trying gdrive...')
-                  ret = self.Rclone('CSP:Swope/templates/{}.nat'.format(obj),
+               self.log("This is a standard star field")
+               ref = join(self.templates, "{}_r.fits".format(obj))
+               if not isfile(ref):
+                  ret = self.Rclone('CSP:Swope/templates/{}_r.fits'.format(obj),
                         self.templates)
                   if ret != 0:
-                     self.log("Can't contact csp2 or gdrive, giving up!")
+                     self.log("Can't get reference image from gdrive. skipping")
                      self.ignore.append(f)
                      continue
+               # All's good, we'll consider it
+               self.stdIDs[f] = obj
+
+         else:
+            # Not a standard. First, check to see if the catalog exists locally
+            if obj in self.ZIDs.values():
+               self.ZIDs[f] = obj
+            elif obj in self.Unknowns:
+               self.ZIDs[f] = None
+               continue
+            else:
+               catfile = join(self.templates, obj+'.nat')
+               if isfile(catfile):
+                  self.ZIDs[f] = obj
+               else:
+                  # Next, try to lookup csp2 database
+                  res = database.getNameCoords(obj, db=cfg.remote.CSPdb)
+                  if res == -2:
+                     self.log('Could not contact csp2 database, trying gdrive...')
+                     ret = self.Rclone('CSP:Swope/templates/{}.nat'.format(obj),
+                           self.templates)
+                     if ret != 0:
+                        self.log("Can't contact csp2 or gdrive, giving up!")
+                        #self.ignore.append(f)
+                        self.Unknowns.append(obj)
+                        self.ZIDs[f] = None
+                        continue
+                     else:
+                        self.ZIDs[f] = obj
+                  elif res == -1:
+                     self.log('Object {} not found in database, trying coords'.\
+                           format(obj))
+                     ra = self.getHeaderData(f,'RA')
+                     dec = self.getHeaderData(f,'DEC')
+                     c = SkyCoord(ra, dec, unit=(u.hourangle, u.degree))
+                     res = database.getCoordsName(c.ra.value, c.dec.value, 
+                                                  db=cfg.remote.CSPdb)
+                     if res == -1 or res == -2:
+                        self.log('Coordinate lookup failed, assuming other...')
+                        #self.ignore.append(f)
+                        self.Unknowns.append(obj)
+                        self.ZIDs[f] = None
+                        continue
+          
+                     self.log('Found {} {} degrees from frame center'.format(
+                        res[0], res[3]))
+                     ra,dec = res[1],res[2]
+                     self.ZIDs[f] = res[0]
                   else:
                      self.ZIDs[f] = obj
-               elif res == -1:
-                  self.log('Object {} not found in database, trying coords'.\
-                        format(obj))
-                  ra = self.getHeaderData(f,'RA')
-                  dec = self.getHeaderData(f,'DEC')
-                  c = SkyCoord(ra, dec, unit=(u.hourangle, u.degree))
-                  res = database.getCoordsName(c.ra.value, c.dec.value, 
-                                               db=cfg.remote.CSPdb)
-                  if res == -1 or res == -2:
-                     self.log('Coordinate lookup failed, assuming other...')
-                     self.ignore.append(f)
-                     continue
-         
-                  self.log('Found {} {} degrees from frame center'.format(
-                     res[0], res[3]))
-                  ra,dec = res[1],res[2]
-                  self.ZIDs[f] = res[0]
-               else:
-                  self.ZIDs[f] = obj
 
-            # At this point, self.ZIDS[f] is the ZTF ID
+            # Now for host galaxy template. At this point, self.ZIDS[f] is the ZTF ID
             if filt in ['B','V']:
                tmpname = "{}_g.fits".format(self.ZIDs[f])
             else:
@@ -609,25 +655,42 @@ class Pipeline:
             fts.close()
             continue
 
-         # Now, we need to rotate 90 degrees to match up with the sky
+         # Now, we need to rotate appropriately to fit the sky. This 
+         # depends on OPAMP, since they are read out differently
          if 'ROTANG' not in fts[0].header:
-            fts[0].data = fts[0].data.T
-            fts[0].data = fts[0].data[:,::-1]
+            opamp = fts[0].header['OPAMP']
+            if opamp == 1:
+               fts[0].data = fts[0].data.T[::-1,:]
+            elif opamp == 2:
+               fts[0].data = fts[0].data.T[:,:]
+            elif opamp == 3:
+               fts[0].data = fts[0].data.T[:,::-1]
+            else:
+               fts[0].data = fts[0].data.T[::-1,::-1]
             fts[0].header['ROTANG'] = 90
             fts.writeto(fil, overwrite=True)
+            fts.close()
             if isfile(fil.replace('.fits','_sigma.fits')):
                # Do the same transformation to the noise map
                fts = fits.open(fil.replace('.fits','_sigma.fits'))
-               fts[0].data = fts[0].data.T
-               fts[0].data = fts[0].data[:,::-1]
+               if opamp == 1:
+                  fts[0].data = fts[0].data.T[::-1,:]
+               elif opamp == 2:
+                  fts[0].data = fts[0].data.T[:,:]
+               elif opamp == 3:
+                  fts[0].data = fts[0].data.T[:,::-1]
+               else:
+                  fts[0].data = fts[0].data.T[::-1,::-1]
                fts[0].header['ROTANG'] = 90
                fts.writeto(fil.replace('.fits','_sigma.fits'), overwrite=True)
-
-         fts.close()
+               fts.close()
 
          if standard:
             wcsimage = join(self.templates, "{}_r.fits".format(
                ZID,filt))
+         elif ZID is None:
+            # Unidentified object, will still try WCS
+            wcsimage = None
          else:
             if filt in ['u','B','V']:
                wcsimage = join(self.templates, "{}_{}.fits".format(
@@ -635,7 +698,7 @@ class Pipeline:
             else:
                wcsimage = join(self.templates, "{}_{}.fits".format(
                   ZID,filt))
-         if os.path.isfile(wcsimage):
+         if wcsimage is not None and os.path.isfile(wcsimage):
             h = fits.getheader(wcsimage)
             if 'TELESCOP' not in h or h['TELESCOP'] != 'SkyMapper':
                #try:
@@ -705,6 +768,7 @@ class Pipeline:
          filt = self.getHeaderData(fil, 'FILTER')
          if not standard:
             obj = self.ZIDs[fil]
+            if obj is None: continue # Skip unidentified objects
             catfile = join(self.templates, '{}_LS.cat'.format(obj))
             natfile = join(self.templates, '{}.nat'.format(obj))
             if not os.path.isfile(natfile):
@@ -963,6 +1027,7 @@ class Pipeline:
             except:
                pass
          obj = self.ZIDs[fil]
+         if obj is None:  continue
          filt = self.getHeaderData(fil, 'FILTER')
          catfile = join(self.templates, '{}_LS.cat'.format(obj))
          cat = ascii.read(catfile)
@@ -1084,6 +1149,7 @@ class Pipeline:
             except:
                pass
          obj = self.ZIDs[fil]
+         if obj is None:  continue
          filt = self.getHeaderData(fil, 'FILTER')
          catfile = join(self.templates, '{}_LS.cat'.format(obj))
          cat = ascii.read(catfile)
@@ -1251,6 +1317,7 @@ class Pipeline:
             except:
                pass
          obj = self.ZIDs[fil]
+         if obj is None:  continue
          filt = self.getHeaderData(fil, 'FILTER')
          catfile = join(self.templates, '{}_LS.cat'.format(obj))
          cat = ascii.read(catfile)
@@ -1319,6 +1386,7 @@ class Pipeline:
             fil not in self.no_temp and fil not in self.short]
       for fil in todo:
          obj = self.ZIDs[fil]
+         if obj is None: continue
          diff = fil.replace('.fits','diff.fits')
 
          # Check to see if we skip template subtractions for this file
