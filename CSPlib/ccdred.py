@@ -381,7 +381,9 @@ def flatCorrect(image, flat, outfile=None, replace=1.0):
 def stitchSWONC(c1,c2,c3,c4):
    '''Given the 4 "chips" as FITS files (or FITS instances), create a new FITS
     image as a mosaic with the corect orientations (RA increases to lower x-pixel,
-    DEC increases to higher y-pixel).
+    DEC increases to higher y-pixel). It is assumed the images have already been
+    rotated/flipped so that increasing X pixels decrase RA and increasing Y-pixels
+    increase DEC
     
     Args:
        c1,c2,c2,c4 (str or fits):  filenames or fits instances to mosaic
@@ -396,12 +398,12 @@ def stitchSWONC(c1,c2,c3,c4):
 
    newarr = np.zeros((4096,4112), dtype=np.float32)
 
-   newarr[:2048,:2056] = c2[0].data.T[:,:]
-   newarr[:2048,2056:] = c3[0].data.T[:,::-1]
-   newarr[2048:,:2056] = c1[0].data.T[::-1,:]
-   newarr[2048:,2056:] = c4[0].data.T[::-1,::-1]
+   newarr[:2048,:2056] = c2[0].data[:,:]
+   newarr[:2048,2056:] = c3[0].data[:,:]
+   newarr[2048:,:2056] = c1[0].data[:,:]
+   newarr[2048:,2056:] = c4[0].data[:,:]
 
-   h = c1[0].header.copy()
+   h = c2[0].header.copy()
    if 'OPAMP' in h:  h['OPAMP'] = "1-4"
    if 'DATASEC' in h:  h['DATASEC'] = "[1:4112,1:4096]"
    hdu = fits.PrimaryHDU(data=newarr, header=h)
