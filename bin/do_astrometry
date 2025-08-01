@@ -22,14 +22,17 @@ parser.add_argument('-replace', action='store_true',
 parser.add_argument('-dir', 
    help='location of astrometry.net. Default:/usr/local/astrometry',
    default=cfg.software.astrometry)
-parser.add_argument('other', nargs=argparse.REMAINDER, 
-      help="Other arguments passwd to solve-field")
+parser.add_argument('-extra', help="Other arguments passwd to solve-field, "\
+                    "separated by commas")
 parser.add_argument('-v', action='store_true', help='Produce verbose output')
 args = parser.parse_args()
 
 bindir = os.path.join(args.dir, 'bin')
 
-ret = do_astrometry(args.files, args.trim, args.replace, args.dir, args.other,
+if args.extra is not None:
+   extra_args = args.extra.split(',')
+
+ret = do_astrometry(args.files, args.trim, args.replace, args.dir, extra_args,
       verbose=args.v)
 if ret is None:
    sys.stderr.write("Failed to solve WCS\n")
