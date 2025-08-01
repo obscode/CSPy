@@ -20,6 +20,17 @@ obstypes = {'dflat':'dflat',
             'pointing':'none',
             }
 
+# A map from WHEEL1,WHEEL2 values to simpler strings
+filter_map = {
+   "B (LC3013)":"B",
+   "V9844":"V",
+}
+
+filter_combos = {
+   ('ND 0.9','Halpha-off'):'H',
+   ('ND 0.9','7415'):'C',
+}
+
 def shift_center(header):
    '''Shift the RA/DEC from center of detector to center of chip.
    
@@ -80,8 +91,16 @@ def update_header(f, fout=None):
    if h['OBJECT'].find(' ') > 0:
       h['OBJECT'] = h['OBJECT'].replace(' ','_')
 
-   # Strip out any excess strings from FILTERS
-   if len(h['FILTER']) > 0:
+   # Deal with filters.
+   if h['FILTER'] == 'COMBO':
+      # Combination of two filters. Check map, otherwise concatenate
+      if (h['WHEEL1'],h['WHEEL2']) in filter_combos:
+         h['FILTER'] = filter_combos[(h['WHEEL1'],h['WHEEL2'])]
+      else:
+         w1 = h['WHEEL1'].replace(' ','')
+         w2 = h['WHEEL2'].replace(' ','')
+         h['FILTER'] = w1+'+'+w2
+   elif len(h['FILTER']) > 0:
       h['FILTER'] = h['FILTER'][0]
 
    # First, update the OBSTYPE, as per PREV_SWONC
