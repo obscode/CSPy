@@ -47,6 +47,15 @@ data = {
             'meansky':'@MEANSKY',
          },
       },
+      'DUP': {
+         'DC': {
+            'gain':2.0,
+            'rnoise':5.0,
+            'scale':0.259,
+            'datamax':60000,
+            'datamin':200
+         }
+      },
       'BAA': {
          'IM': {
             'scale':0.200,
@@ -120,6 +129,26 @@ data = {
             'datamax':'@MAXLIN',
          },
       },
+      'CTIO3': {
+         'ANDICAM-IR':{
+            'scale':0.2785,
+            'gain':3.6,
+            'rnoise':11.0,
+            'overscal':{
+               1:None,
+            },
+            'datasec':[1,500,1,500],
+            'statsec':[1,500,1,500],
+            'exposure':'@EXPTIME',
+            'filter':'@IRFLTID',
+            'date':'@JD',
+            'ncombine':'@NCOADDS',
+            'airmass':'@SECZ',
+            'object':'@OBJECT',
+            'datamax':40000,
+            'meansky':'@AVG_SKY'
+         }
+      }
    }
 
 def getTelIns(tel, ins):
