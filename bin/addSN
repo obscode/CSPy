@@ -1,4 +1,4 @@
-#!/Users/cburns/anaconda3/envs/phot/bin/python
+#!/usr/bin/env python
 
 from argparse import ArgumentParser
 
@@ -82,6 +82,7 @@ if survey is not None:
 else:
     survey = ""
 
+status = 1
 camp = opts.camp
 
 # Now loop through photometry and find last non-detection and first detection
