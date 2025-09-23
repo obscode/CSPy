@@ -49,6 +49,12 @@ cts = {('SWO','DC'):{'u':0.046,
        ('SWO','RC'):{'Y':0.00,
                      'J':0.016,
                      'H':-0.029},
+       ('SWO','RC1'):{'Y':0.00,      
+                     'J':0.039,
+                     'H':-0.029},
+       ('SWO','RC2'):{'Y':0.00,    # just an alias for RC
+                     'J':0.016,
+                     'H':-0.029},
        ('DUP','WI'):{'Y':-0.042,
                      'J':0.016,
                      'H':-0.029},
@@ -92,15 +98,19 @@ colors = {'B':('B','V'),
           'u':('u','g'),
           'g':('g','r'),
           'r':('r','i'),
-          'i':('r','i')}
+          'i':('r','i'),
+          'Y':('J','H'),
+          'J':('J','H'),
+          'H':('J','H')}
 
 kX = {('SWO','DC'):{
          'u':0.504, 'g':0.193, 'r':0.103, 'i':0.06, 'B':0.244, 'V':0.141},
       ('SWO','NC'):{
-         'u':0.507, 'g':0.186, 'r':0.090, 'i':0.051, 'B':0.231, 'V':0.136}
+         'u':0.507, 'g':0.186, 'r':0.090, 'i':0.051, 'B':0.231, 'V':0.136},
+      ('SWO','RC'):{ 'Y':0.044, 'J':0.076, 'H':0.041 },
+      ('DUP','WI'):{ 'Y':0.044, 'J':0.076, 'H':0.041 },
+      ('DUP','RC'):{ 'Y':0.044, 'J':0.076, 'H':0.041 },
       }
-
-
 
 
 def stand2nat(up,gp,rp,ip,B,V, tel='SWO', ins='DC'):
@@ -232,6 +242,29 @@ def getOptStandardColor(f1, f2, names=None):
 
    tab1 = getOptStandardMag(f1, names=names)
    tab2 = getOptStandardMag(f2, names=names)
+   tab = join(tab1, tab2, keys='OBJ')
+   tab['color'] = tab['mag_1'] - tab['mag_2']
+   with warnings.catch_warnings():    # disable sqrt warnings
+      warnings.simplefilter('ignore')
+      tab['ecolor'] = sqrt(tab['emag_1']**2 + tab['emag_2']**2)
+   tab = tab['OBJ','color','ecolor']
+   return tab
+
+def getNIRStandardColor(f1, f2, names=None):
+   '''Returns a table of standard colors. If `names` is supplied, only
+   return those names.
+
+   Args: 
+      f1 (str):  Filter 1 of the color (f1-f2) (one of JHK)
+      f2 (str):  Filter 2 of the color (f1-f2) (one of JHK)
+      names (list): list of stndards
+      
+   Returns:
+      tab (astropy.table):  table with OBJ, color, ecolor
+      '''
+
+   tab1 = getNIRStandardMag(f1, names=names)
+   tab2 = getNIRStandardMag(f2, names=names)
    tab = join(tab1, tab2, keys='OBJ')
    tab['color'] = tab['mag_1'] - tab['mag_2']
    with warnings.catch_warnings():    # disable sqrt warnings
