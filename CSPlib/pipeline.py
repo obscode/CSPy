@@ -228,6 +228,24 @@ class Pipeline:
       res = os.system(cmd)
       return res
 
+   def reportFiles(self):
+      '''Make a report on the files that have been found.'''
+      print("----  The following files have been found ---")
+      print("")
+      print("Files not used/identified:",len(self.files['none']))
+      print("Bias:")
+      for opamp in self.files['zero']:
+         print("\tC{}: {}".format(opamp, len(self.files['zero'][opamp])))
+
+      for typ in self.files:
+         if typ == 'none' or typ =='zero': 
+            continue
+         print(typ+":")
+         for filt in self.files[typ]:
+            print("\t"+filt+":")
+            for opamp in self.files[typ][filt]:
+               print("\t\tC{}: {} files".format(opamp,len(self.files[typ][filt][opamp])))
+
    def addFile(self, filename):
       '''Add a new file to the pipeline. We need to do some initial fixing
       of header info, then figure out what kind of file it is, then add
@@ -288,7 +306,7 @@ class Pipeline:
             else:
                self.files[obtype][filt][opamp] = [fout]
          else:
-            self.files['none'].append(fout)
+            self.files[obtype][filt] = {opamp:[fout]}
 
       # keep track of filters and opamps to deal with
       if obtype == 'astro' or obtype == 'sflat':
@@ -385,13 +403,16 @@ class Pipeline:
       '''Make flat Frames from the data or retrieve from backup sources.'''
 
       for filt in self.filters:
+         if filt not in self.flatFrames:
+            self.flatFrames[filt] = {}
          for opamp in self.opamps:
             fname = join(self.workdir, "SFlat{}c{}.fits".format(filt, opamp))
             if isfile(fname):
                 self.flatFrames[filt][opamp] = fits.open(fname, memmap=False)
                 self.log("Found existing flat {}. Using that.".format(fname))
                 continue
-            if len(self.files['sflat'][filt][opamp]) > 3:
+            if filt in self.files['sflat'] and opamp in self.files['sflat'][filt] and \
+                  len(self.files['sflat'][filt][opamp]) > 3:
                self.log("Found {} {}-band sky flats for c{}, bias and flux correcting..."\
                      .format(len(self.files['sflat'][filt][opamp]), filt, opamp))
                files = [self.getWorkName(f,'b') for f in self.files['sflat'][filt][opamp]]
@@ -495,8 +516,11 @@ class Pipeline:
          ffile = self.getWorkName(f, 'f')
          sfile1 = bfile.replace('.fits','_sigma.fits')
          sfile2 = ffile.replace('.fits','_sigma.fits')
-         if filt not in self.flatFrames and opamp not in self.flatFrames[filt]:
-            raise RuntimeError("No c{} flat for filter {}. Abort!".format(opamp, filt))
+         if filt not in self.flatFrames or opamp not in self.flatFrames[filt] or \
+            self.flatFrames[filt][opamp] is None:
+            print("No c{} flat for filter {}, skipping".format(opamp, filt))
+            self.ignore.append(ffile)
+            continue
          self.log("Flat field correcting {} --> {}".format(bfile,ffile))
          fts = ccdred.flatCorrect(bfile, self.flatFrames[filt][opamp],
                outfile=ffile)
@@ -1467,6 +1491,8 @@ class Pipeline:
       for fil in files:
          self.addFile(fil)
 
+      self.reportFiles()
+
       self.makeBias()
       self.BiasLinShutCorr()
       self.makeFlats()
@@ -1523,6 +1549,7 @@ class Pipeline:
             self.subPSFPhotometry()
          else:
             self.subphotometry()
+         done = True
 
       self.log("Pipeline stopped normally at {}".format(
          time.strftime('%Y/%m/%d %H:%M:%S')))

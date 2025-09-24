@@ -29,7 +29,11 @@ filter_map = {
 
 filter_combos = {
    ('ND 0.9','Halpha-off'):'H',
+   ('ND-0.9','Halpha-off'):'H',
+   ('ND-09','Halpha-off'):'H',
    ('ND 0.9','7415'):'C',
+   ('ND-0.9','7415'):'C',
+   ('ND-09','7415'):'C',
 }
 
 def shift_center(header):
