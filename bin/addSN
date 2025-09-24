@@ -7,6 +7,8 @@ args.add_argument('SN', help='Name of the SN')
 args.add_argument('-camp', help='Campaign (e.g., 2002B)', default='2025B')
 args.add_argument('-qs', help='Queues to add (comma-separated) [OptPhot,NIRPhot,OptSpec,NIRSpec',
                   default='OptPhot')
+args.add_argument('-status', help="Status flag (Active, Inactive, etc)",
+                  default="Active")
 args.add_argument('-db', help="name of the database", default="cspSSH")
 
 opts = args.parse_args()
@@ -16,6 +18,22 @@ from CSPlib.database import getConnection,camp2num
 import sys
 from astropy.time import Time
 import numpy as np
+
+status_str = {'Active':1,
+              'Inactive':2,
+              'Classification':3,
+              'Done':4,
+              'Template':5,
+              'Subtracted':6,
+              'Definitive':7,
+              'Rescued':8,
+              'Followup':9}
+
+if opts.status not in status_str:
+    print("Error:  status flags should be one of:")
+    print("  {}".format(','.join(list(status_str.keys()))))
+    sys.exit(1)
+status = status_str[opts.status]
 
 data = getTNS(opts.SN)
 
@@ -64,7 +82,6 @@ if survey is not None:
 else:
     survey = ""
 
-status = 1
 camp = opts.camp
 
 # Now loop through photometry and find last non-detection and first detection
@@ -96,7 +113,7 @@ print(f"Magnitude:   {det_mag}")
 print(f"Host:        {hostname}")    
 print(f"zc:          {zc}")    
 print(f"Survey:      {survey}")    
-print(f"Status:      Active")    
+print(f"Status:      {status}")    
 print(f"Campaign:    {camp}")    
 print(f"Queues:      {opts.qs}")    
            
@@ -117,7 +134,7 @@ fs = 'SN,TYPE,RA,DE,ZC,DMAG,HOST,SURVEY,'\
 vs = ','.join(['%s' for i in fs.split(',')])
 query = f"INSERT INTO SNList ({fs}) VALUES ({vs})"
 c.execute(query, (opts.SN,objtype,ra,dec,zc,det_mag,hostname,
-                  survey,1,camp2num(camp),lnd_jd,'E',opts.SN,PSN_name,
+                  survey,status,camp2num(camp),lnd_jd,'E',opts.SN,PSN_name,
                   QSWO,QFIRE,QRC,QWFCCD))
 db.close()
 
