@@ -388,6 +388,29 @@ def PSstand2nat(gp,rp,ip, egp=0, erp=0, eip=0, tel='SWO', ins='NC'):
       tab[col].mask = less(gmr, -0.35) | greater(gmr, 1.56)
    return tab
 
+def PSnat2stand(g,r,i, eg=0, er=0, ei=0, tel='SWO', ins='NC'):
+   '''Take natural CSP g,r,i and convert to PANstarrs g,r,i. This is
+   done through the inverse of the color terms'''
+   if tel != 'SWO' or ins != 'NC':
+      raise ValueError('telescope {} and instrument {} do not have color'\
+            'terms defined'.format(tel,ins))
+                       
+   # First, convert from g-r (CSP) . to g-r (PS)
+   gmr_p = (g - r - 0.027 - 0.0158)/(0.0865 - 0.0085 + 1)
+   vgmr_p = eg**2 + er**2
+   g_p = g - 0.027 - 0.0865*gmr_p
+   eg_p = sqrt(0.0212**2 + eg**2 + 0.0865**2*vgmr_p)
+   r_p = r + 0.0158 - 0.0085*gmr_p
+   er_p = sqrt(0.022**2 + er**2 + 0.0158**2*vgmr_p)
+   i_p = i + 0.0166 + 0.0344*gmr_p
+   ei_p = sqrt(0.023**2 + ei**2 + 0.0344**2*vgmr_p)
+   tab = Table([g_p,eg_p,r_p,er_p,i_p,ei_p], 
+               names=['gp','egp','rp','erp','ip','eip'], masked=True)
+   for col in tab.colnames:   
+      # format and apply mask based on range of g-r from CSP LS sample
+      tab[col].info.format='%.3f'
+   return tab
+
 with open(os.path.join(basedir, 'SM_tcks.pkl'),'rb') as fin:
    SM_tcks = pickle.load(fin)
 def SMstand2nat(gp,rp,ip, egp=0, erp=0, eip=0, tel='SWO', ins='NC'):

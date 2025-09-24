@@ -1348,12 +1348,12 @@ class Pipeline:
          else:
             template = stemplate
 
-         obs = ImageMatch.Observation(fil, scale=0.435, saturate=4e4, 
-               reject=True, snx='SNRA', sny='SNDEC', magmax=22,
-               magmin=11)
-         ref = ImageMatch.Observation(template, scale=0.25, saturate=6e4,
-               reject=True, magmax=22, magmin=11)
          try:
+            obs = ImageMatch.Observation(fil, scale=0.435, saturate=4e4, 
+                  reject=True, snx='SNRA', sny='SNDEC', magmax=22,
+                  magmin=11)
+            ref = ImageMatch.Observation(template, scale=0.25, saturate=6e4,
+                  reject=True, magmax=22, magmin=11)
             res = obs.GoCatGo(ref, skyoff=True, pwid=11, perr=3.0, nmax=100, 
                   nord=3, match=True, subt=True, quick_convolve=True, 
                   do_sex=True, thresh=3., sexdir=sex_dir, diff_size=35,bs=False,

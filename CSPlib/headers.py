@@ -91,6 +91,8 @@ def update_header(f, fout=None):
       obstype = 'focus'
    elif exptype == 'bias':
       obstype = 'bias'
+   elif exptype == 'flat':
+      obstype = 'sflat'
    else:
       # Get rid of spaces!!!
       obj = obj.replace(' ','_')
