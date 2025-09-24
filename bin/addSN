@@ -1,0 +1,140 @@
+#!/Users/cburns/anaconda3/envs/phot/bin/python
+
+from argparse import ArgumentParser
+
+args = ArgumentParser(description="Add a SN to the database")
+args.add_argument('SN', help='Name of the SN')
+args.add_argument('-camp', help='Campaign (e.g., 2002B)', default='2025B')
+args.add_argument('-qs', help='Queues to add (comma-separated) [OptPhot,NIRPhot,OptSpec,NIRSpec',
+                  default='OptPhot')
+args.add_argument('-status', help="Status flag (Active, Inactive, etc)",
+                  default="Active")
+args.add_argument('-db', help="name of the database", default="cspSSH")
+
+opts = args.parse_args()
+
+from CSPlib.getTNS import getTNS
+from CSPlib.database import getConnection,camp2num
+import sys
+from astropy.time import Time
+import numpy as np
+
+status_str = {'Active':1,
+              'Inactive':2,
+              'Classification':3,
+              'Done':4,
+              'Template':5,
+              'Subtracted':6,
+              'Definitive':7,
+              'Rescued':8,
+              'Followup':9}
+
+if opts.status not in status_str:
+    print("Error:  status flags should be one of:")
+    print("  {}".format(','.join(list(status_str.keys()))))
+    sys.exit(1)
+status = status_str[opts.status]
+
+data = getTNS(opts.SN)
+
+if data is None:
+    print("Error:  object {} not found on TNS".format(opts.SN))
+    sys.exit(1)
+
+Queues = ["OptPhot", "NIRPhot", "OptSpec", "NIRspec"]
+
+qs = opts.qs.split(',')
+for q in qs:
+    if q not in Queues:
+        print("Error:  unkonwn queue",q)
+        sys.exit(1)
+QSWO = int("OptPhot" in qs)
+QRC = int("NIRPhot" in qs)
+QWFCCD = int("OptSpec" in qs)
+QFIRE = int("NIRSpec" in qs)
+
+ra = data['radeg']/15  # in decimal hours
+dec = data['decdeg']
+if 'discoverer_internal_name' in data:
+    PSN_name = data['discoverer_internal_name']
+else:
+    PSN_name = ""
+
+if 'object_type' in data:
+    objtype = data['object_type']['name']
+    if objtype.find('SN ') == 0:
+        # Get rid of leading SN
+        objtype = objtype[3:]
+
+hostname = data.get('hostname', "")
+z = data.get('host_redshift', None)
+if z is not None:
+    if z < 10:
+        zc = round(z * 299792.458,1)
+    else:
+        zc = z
+else:
+    zc = 0
+
+survey = data.get('reporting_group', None)
+if survey is not None:
+    survey = survey['group_name']
+else:
+    survey = ""
+
+camp = opts.camp
+
+# Now loop through photometry and find last non-detection and first detection
+lnd_jd = None
+det_mag = None
+if 'photometry' in data:
+    times = [p['jd'] for p in data['photometry']]
+    sids = np.argsort(times)
+    for id in sids:
+        p = data['photometry'][id]
+        if p['flux'] is None and det_mag is None:
+            # Still no detection, update lnd:
+            lnd_jd = p['jd']
+        else:
+            det_mag = p['flux']
+            break
+else:
+    det_mag = None
+    lnd_jd = Time.now().jd
+
+print("The following information was obtained:")
+print(f"SN:          {opts.SN}")    
+print(f"IAU Name:    {opts.SN}")
+print(f"PSN Name:    {PSN_name}")
+print(f"type:        {objtype}")
+print(f"RA/DEC:      {ra}/{dec}")    
+print(f"Julian Date: {lnd_jd}")
+print(f"Magnitude:   {det_mag}")
+print(f"Host:        {hostname}")    
+print(f"zc:          {zc}")    
+print(f"Survey:      {survey}")    
+print(f"Status:      {status}")    
+print(f"Campaign:    {camp}")    
+print(f"Queues:      {opts.qs}")    
+           
+print("")
+print("Shall I add this to the database? (y/n)")
+
+val = input("")
+if val != 'y':
+    print('Aborting')
+    sys.exit(1)
+
+db = getConnection(db=opts.db)
+c = db.cursor()
+
+fs = 'SN,TYPE,RA,DE,ZC,DMAG,HOST,SURVEY,'\
+    'ACTIVE,CAMP,AGERDATE,DATEMEANS,NAME_IAU,NAME_PSN,QSWO,QFIRE,'\
+    'QRC,QWFCCD'
+vs = ','.join(['%s' for i in fs.split(',')])
+query = f"INSERT INTO SNList ({fs}) VALUES ({vs})"
+c.execute(query, (opts.SN,objtype,ra,dec,zc,det_mag,hostname,
+                  survey,status,camp2num(camp),lnd_jd,'E',opts.SN,PSN_name,
+                  QSWO,QFIRE,QRC,QWFCCD))
+db.close()
+
