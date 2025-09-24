@@ -82,7 +82,6 @@ if survey is not None:
 else:
     survey = ""
 
-status = 1
 camp = opts.camp
 
 # Now loop through photometry and find last non-detection and first detection
