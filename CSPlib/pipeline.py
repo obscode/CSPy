@@ -485,9 +485,9 @@ class Pipeline:
          # First, if this is a standard, and keep in different list
          if obj.find('CSF') == 0 or obj.find('PS') == 0:
             self.log("This is a standard star field")
-            ref = join(self.templates, "{}_r.fits".format(obj))
+            ref = join(self.templates, "Standards/{}_r.fits".format(obj))
             if not isfile(ref):
-               ret = self.Rclone('CSP:Swope/templates/{}_r.fits'.format(obj),
+               ret = self.Rclone('CSP:Swope/templates/Standards/{}_r.fits'.format(obj),
                      self.templates)
                if ret != 0:
                   self.log("Can't get reference image from gdrive. skipping")
@@ -626,7 +626,7 @@ class Pipeline:
          fts.close()
 
          if standard:
-            wcsimage = join(self.templates, "{}_r.fits".format(
+            wcsimage = join(self.templates, "Standards/{}_r.fits".format(
                ZID,filt))
          else:
             if filt in ['u','B','V']:
