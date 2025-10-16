@@ -714,7 +714,7 @@ class Pipeline:
             allcat = ascii.read(natfile, fill_values=[('...',0)])
          else:
             obj = self.stdIDs[fil]
-            catfile = join(self.templates, '{}_LS.cat'.format(obj))
+            catfile = join(self.templates,'Standards','{}_LS.cat'.format(obj))
             allcat = getOptNaturalMag(filt)
             allcat.rename_column('OBJ','objID')
 
