@@ -21,7 +21,7 @@ dec_keys = ['DEC','DEC-D','DEC-OBS']
 
 
 def do_astrometry(files, trim=None, replace=False, dir='/usr/local/astrometry',
-      other=[], verbose=False):
+      other=[], overwrite=True, verbose=False):
    '''Gather data from the FITS files and run astrometry.net's solve-field.
 
    Args:
@@ -125,6 +125,8 @@ def do_astrometry(files, trim=None, replace=False, dir='/usr/local/astrometry',
          sf_args += ['--dec',str(dec)]
       
       sf_args.insert(0,filename)
+      if overwrite:
+          sf_args.append('--overwrite')
       
       e = os.path.join(bindir,'solve-field')
       if verbose:
