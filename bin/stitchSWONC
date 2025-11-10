@@ -8,6 +8,7 @@ parser = argparse.ArgumentParser(description=\
    "Given the 4 separate amplifyer FITS files (c1 .. c4), stitch them"\
    " together into a single 2x2 FITS file")
 parser.add_argument("base", help='Base of FITS file name, e.g. fcd1234')
+parser.add_argument("-r", help='Do rotation/flips first', action="store_true")
 args = parser.parse_args()
 
 l = []
@@ -18,7 +19,7 @@ for i in range(4):
         sys.exit(1)
     l.append(test)
 
-newfts = stitchSWONC(*l)
+newfts = stitchSWONC(*l, rotate=args.r)
 newfts.writeto(args.base+".fits")
 
 

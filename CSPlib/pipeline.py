@@ -540,21 +540,17 @@ class Pipeline:
 
          # First, if this is a standard, and keep in different list
          if obj.find('CSF') == 0 or obj.find('PS') == 0:
-            if obj in self.stdIDs.values():
-               # Seen this already, don't need to look again
-               self.stdIDs[f] = obj
-            else:
-               self.log("This is a standard star field")
-               ref = join(self.templates, "{}_r.fits".format(obj))
-               if not isfile(ref):
-                  ret = self.Rclone('CSP:Swope/templates/{}_r.fits'.format(obj),
-                        self.templates)
-                  if ret != 0:
-                     self.log("Can't get reference image from gdrive. skipping")
-                     self.ignore.append(f)
-                     continue
-               # All's good, we'll consider it
-               self.stdIDs[f] = obj
+            self.log("This is a standard star field")
+            ref = join(self.templates, "Standards/{}_r.fits".format(obj))
+            if not isfile(ref):
+               ret = self.Rclone('CSP:Swope/templates/Standards/{}_r.fits'.format(obj),
+                     self.templates)
+               if ret != 0:
+                  self.log("Can't get reference image from gdrive. skipping")
+                  self.ignore.append(f)
+                  continue
+            # All's good, we'll consider it
+            self.stdIDs[f] = obj
 
          else:
             # Not a standard. First, check to see if the catalog exists locally
@@ -639,7 +635,14 @@ class Pipeline:
                        catfile))
                    self.ignore.append(f)
                    continue
-            tab = ascii.read(join(self.templates,"{}.nat".format(self.ZIDs[f])))
+            try:
+               tab = ascii.read(join(self.templates,"{}.nat".format(self.ZIDs[f])))
+            except:
+               self.log("*** Error reading {}, skipping.".format(
+                  join(self.templates,"{}.nat".format(self.ZIDs[f]))
+               ))
+               self.ignore.append(f)
+               continue
             if 0 not in tab['objID']:
                self.log('No SN object in catalog file, skipping...')
                self.ignore.append(f)
@@ -710,7 +713,7 @@ class Pipeline:
                fts.close()
 
          if standard:
-            wcsimage = join(self.templates, "{}_r.fits".format(
+            wcsimage = join(self.templates, "Standards/{}_r.fits".format(
                ZID,filt))
          elif ZID is None:
             # Unidentified object, will still try WCS
@@ -802,7 +805,7 @@ class Pipeline:
             allcat = ascii.read(natfile, fill_values=[('...',0)])
          else:
             obj = self.stdIDs[fil]
-            catfile = join(self.templates, '{}_LS.cat'.format(obj))
+            catfile = join(self.templates,'Standards','{}_LS.cat'.format(obj))
             allcat = getOptNaturalMag(filt)
             allcat.rename_column('OBJ','objID')
 
@@ -823,6 +826,10 @@ class Pipeline:
                   m = getattr(allcat[filt], 'mask', np.zeros(len(allcat), dtype=bool))
                   gids = gids*(~m)
                allcat = allcat[gids]
+               if len(allcat) > 5000:
+                  # Too many stars, randomly trim them down
+                  idx = np.random.choice(len(allcat), size=5000, replace=False)
+                  allcat = allcat[idx]
                gids = np.array(allcat['r'] < 20)
                #gids = gids*(allcat['r'] > 12)
                gids = gids*np.array(np.greater(allcat['er'], 0))
@@ -1490,7 +1497,7 @@ class Pipeline:
       self.makeBias()
       self.BiasLinShutCorr()
       self.makeFlats()
-      self.FlatCorr()
+      #self.FlatCorr()
 
    def sighandler(self, sig, frame):
       if sig == signal.SIGHUP:
@@ -1527,7 +1534,7 @@ class Pipeline:
          if not cfg.tasks.InitPhot:
             done = True
             continue
-         self.photometry(bgsubtract=False, crfix=True, computeFWHM=True)
+         self.photometry(bgsubtract=False, crfix=False, computeFWHM=True)
 
          if not cfg.tasks.TempSubt:
             done = True

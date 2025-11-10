@@ -26,8 +26,13 @@ parser.add_argument('-v', help='Be extra verbose', action='store_true')
 
 args = parser.parse_args()
 
+try:
+   scale = float(args.scale)
+except:
+   scale = args.scale
+
 for fil in args.images:
-   newfts = WCStoImage(args.wcsimage, fil, scale=args.scale, 
+   newfts = WCStoImage(args.wcsimage, fil, scale=scale, 
          thresh=args.t, threshw=args.t2, tel=args.tel,
          ins=args.ins, Nstars=args.Nstars, deblend_mc=args.dbmc,
          plotfile=args.plotfile,

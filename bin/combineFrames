@@ -1,0 +1,93 @@
+#!/usr/bin/env python
+
+from argparse import ArgumentParser
+parser = ArgumentParser(description='Combine sequential frames by summing')
+parser.add_argument('-prefix', help="FITS file prefix (default fcd)",
+                    default='fcd')
+parser.add_argument('-suffix', help="FITS file suffix (default c3.fits)",
+                    default='c3.fits')
+parser.add_argument('-maxint', help='maximum time intervale (s) between'\
+                    ' frames', type=float, default=1800.)
+parser.add_argument('-minexp', help='Minimum exposure time (s) to include',
+                    type=int, default=11)
+parser.add_argument('-report', help='Report only, do actually do the combines',
+                    action='store_true')
+
+args = parser.parse_args()
+from CSPlib.irafstuff import imcombine
+import os,sys
+from glob import glob
+from astropy.io import fits
+from astropy.time import Time
+import numpy as np
+
+filelist = glob(args.prefix+'*'+args.suffix)
+if len(filelist) < 2:
+    print("Error:  need at least two files")
+    sys.exit(1)
+
+filelist.sort()    # make sure in sequential order
+currentObject = None
+currentFilter = None
+currentJD = None
+combines = []
+JDs = []
+for fil in filelist:
+    fts = fits.open(fil)
+    expt = fts[0].header['EXPTIME']
+    if expt < args.minexp: continue
+    obj = fts[0].header['OBJECT']
+    filt = fts[0].header['FILTER']
+    JD = fts[0].header['JD']
+    fts.close()
+    if currentObject is None:
+        # first time through, set values
+        currentObject = obj
+        currentFilter = filt
+        currentJD = JD
+        combines.append([fil])
+        JDs.append([JD])
+        continue
+    if obj == currentObject and filt == currentFilter and \
+       (JD - currentJD)*3600 < args.maxint:
+        combines[-1].append(fil)
+        JDs[-1].append(JD)
+    else:
+        # Switch
+        currentObject = obj
+        currentFilter = filt
+        currentJD = JD
+        combines.append([fil])       
+        JDs.append([JD])
+
+if args.report:
+    #print results only:
+    print("Found the following files to combine:")
+for i in range(len(combines)):
+    comb = combines[i]
+    jds = JDs[i]
+    if len(comb) > 1:
+        fts = fits.open(comb[0])
+        h = fts[0].header
+        if args.report:
+            print("  {} ({})".format(h['OBJECT'],h['FILTER']))
+            print("     "+",".join(comb))
+            continue
+        fts.close()
+        fts = imcombine(comb, combine='sum', reject='none')
+        h = fts[0].header
+        newJD = np.mean(jds)
+        newdt = Time(newJD, format='jd').datetime
+        newutmid = "{:d}:{:d}:{:.1f}".format(newdt.hour, newdt.minute, 
+                                             newdt.second)
+        h['JD'] = newJD
+        h['UTMID'] = newutmid
+        s1 = comb[0].replace(args.prefix,'').replace(args.suffix,'')
+        s2 = comb[-1].replace(args.prefix,'').replace(args.suffix,'')
+        phdu = fits.PrimaryHDU(fts[0].data.astype(np.float32), header=fts[0].header)
+        fts = fits.HDUList([phdu])
+        fts.writeto('comb_{}_{}{}'.format(s1,s2,args.suffix),
+                    overwrite=True)
+        fts.close()
+
+        

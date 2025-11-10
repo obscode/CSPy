@@ -1,0 +1,93 @@
+#!/usr/bin/env python
+
+import argparse
+parser = argparse.ArgumentParser(description='Update SN status')
+parser.add_argument('SN', help="SN name")
+parser.add_argument('-db', help='database name')
+parser.add_argument('-poster', help='User name for status updates',
+                    default='burns')
+parser.add_argument('-status', help='Update status to STATUS')
+parser.add_argument('-info', help='Add an info argument')
+parser.add_argument('-priority', help='Update priority status')
+parser.add_argument('-observation', help='Update filter suite')
+parser.add_argument('-qs', help="Queues to add (comma-separated) "\
+                    "[OptPhot,NIRPhot,OptSpec,NIRSpec]")
+args = parser.parse_args()
+
+from CSPlib import database
+from astropy.time import Time
+import sys
+
+status_str = {'Active':1,
+              'Inactive':2,
+              'Classification':3,
+              'Done':4,
+              'Template':5,
+              'Subtracted':6,
+              'Definitive':7,
+              'Rescued':8,
+              'Followup':9}
+priorities = ['Calib', 'done', 'High', 'Low', 'Med-rare', 'Medium', 'Monthly',
+              'Raw-high', 'Template']
+
+Queues = ["OptPhot", "NIRPhot", "OptSpec", "NIRspec"]
+
+db = database.getConnection(db=args.db)
+c = db.cursor()
+
+N = c.execute('select ID from SNList where SN=%s or NAME_CSP=%s or'\
+          ' NAME_IAU=%s or NAME_PSN=%s', (args.SN,args.SN,args.SN,
+                                          args.SN))
+
+if N == 0:
+   print("Error:  {} not found in db".format(args.SN))
+   sys.exit(1)
+
+snid = c.fetchone()[0]
+
+if args.status is not None:
+   if args.status not in status_str:
+      print("Warning:  status {} not recognized, skipping".format(args.status))
+   else:
+      c.execute('UPDATE SNList SET STATUS=%s where ID=%s', 
+        (status_str[args.status],snid))
+
+if args.info is not None:
+   dt = Time.now().datetime
+   c.execute('INSERT INTO comments (time,poster,type,text,sn_id)'\
+      ' VALUES (%s,%s,%s,%s,%s)',
+      (dt,args.poster,"info", args.info,snid))
+if args.priority is not None:
+   if args.priority not in priorities:
+      print('Warning:  priority {} not recognized, skipping'.format(
+         args.priority))
+      print("Valid priorities are:")
+      print(",".join(priorities))
+   else:
+      dt = Time.now().datetime
+      c.execute('INSERT INTO comments (time,poster,type,text,sn_id)'\
+         ' VALUES (%s,%s,%s,%s,%s)',
+         (dt,args.poster,"priority", args.priority,snid))
+
+if args.observation is not None:
+   dt = Time.now().datetime
+   c.execute('INSERT INTO comments (time,poster,type,text,sn_id)'\
+      ' VALUES (%s,%s,%s,%s,%s)',
+      (dt,args.poster,"observation", args.observation,snid))
+
+if args.qs is not None:
+   qs = args.qs.split(',')
+   for q in qs:
+       if q not in Queues:
+           print("Error:  unkonwn queue",q)
+           sys.exit(1)
+   if "OptPhot" in qs:
+      c.execute('UPDATE SNList SET QSWO=1 WHERE ID=%s', (snid))
+   if "NIRPhot" in qs:
+      c.execute('UPDATE SNList SET QRC=1 WHERE ID=%s', (snid))
+   if "OptSpec" in qs:
+      c.execute('UPDATE SNList SET QWFCCD=1 WHERE ID=%s', (snid))
+   if "NIRSpec" in qs:
+      c.execute('UPDATE SNList SET QFIRE=1 WHERE ID=%s', (snid))
+   
+db.close()

@@ -14,27 +14,27 @@ data = {
             'lincorr':{
                1:{
                   'c1':1.0,
-                  'c2':-0.033,
-                  'c3':0.0057,
-                  'alpha':1.1150
+                  'c2':-0.0334,
+                  'c3':0.0063,
+                  'alpha':1.1266
                   },
                2:{
                   'c1':1.0,
-                  'c2':-0.012,
-                  'c3':0.0017,
-                  'alpha':1.0128,
+                  'c2':-0.0131,
+                  'c3':0.0024,
+                  'alpha':1.0260,
                   },
                3:{
                   'c1':1.0,
-                  'c2':-0.010,
-                  'c3':0.0014,
+                  'c2':-0.0108,
+                  'c3':0.0023,
                   'alpha':1.0,
                   },
                4:{
                   'c1':1.0,
-                  'c2':-0.014666,
-                  'c3':0.0027,
-                  'alpha':1.0696,
+                  'c2':-0.0157,
+                  'c3':0.0030,
+                  'alpha':1.0743,
                },
             },
             'exposure':'@NEWEXPT',
@@ -46,6 +46,15 @@ data = {
             'datamax':40000,
             'meansky':'@MEANSKY',
          },
+      },
+      'DUP': {
+         'DC': {
+            'gain':2.0,
+            'rnoise':5.0,
+            'scale':0.259,
+            'datamax':60000,
+            'datamin':200
+         }
       },
       'BAA': {
          'IM': {
@@ -120,6 +129,26 @@ data = {
             'datamax':'@MAXLIN',
          },
       },
+      'CTIO3': {
+         'ANDICAM-IR':{
+            'scale':0.2785,
+            'gain':3.6,
+            'rnoise':11.0,
+            'overscal':{
+               1:None,
+            },
+            'datasec':[1,500,1,500],
+            'statsec':[1,500,1,500],
+            'exposure':'@EXPTIME',
+            'filter':'@IRFLTID',
+            'date':'@JD',
+            'ncombine':'@NCOADDS',
+            'airmass':'@SECZ',
+            'object':'@OBJECT',
+            'datamax':40000,
+            'meansky':'@AVG_SKY'
+         }
+      }
    }
 
 def getTelIns(tel, ins):

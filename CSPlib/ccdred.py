@@ -95,6 +95,12 @@ def makeBiasFrame(blist, outfile=None, tel='SWO', ins='NC'):
          [OV[-1]]])
       A = A - OV2[np.newaxis,:]
 
+   if np.any(np.isnan(A)):
+      # Quick fix for Nan's
+      mask = ~np.isnan(A).ravel()
+      Aavg = np.mean(A.ravel()[mask])
+      A = np.where(np.isnan(A), Aavg, A)
+
    phdu = fits.PrimaryHDU(A.astype(np.float32), header=res[0].header)
    fts = fits.HDUList([phdu])
    if outfile is not None:
@@ -378,7 +384,7 @@ def flatCorrect(image, flat, outfile=None, replace=1.0):
       newfts.writeto(outfile, overwrite=True)
    return newfts
 
-def stitchSWONC(c1,c2,c3,c4):
+def stitchSWONC(c1,c2,c3,c4, rotate=False):
    '''Given the 4 "chips" as FITS files (or FITS instances), create a new FITS
     image as a mosaic with the corect orientations (RA increases to lower x-pixel,
     DEC increases to higher y-pixel). It is assumed the images have already been
@@ -387,6 +393,7 @@ def stitchSWONC(c1,c2,c3,c4):
     
     Args:
        c1,c2,c2,c4 (str or fits):  filenames or fits instances to mosaic
+       rotate (bool):  If True, rotate/invert the data before stitching
        
     Returns:
        fits instance of the mosaic'ed data'''
@@ -396,12 +403,27 @@ def stitchSWONC(c1,c2,c3,c4):
    if isinstance(c3, str): c3 = fits.open(c3)   
    if isinstance(c4, str): c4 = fits.open(c4)   
 
+   d1 = c1[0].data*1.0
+   d2 = c2[0].data*1.0
+   d3 = c3[0].data*1.0
+   d4 = c4[0].data*1.0
+
+   if rotate:
+      d1 = d1.T[::-1,::]
+      d2 = d2.T
+      d3 = d3.T[::,::-1]
+      d4 = d4.T[::-1,::-1]
+
+   for d in [d1,d2,d3,d4]:
+      if d.shape[0] != 2048 or d.shape[1] != 2056:
+         raise ValueError("Error:  input arrays are incorrect shape.")
+
    newarr = np.zeros((4096,4112), dtype=np.float32)
 
-   newarr[:2048,:2056] = c2[0].data[:,:]
-   newarr[:2048,2056:] = c3[0].data[:,:]
-   newarr[2048:,:2056] = c1[0].data[:,:]
-   newarr[2048:,2056:] = c4[0].data[:,:]
+   newarr[:2048,:2056] = d2   # bottom-left
+   newarr[:2048,2056:] = d3   # bottom-right
+   newarr[2048:,:2056] = d1   # top-left
+   newarr[2048:,2056:] = d4   # top-right
 
    h = c2[0].header.copy()
    if 'OPAMP' in h:  h['OPAMP'] = "1-4"

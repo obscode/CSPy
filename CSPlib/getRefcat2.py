@@ -102,13 +102,18 @@ def getStarCat(ra, dec, radius, mmin=-10, mmax=100, cflags=False):
       tab = tab[gids]
       
       tab['objID'] = np.arange(1, len(tab)+1)
-      tab = tab['objID','RA','Dec','g','dg','gcontrib','r','dr','rcontrib',\
-                'i','di','icontrib']
+      if not cflags:
+         tab = tab['objID','RA','Dec','g','dg','r','dr',\
+                   'i','di']
+      else:
+         tab = tab['objID','RA','Dec','g','dg','gcontrib','r','dr','rcontrib',\
+                   'i','di','icontrib']
       tab.rename_column('Dec','DEC')
       for filt in ['g','r','i']:
          tab.rename_column(filt, filt+'mag')
          tab.rename_column('d'+filt, filt+'err')
-         tab.rename_column(filt+'contrib', filt+'con')
+         if cflags:
+            tab.rename_column(filt+'contrib', filt+'con')
       #gids = np.greater_equal(tab['r'], mmin)*np.less_equal(tab['r'], mmax)
       return tab
 
