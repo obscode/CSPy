@@ -569,7 +569,14 @@ class Pipeline:
                        catfile))
                    self.ignore.append(f)
                    continue
-            tab = ascii.read(join(self.templates,"{}.nat".format(self.ZIDs[f])))
+            try:
+               tab = ascii.read(join(self.templates,"{}.nat".format(self.ZIDs[f])))
+            except:
+               self.log("*** Error reading {}, skipping.".format(
+                  join(self.templates,"{}.nat".format(self.ZIDs[f]))
+               ))
+               self.ignore.append(f)
+               continue
             if 0 not in tab['objID']:
                self.log('No SN object in catalog file, skipping...')
                self.ignore.append(f)
@@ -735,6 +742,10 @@ class Pipeline:
                   m = getattr(allcat[filt], 'mask', np.zeros(len(allcat), dtype=bool))
                   gids = gids*(~m)
                allcat = allcat[gids]
+               if len(allcat) > 5000:
+                  # Too many stars, randomly trim them down
+                  idx = np.random.choice(len(allcat), size=5000, replace=False)
+                  allcat = allcat[idx]
                gids = np.array(allcat['r'] < 20)
                #gids = gids*(allcat['r'] > 12)
                gids = gids*np.array(np.greater(allcat['er'], 0))
@@ -1396,7 +1407,7 @@ class Pipeline:
       self.makeBias()
       self.BiasLinShutCorr()
       self.makeFlats()
-      self.FlatCorr()
+      #self.FlatCorr()
 
    def sighandler(self, sig, frame):
       if sig == signal.SIGHUP:
@@ -1433,7 +1444,7 @@ class Pipeline:
          if not cfg.tasks.InitPhot:
             done = True
             continue
-         self.photometry(bgsubtract=False, crfix=True, computeFWHM=True)
+         self.photometry(bgsubtract=False, crfix=False, computeFWHM=True)
 
          if not cfg.tasks.TempSubt:
             done = True
