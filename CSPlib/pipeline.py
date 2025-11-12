@@ -760,6 +760,57 @@ class Pipeline:
 
       return
 
+   def makeMosaic(self):
+      '''If all OPAMP FITS files are located, mosaic them together into
+      one FITS image. Make sure zero-points are the same.'''
+
+      todo = [fil for fil in self.wcsSolved if fil not in self.ignore]
+      # Check all c's are there:
+      quads = {}
+      for fil in todo:
+         opamp = self.getHeaderData(fil, 'OPAMP')
+         base = fil.replace('c{}'.format(opamp),'')
+         if base not in quads:
+            quads[base]={opamp:fil}
+         else:
+            quads[base][opamp] = fil
+
+      for quad in quads:
+         cs = quads[quad]
+         if not (1 in cs and 2 in cs and 3 in cs and 4 in cs):
+            self.log("Warning:  did not find all OPAMPS for {}".format(base))
+            continue
+         skys = []     # sky values
+         ftss = []     # original fits files
+         sftss = []    # _sigma files
+         for c in [1,2,3,4]:
+            fts = fits.open(cs[c])
+            ftss.append(fts)
+            if isfile(cs[c].replace('.fits','_sigma.fits')):
+               sftss.append(fits.open(cs[c].replace('.fits','_sigma.fits')))
+            sky = fts[0].header.get('MEANSKY', None)
+            if sky is None:
+               # Check for background image
+               if isfile(cs[c].replace('.fits','_bg.fits')):
+                  bgdata = fits.getdata(cs[c].replace('.fits','_bg.fits'))
+                  sky = np.median(bgdata)
+               else:
+                  ap = ApPhot(cs[c])
+                  ap.model2DBackground(boxsize=100)
+                  sky = ap.background.background_median
+            skys.append(sky)
+         ftss[0][0].data = ftss[0][0].data * skys[2]/skys[0]
+         ftss[1][0].data = ftss[1][0].data * skys[2]/skys[1]
+         ftss[3][0].data = ftss[3][0].data * skys[2]/skys[3]
+         newfts = ccdred.stitchSWONC(*ftss)
+         newfts.writeto(quad, overwrite=True)
+         if len(sftss) == 4:
+            sftss[0][0].data = sftss[0][0].data * skys[2]/skys[0]
+            sftss[1][0].data = sftss[1][0].data * skys[2]/skys[1]
+            sftss[3][0].data = sftss[3][0].data * skys[2]/skys[3]
+            newfts = ccdred.stitchSWONC(*sftss)
+            newfts.writeto(quad.replace('.fits','_sigma.fits'), overwrite=True)
+
    def photometry(self, bgsubtract=False, crfix=False, computeFWHM=True):
       '''Using the PanSTARRS catalog, we do initial photometry on the field
       and determine a zero-point. Or, if we have stanard fields, we do
@@ -1535,6 +1586,9 @@ class Pipeline:
             done = True
             continue
          self.photometry(bgsubtract=False, crfix=False, computeFWHM=True)
+
+         if cfg.tasks.Mosaic:
+            self.makeMosaic()
 
          if not cfg.tasks.TempSubt:
             done = True
