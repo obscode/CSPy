@@ -45,7 +45,7 @@ for fil in files:
          os.rename(fil, filesystem.CSPname(fts, idx, '.fits', object=args.object))
 
    for suf in ['SN.fits','temp.fits','diff.fits','_zp.jpg',
-         '.phot0','.phot','diff.opt']:
+         '.phot0','.phot','diff.opt','_sigma.fits','_bg.fits','_bpm.fits']:
       newf = fil.replace('.fits',suf)
       if os.path.isfile(newf):
          target = filesystem.CSPname(fts, idx, suf, object=args.object)
