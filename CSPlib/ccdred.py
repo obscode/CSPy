@@ -370,11 +370,14 @@ def flatCorrect(image, flat, outfile=None, replace=1.0):
 
    if isinstance(flat, str):
       flatfts = fits.open(flat)
-      newhdr['COMMENT'] = "Flat field corrected using {}".format(flat)
+      flatfile = flat
    else:
       flatfts = flat
+   flatdate = flatfts.header['DATE-OBS']
+   newhdr['COMMENT'] = "Flat field corrected using {}({})".format(flat,flatdate)
 
-   corr = np.where(np.equal(flat[0].data, 0.0), replace, 
+
+   corr = np.where(np.equal(flatfts[0].data, 0.0), replace, 
          image[0].data/flat[0].data)
 
    newhdu = fits.PrimaryHDU(data=corr, header=newhdr)

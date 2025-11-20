@@ -4,6 +4,7 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 from math import floor
 from CSPlib import wairmass_for_lco_images
+from CSPlib import version
 
 obstypes = {'dflat':'dflat',
             'sflat':'sflat',
@@ -126,6 +127,9 @@ def update_header(f, fout=None):
    tsidh = int(floor(stmid.hour))
    tsidm = int(floor((stmid.hour-tsidh)*60))
    tsids = (stmid.hour-tsidh-tsidm/60)*3600
+
+   # Keep track of pipeline version used
+   h['PIPEVER'] = version
 
    h['TELESCOP'] = ("SWO", "Telescope. CSP Keyword")
    h['INSTRUM'] = ("NC", "Instrument. CSP Keyword")
