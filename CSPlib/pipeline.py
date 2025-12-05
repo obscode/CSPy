@@ -803,12 +803,18 @@ class Pipeline:
          ftss[1][0].data = ftss[1][0].data * skys[2]/skys[1]
          ftss[3][0].data = ftss[3][0].data * skys[2]/skys[3]
          newfts = ccdred.stitchSWONC(*ftss)
+         newfts[0].header['C3C1rat'] = skys[2]/skys[0]
+         newfts[0].header['C3C2rat'] = skys[2]/skys[1]
+         newfts[0].header['C3C4rat'] = skys[2]/skys[3]
          newfts.writeto(quad, overwrite=True)
          if len(sftss) == 4:
             sftss[0][0].data = sftss[0][0].data * skys[2]/skys[0]
             sftss[1][0].data = sftss[1][0].data * skys[2]/skys[1]
             sftss[3][0].data = sftss[3][0].data * skys[2]/skys[3]
             newfts = ccdred.stitchSWONC(*sftss)
+            newfts[0].header['C3C1rat'] = skys[2]/skys[0]
+            newfts[0].header['C3C2rat'] = skys[2]/skys[1]
+            newfts[0].header['C3C4rat'] = skys[2]/skys[3]
             newfts.writeto(quad.replace('.fits','_sigma.fits'), overwrite=True)
 
    def photometry(self, bgsubtract=False, crfix=False, computeFWHM=True):
