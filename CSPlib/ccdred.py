@@ -373,9 +373,10 @@ def flatCorrect(image, flat, outfile=None, replace=1.0):
       flatfile = flat
    else:
       flatfts = flat
-   flatdate = flatfts.header['DATE-OBS']
-   newhdr['COMMENT'] = "Flat field corrected using {}({})".format(flat,flatdate)
-
+   flatdate = flatfts[0].header['DATE-OBS']
+   flatfile = flatfts[0].header['FILENAME']
+   newhdr['COMMENT'] = "Flat field corrected using {} ({})".format(
+      flatfile,flatdate)
 
    corr = np.where(np.equal(flatfts[0].data, 0.0), replace, 
          image[0].data/flat[0].data)
