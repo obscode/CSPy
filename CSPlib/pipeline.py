@@ -107,6 +107,9 @@ class Pipeline:
       self.tmin = tmin
       self.update_db = update_db
 
+      # Some status values to avoid repeatedly trying unaccessible remotes
+      self._rclone_reachable = True
+
       # A list of all files we've dealt with so far
       self.rawfiles = []
       # A list of bad raw ccd files we want to ingore
@@ -115,6 +118,8 @@ class Pipeline:
       self.bfiles = []
       # A list of files that have been flat-fielded
       self.ffiles = []
+      # A list of files that have been mosaic'ed
+      self.mosaics = []
       # The ZTF designation for each identified object, indexed by ccd frame
       self.ZIDs = {}
       # The standards
@@ -224,8 +229,11 @@ class Pipeline:
    def Rclone(self, location, target='.'):
       '''Use rclone to get a file specified by "location" and put it
       in "target".'''
+      if not self._rclone_reachable:
+         return -3
       cmd = "{} copy {} {}".format(cfg.software.rclone, location, target)
       res = os.system(cmd)
+      if res != 0: self._rclone_reachable = False
       return res
 
    def reportFiles(self):
@@ -350,6 +358,10 @@ class Pipeline:
    def getHeaderData(self, fil, key):
       f = basename(fil)
       f = 'c'+f[1:]
+      if f in self.headerData:
+         return self.headerData[f][key]
+      # If a mosaic, try with 'c1' appended
+      f = 'c'+f[1:].replace('.fits','')+'c1.fits'
       return self.headerData[f][key]
 
    def getWorkName(self, fil, prefix):
@@ -395,8 +407,8 @@ class Pipeline:
                   self.biasFrames[opamp] = fits.open(join(self.workdir, 
                      'Zeroc{}.fits'.format(opamp)), memmap=False)
                else:
-                  print("Error! could not make BIAS for c{}, or find it in calibration "\
-                        " library".format(opamp))
+                  print("Error! could not make BIAS for c{}, or find it in "\
+                        "calibration library".format(opamp))
                   self.biasFrames[opamp] = None
 
    def makeFlats(self):
@@ -435,7 +447,7 @@ class Pipeline:
              
                   # Now get list of Flats we have in the database
                   cmd = [cfg.software.rclone, 'ls','--include',
-                         'ut*/SFlat{}{}'.format(filt,self.suffix),
+                         'ut*/SFlat{}c{}'.format(filt,opamp),
                          'CSP:Swope/Calibrations']
              
                   res = subprocess.run(cmd, stdout=subprocess.PIPE)
@@ -531,7 +543,7 @@ class Pipeline:
    def identify(self):
       '''Figure out the identities of the objects and get their data if
       we can.'''
-      todo = [f for f in self.ffiles if f not in self.ignore]
+      todo = [f for f in self.ffiles+self.mosaics if f not in self.ignore]
       for f in todo:
          if f in self.ZIDs or f in self.stdIDs:  continue   # done it already
          filt = self.getHeaderData(f, 'FILTER')
@@ -541,12 +553,12 @@ class Pipeline:
          # First, if this is a standard, and keep in different list
          if obj.find('CSF') == 0 or obj.find('PS') == 0:
             self.log("This is a standard star field")
-            ref = join(self.templates, "Standards/{}_r.fits".format(obj))
+            ref = join(self.templates, "Standards/{}_LS.cat".format(obj))
             if not isfile(ref):
-               ret = self.Rclone('CSP:Swope/templates/Standards/{}_r.fits'.format(obj),
-                     self.templates)
+               ret = self.Rclone('CSP:Swope/templates/Standards/{}_LS.cat'.\
+                     format(obj), self.templates)
                if ret != 0:
-                  self.log("Can't get reference image from gdrive. skipping")
+                  self.log("Can't get reference catalog from gdrive. skipping")
                   self.ignore.append(f)
                   continue
             # All's good, we'll consider it
@@ -737,7 +749,7 @@ class Pipeline:
             else:
                new = None
          else:
-               new = None
+            new = None
          if new is None:
             self.log("Fast WCS failed... resorting to astrometry.net")
             new = do_astrometry.do_astrometry([fil], replace=True,
@@ -764,7 +776,8 @@ class Pipeline:
       '''If all OPAMP FITS files are located, mosaic them together into
       one FITS image. Make sure zero-points are the same.'''
 
-      todo = [fil for fil in self.wcsSolved if fil not in self.ignore]
+      todo = [fil for fil in self.ffiles if fil not in self.ignore and \
+            fil not in self.mosaics]
       # Check all c's are there:
       quads = {}
       for fil in todo:
@@ -795,23 +808,26 @@ class Pipeline:
                   bgdata = fits.getdata(cs[c].replace('.fits','_bg.fits'))
                   sky = np.median(bgdata)
                else:
-                  ap = ApPhot(cs[c])
-                  ap.model2DBackground(boxsize=100)
-                  sky = ap.background.background_median
+                  with warnings.catch_warnings():
+                     warnings.simplefilter("ignore")
+                     ap = ApPhot(cs[c])
+                     ap.model2DBackground(boxsize=100)
+                     sky = ap.background.background_median
             skys.append(sky)
          ftss[0][0].data = ftss[0][0].data * skys[2]/skys[0]
          ftss[1][0].data = ftss[1][0].data * skys[2]/skys[1]
          ftss[3][0].data = ftss[3][0].data * skys[2]/skys[3]
-         newfts = ccdred.stitchSWONC(*ftss)
+         newfts = ccdred.stitchSWONC(*ftss, rotate=True)
          newfts[0].header['C3C1rat'] = skys[2]/skys[0]
          newfts[0].header['C3C2rat'] = skys[2]/skys[1]
          newfts[0].header['C3C4rat'] = skys[2]/skys[3]
          newfts.writeto(quad, overwrite=True)
+         self.mosaics.append(quad)
          if len(sftss) == 4:
             sftss[0][0].data = sftss[0][0].data * skys[2]/skys[0]
             sftss[1][0].data = sftss[1][0].data * skys[2]/skys[1]
             sftss[3][0].data = sftss[3][0].data * skys[2]/skys[3]
-            newfts = ccdred.stitchSWONC(*sftss)
+            newfts = ccdred.stitchSWONC(*sftss, rotate=True)
             newfts[0].header['C3C1rat'] = skys[2]/skys[0]
             newfts[0].header['C3C2rat'] = skys[2]/skys[1]
             newfts[0].header['C3C4rat'] = skys[2]/skys[3]
@@ -1582,6 +1598,9 @@ class Pipeline:
          self.BiasLinShutCorr()
          self.FlatCorr()
 
+         if cfg.tasks.Mosaic:
+            self.makeMosaic()
+
          self.identify()
          if not cfg.tasks.WCS:
             done = True
@@ -1592,9 +1611,6 @@ class Pipeline:
             done = True
             continue
          self.photometry(bgsubtract=False, crfix=False, computeFWHM=True)
-
-         if cfg.tasks.Mosaic:
-            self.makeMosaic()
 
          if not cfg.tasks.TempSubt:
             done = True
