@@ -423,12 +423,21 @@ class Pipeline:
                 self.flatFrames[filt][opamp] = fits.open(fname, memmap=False)
                 self.log("Found existing flat {}. Using that.".format(fname))
                 continue
-            if filt in self.files['sflat'] and opamp in self.files['sflat'][filt] and \
+            if filt in self.files['sflat'] and \
+                  opamp in self.files['sflat'][filt] and \
                   len(self.files['sflat'][filt][opamp]) > 3:
-               self.log("Found {} {}-band sky flats for c{}, bias and flux correcting..."\
-                     .format(len(self.files['sflat'][filt][opamp]), filt, opamp))
-               files = [self.getWorkName(f,'b') for f in self.files['sflat'][filt][opamp]]
-               self.flatFrames[filt][opamp] = ccdred.makeFlatFrame(files, outfile=fname)
+               self.log("Found {} {}-band sky flats for c{}, bias and flux "\
+                     "  correcting...".format(
+                         len(self.files['sflat'][filt][opamp]), filt, opamp))
+               files = [self.getWorkName(f,'b') for f \
+                       in self.files['sflat'][filt][opamp]]
+               if opamp == '1-4':
+                   # Use special statsec
+                   statsec = [300+2056,1600+2056,300,1600]
+               else:
+                   statsec = None
+               self.flatFrames[filt][opamp] = ccdred.makeFlatFrame(files, 
+                                            outfile=fname, statsec=statsec)
                self.log("Flat field saved to {}".format(fname))
             else:
                # Get from calibration location
@@ -776,30 +785,38 @@ class Pipeline:
       one FITS image. This is done to the bias-, shutter-, and linearly-
       corrected images (bcd*).'''
 
-      todo = [fil for fil in self.bfiles if fil not in self.ignore and \
-            fil not in self.mosaics]
+      todo = [fil for fil in self.bfiles if fil not in self.ignore]
       # Check all c's are there:
       quads = {}
       for fil in todo:
          opamp = self.getHeaderData(fil, 'OPAMP')
-         base = fil.replace('c{}'.format(opamp),'')
+         base = fil.replace(f'c{opamp}.fits','')
          if base not in quads:
             quads[base]={opamp:fil}
          else:
             quads[base][opamp] = fil
 
       for quad in quads:
+         if isfile(quad+"c1-4.fits"):
+            self.addFile(quad+"c1-4.fits")
+            continue
          cs = quads[quad]
          if not (1 in cs and 2 in cs and 3 in cs and 4 in cs):
             self.log("Warning:  did not find all OPAMPS for {}".format(base))
             continue
+         # We have at least one good mosaic:  add 'c1-4' to list of opamps
+         if '1-4' not in self.opamps: self.opamps.append('1-4')
+
          newfts = ccdred.stitchSWONC(cs[1],cs[2],cs[3],cs[4], rotate=True)
-         newfts.writeto(quad, overwrite=True)
+         newfts.writeto(quad+"c1-4.fits", overwrite=True)
          self.mosaics.append(quad)
          # Now do the sigma-image
          scs = [cs[i].replace('.fits','_sigma.fits') for i in [1,2,3,4]]
-         newfts = ccdred.stitchSWONC(scs[1],scs[2],scs[3],scs[4], rotate=True)
-         newfts.writeto(quad.replace('.fits','_sigma.fits'), overwrite=True)
+         newfts = ccdred.stitchSWONC(scs[0],scs[1],scs[2],scs[3], rotate=True)
+         newfts.writeto(quad+'c1-4_sigma.fits', overwrite=True)
+
+         # Now add the mosaic to the queue
+         self.addFile(quad+"c1-4.fits")
 
    def photometry(self, bgsubtract=False, crfix=False, computeFWHM=True):
       '''Using the PanSTARRS catalog, we do initial photometry on the field
@@ -1537,6 +1554,8 @@ class Pipeline:
 
       self.makeBias()
       self.BiasLinShutCorr()
+      if cfg.tasks.Mosaic:
+         self.makeMosaic()
       self.makeFlats()
       #self.FlatCorr()
 

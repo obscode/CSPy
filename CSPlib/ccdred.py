@@ -312,7 +312,7 @@ def ShutterCorrect(fts, frame=None, copy=False, tel='SWO',ins='NC',
    return fts
 
 
-def makeFlatFrame(flist, outfile=None, tel='SWO', ins='NC'):
+def makeFlatFrame(flist, outfile=None, tel='SWO', ins='NC', statsec=None):
    '''Given a set of sky flat frames, combine into a single frame using
    imcombine. It is assumed the flats have already been corrected for
    BIAS, dark, etc.
@@ -330,18 +330,18 @@ def makeFlatFrame(flist, outfile=None, tel='SWO', ins='NC'):
    '''
    specs = getTelIns(tel,ins)
 
+   if statsec is None:
+       statsec = specs['statsec']
+
    # We'll use the median here as it's faster than the mode
    res = imcombine(flist, combine='median', reject='sigclip', 
-         lsigma=3, hsigma=3, nkeep=1, scale='median', statsec=specs['statsec'])
+         lsigma=3, hsigma=3, nkeep=1, scale='median', statsec=statsec)
 
    # Determine the mode of the pixels
-   if 'statsec' in specs:
-      x0,x1,y0,y1 = specs['statsec']
-      y0 = y0 - 1   # FITS index from 1, not zero
-      x0 = x0 - 1
-      subdata = res[0].data[y0:y1,x0:x1]
-   else:
-      subdata = res[0].data
+   x0,x1,y0,y1 = statsec
+   y0 = y0 - 1   # FITS index from 1, not zero
+   x0 = x0 - 1
+   subdata = res[0].data[y0:y1,x0:x1]
 
    mod = mode(subdata.ravel()) 
    
@@ -388,7 +388,7 @@ def flatCorrect(image, flat, outfile=None, replace=1.0):
       newfts.writeto(outfile, overwrite=True)
    return newfts
 
-def stitchSWONC(c1,c2,c3,c4, rotate=False):
+def stitchSWONC(c1,c2,c3,c4, rotate=False, normamp=None):
    '''Given the 4 "chips" as FITS files (or FITS instances), create a new FITS
     image as a mosaic with the corect orientations (RA increases to lower x-pixel,
     DEC increases to higher y-pixel). It is assumed the images have already been
@@ -431,7 +431,20 @@ def stitchSWONC(c1,c2,c3,c4, rotate=False):
 
    h = c2[0].header.copy()
    if 'OPAMP' in h:  h['OPAMP'] = "1-4"
-   if 'DATASEC' in h:  h['DATASEC'] = "[1:4112,1:4096]"
+   if 'NOPAMPS' in h:  h['NOPAMPS'] = 1
+   if 'DATASEC' in h:  
+      if normamp is not None:
+         if normamp == 1:
+            h['DATASEC'] = "[2056:4112,1:2056]"
+         elif normamp == 2:
+            h['DATASEC'] = "[1:2048,1:2056]"
+         elif normamp == 3:
+            h['DATASEC'] = "[1:2048,2057:4112]"
+         else:
+            h['DATASEC'] = "[2049:4096,2057:4112]"
+   else:
+      h['DATASEC'] = "[1:4112,1:4096]"
+   if 'TRIMSEC' in h: h['TRIMSEC'] = h['DATASEC']
    hdu = fits.PrimaryHDU(data=newarr, header=h)
    newfts = fits.HDUList([hdu])
    return newfts
