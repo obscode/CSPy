@@ -121,6 +121,9 @@ class Pipeline:
       # A list of files that have been mosaic'ed
       self.mosaics = []
       # The ZTF designation for each identified object, indexed by ccd frame
+      self.keep = [3]
+      if cfg.tasks.keep is not None:
+         self.keep = [int(i) for i in cfg.tasks.keep.split(',')]
       self.ZIDs = {}
       # The standards
       self.stdIDs = {}
@@ -360,9 +363,8 @@ class Pipeline:
       f = 'c'+f[1:]
       if f in self.headerData:
          return self.headerData[f][key]
-      # If a mosaic, try with 'c1' appended
-      f = 'c'+f[1:].replace('.fits','')+'c1.fits'
-      return self.headerData[f][key]
+      # Otherwise use regular fits header
+      return fits.getval(fil,key)
 
    def getWorkName(self, fil, prefix):
       '''Add a prefix to the filename in the work folder.'''
@@ -480,14 +482,16 @@ class Pipeline:
       '''Do bias, linearity, and shutter corrections to all files except bias 
       frames.'''
       for opamp in self.opamps:
+         if opamp == '1-4': continue
          if self.biasFrames[opamp] is None:
             self.log('Abort due to lack of bias frame for c{}'.format(opamp))
             raise RuntimeError("Error:  can't proceed without a bias frame!")
       todo = []
       for f in self.rawfiles:
-         base = basename(f)
          wfile = self.getWorkName(f, 'c')
          bfile = self.getWorkName(f, 'b')
+         opamp = self.getHeaderData(f, 'OPAMP')
+         if opamp == '1-4': continue
          if wfile not in self.files['zero'][opamp] and bfile not in self.bfiles:
             if isfile(bfile):
                self.bfiles.append(bfile)
@@ -521,11 +525,13 @@ class Pipeline:
       todo = []
       for filt in self.filters:
          for opamp in self.opamps:
+            if opamp not in self.keep and opamp != '1-4':  continue
             for f in self.files['astro'][filt][opamp]:
                bfile = self.getWorkName(f, 'b')
                ffile = self.getWorkName(f, 'f')
                if bfile in self.bfiles and ffile not in self.ffiles:  
                   if isfile(ffile):
+                     print('  '+ffile)
                      self.ffiles.append(ffile)
                      continue
                   todo.append(bfile)
@@ -543,6 +549,7 @@ class Pipeline:
             self.ignore.append(ffile)
             continue
          self.log("Flat field correcting {} --> {}".format(bfile,ffile))
+         ffits = self.flatFrames[filt][opamp]
          fts = ccdred.flatCorrect(bfile, self.flatFrames[filt][opamp],
                outfile=ffile)
          # Copying should be fine, since flat is scaled to have mode = 1.0
@@ -552,7 +559,7 @@ class Pipeline:
    def identify(self):
       '''Figure out the identities of the objects and get their data if
       we can.'''
-      todo = [f for f in self.ffiles+self.mosaics if f not in self.ignore]
+      todo = [f for f in self.ffiles if f not in self.ignore]
       for f in todo:
          if f in self.ZIDs or f in self.stdIDs:  continue   # done it already
          filt = self.getHeaderData(f, 'FILTER')
@@ -785,7 +792,8 @@ class Pipeline:
       one FITS image. This is done to the bias-, shutter-, and linearly-
       corrected images (bcd*).'''
 
-      todo = [fil for fil in self.bfiles if fil not in self.ignore]
+      todo = [fil for fil in self.bfiles if fil not in self.ignore and \
+              fil not in self.mosaics]
       # Check all c's are there:
       quads = {}
       for fil in todo:
@@ -799,17 +807,23 @@ class Pipeline:
       for quad in quads:
          if isfile(quad+"c1-4.fits"):
             self.addFile(quad+"c1-4.fits")
+            self.mosaics.append(quad+"c1-4.fits")
+            self.bfiles.append(quad+"c1-4.fits")
             continue
          cs = quads[quad]
          if not (1 in cs and 2 in cs and 3 in cs and 4 in cs):
             self.log("Warning:  did not find all OPAMPS for {}".format(base))
             continue
-         # We have at least one good mosaic:  add 'c1-4' to list of opamps
-         if '1-4' not in self.opamps: self.opamps.append('1-4')
+         # We have at least one good mosaic: only do mosaid as 1-4
+         if '1-4' not in self.opamps:
+            self.opamps += ['1-4']
+            #if cfg.tasks.keep is not None:
+            #   self.opamps += cfg.tasks.keep.split(',')
 
          newfts = ccdred.stitchSWONC(cs[1],cs[2],cs[3],cs[4], rotate=True)
          newfts.writeto(quad+"c1-4.fits", overwrite=True)
-         self.mosaics.append(quad)
+         self.mosaics.append(quad+"c1-4.fits")
+         self.bfiles.append(quad+"c1-4.fits")
          # Now do the sigma-image
          scs = [cs[i].replace('.fits','_sigma.fits') for i in [1,2,3,4]]
          newfts = ccdred.stitchSWONC(scs[0],scs[1],scs[2],scs[3], rotate=True)
@@ -1540,7 +1554,8 @@ class Pipeline:
             self.ignore.append(fil)
 
    def initialize(self):
-      '''Make a first run through the data and see if we have what we need
+      '''Make a first run through the data and see if we \
+              have what we need
       to get going. We can always fall back on generic calibrations if
       needed.'''
 
