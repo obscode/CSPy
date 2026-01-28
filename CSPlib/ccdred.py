@@ -430,20 +430,15 @@ def stitchSWONC(c1,c2,c3,c4, rotate=False, normamp=None):
    newarr[2048:,2056:] = d4   # top-right
 
    h = c2[0].header.copy()
+   if rotate:
+      h['ROTANG'] = 90
    if 'OPAMP' in h:  h['OPAMP'] = "1-4"
    if 'NOPAMPS' in h:  h['NOPAMPS'] = 1
    if 'DATASEC' in h:  
-      if normamp is not None:
-         if normamp == 1:
-            h['DATASEC'] = "[2056:4112,1:2056]"
-         elif normamp == 2:
-            h['DATASEC'] = "[1:2048,1:2056]"
-         elif normamp == 3:
-            h['DATASEC'] = "[1:2048,2057:4112]"
-         else:
-            h['DATASEC'] = "[2049:4096,2057:4112]"
-   else:
-      h['DATASEC'] = "[1:4112,1:4096]"
+      if rotate:
+         h['DATASEC'] = "[1:4112,1:4096]"
+      else:
+         h['DATASEC'] = "[1:4096,1:4112]"
    if 'TRIMSEC' in h: h['TRIMSEC'] = h['DATASEC']
    hdu = fits.PrimaryHDU(data=newarr, header=h)
    newfts = fits.HDUList([hdu])
