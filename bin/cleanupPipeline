@@ -1,59 +1,28 @@
 #!/bin/bash
 
 # Tidy things up, removing un-needed intermediate files, once we're sure things
-# went well.
+# went well. Basically make a folder with what we want to keep and delete
+# everything else
 
-# First, we'll zip up the ccd* frames.
-echo "gzip'ing raw ccd frames..."
-gzip ccd*.fits
+# calibrations and log
+mkdir FinalProducts
+mv Zero*.fits FinalProducts
+mv SFlat*.fits FinalProducts
+mv pipeline.log FinalProducts
+mv *.cfg FinalProducts
+mv *.txt FinalProducts
 
-echo "Removing intermediate FITS products..."
-# Next, the bias corrected, but not flat-field corrected
-rm bcd*.fits
-rm lcd*.fits
+# Flat-fielded and mosaic'ed products
+mv fcd????c?.fits FinalProducts
+mv fcd????c?_sigma.fits FinalProducts
+mv fcd????c1-4.fits FinalProducts
+mv fcd????c1-4_sigma.fits FinalProducts
 
-# The products of WCS and astrometry.net's solution
-rm *_wcs.png
-rm *-ngc.png
-rm *-objs.png
-rm *-indx.png
-rm fcd*.solved
-rm fcd*-indx.xyls
-rm fcd*.wcs
-rm fcd*.rdls
-rm fcd*.match
-rm fcd*.log
-rm fcd*.axy
-rm fcd*.corr
+# CSP named files
+mv *_SWO_NC*[0-9].fits FinalProducts
+mv *_SWO_NC*[0-9]_sigma.fits FinalProducts
 
-echo "Removing photomery intermediate products"
-rm -f psf*.fits
-rm cat
-rm *.psf
-rm psf.als
-rm SNphot.temp
-rm psf.pst
-rm psf.m
-rm psf.out psf.m1 psf.fits.psg.1
-rm lfcd catxy psf.rd.cat LS.cat psf.xy psf2.xy psf.xy2
-rm psf.m?
-
-echo "Removing un-needed template subtraction products..."
-rm *_{g,r,i}.fits
-rm *_{g,r,i}_nonan.fits
-rm *_{g,r,i}.cat
-rm *SN.fits
-rm *db.txt
-rm *master.fits
-rm *_nonan.fits
-rm *bases.fits
-rm *grid.fits
-rm *mask.fits
-rm *master.fits
-rm *rdv.fits
-rm *seg.fits
-rm *weight.fits
-rm fcd*SN_diff.jpg
-rm fcd*.cat
-rm pass*.np
-rm all*.np
+# The actual cleanup
+rm *
+mv FinalProducts/* .
+rmdir FinalProducts
