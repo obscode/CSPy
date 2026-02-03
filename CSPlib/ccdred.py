@@ -10,6 +10,7 @@ from .tel_specs import getTelIns
 from . import fitsutils
 import re
 from .irafstuff import imcombine
+from .headers import shift_center
 
 slice_pat = re.compile(r'\[([0-9]+|\*):([0-9]+|\*),([0-9]+|\*):([0-9]+|\*)\]')
 
@@ -217,7 +218,7 @@ def makeSigmaMap(fts, tel='SWO', ins='NC', outfile=None):
       nfts.writeto(outfile, overwrite=True)
    return nfts
 
-def LinearityCorrect(fts, copy=False, tel='SWO',ins='NC', chip='@OPAMP', 
+def LinearityCorrect(fts, copy=False, lincors=None, tel='SWO',ins='NC', chip='@OPAMP', 
       sigma=None):
    '''Perform linearity correction on the data. 
 
@@ -225,9 +226,12 @@ def LinearityCorrect(fts, copy=False, tel='SWO',ins='NC', chip='@OPAMP',
       fts (fits object):  Data frame to correct
       copy (bool):  If true, copy the data before modifying and return copy
                     Otherwise, modify data in-place and return
+      lincors (dict):  dictionary d[coef] that contains the linearity
+                       coefficients 'alpha', 'c1', 'c2', and 'c3'. 
+                       If None, get them from the tel_specs module
       tel (str):  Telescope code
       ins (str):  Instrument code
-      chop (str, int, or None):  If None, there is only one chip, so not needed,
+      chip (str, int, or None):  If None, there is only one chip, so not needed,
                   if int, use that as chip number, if string starting with @,
                   use as header keyword
       sigma (fits object): If supplied, fts is used for linearity calcution,
@@ -242,14 +246,16 @@ def LinearityCorrect(fts, copy=False, tel='SWO',ins='NC', chip='@OPAMP',
       else:
          fts = fitsutils.copyFits(fts)
 
-   lincors = getTelIns(tel,ins)['lincorr']
-   if chip is not None:
-      if type(chip) is str and chip[0] == '@':
-         chip = fts[0].header[chip[1:]]
-      if chip not in lincors:
-         raise ValueError('chip {} not found in tel_specs for {}{}'.format(
-            chip,tel,ins))
-      lincors = lincors[chip]
+   if lincors is None:
+      lincors = getTelIns(tel,ins)['lincorr']
+
+      if chip is not None:
+         if type(chip) is str and chip[0] == '@':
+            chip = fts[0].header[chip[1:]]
+         if chip not in lincors:
+           raise ValueError('chip {} not found in tel_specs for {}{}'.format(
+             chip,tel,ins))
+         lincors = lincors[chip]
    alpha = lincors['alpha']
    c1 = lincors['c1']
    c2 = lincors['c2']
@@ -432,7 +438,6 @@ def stitchSWONC(c1,c2,c3,c4, rotate=False, normamp=None):
    h = c2[0].header.copy()
    if rotate:
       h['ROTANG'] = 90
-   if 'OPAMP' in h:  h['OPAMP'] = "1-4"
    if 'NOPAMPS' in h:  h['NOPAMPS'] = 1
    if 'DATASEC' in h:  
       if rotate:
@@ -440,6 +445,13 @@ def stitchSWONC(c1,c2,c3,c4, rotate=False, normamp=None):
       else:
          h['DATASEC'] = "[1:4096,1:4112]"
    if 'TRIMSEC' in h: h['TRIMSEC'] = h['DATASEC']
+
+   # Shift back to center of the array
+   newra,newdec = shift_center(h, inverse=True)
+   h['RA'] = newra
+   h['DEC'] = newdec
+   if 'OPAMP' in h:  h['OPAMP'] = "1-4"
+
    hdu = fits.PrimaryHDU(data=newarr, header=h)
    newfts = fits.HDUList([hdu])
    return newfts

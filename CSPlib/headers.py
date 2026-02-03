@@ -36,11 +36,12 @@ filter_combos = {
    ('ND-09','7415'):'C',
 }
 
-def shift_center(header):
+def shift_center(header, inverse=False):
    '''Shift the RA/DEC from center of detector to center of chip.
    
    Args:
       header (astropy.fits header):  Header of the image.
+      inverse (bool): go the opposite way (back to detector center)
 
    Returns:
       (RA,DEC):  tuple of new center coordinates.
@@ -61,6 +62,7 @@ def shift_center(header):
       return(newra,newdec)
 
    offset = 10.5*u.arcmin
+   if inverse: offset = -offset
    if ( jd < 2456871.917):
       pa = [-45, 45, 135, -135][chip-1]
    else:
