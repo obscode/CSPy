@@ -32,6 +32,7 @@ import re
 import signal
 from . import database
 from .config import getconfig
+import json
 
 from matplotlib import pyplot as plt
 
@@ -216,6 +217,7 @@ class Pipeline:
 
       self.biasFrames = {}     # indexed by opamp
       self.shutterFrames = {}  # indexed by opamp
+      self.lincorrs = {}       # indexed by opamp,coef
       self.flatFrames = {}      # indexed by filter,opamp
       for filt in filtlist:
          self.flatFrames[filt] = {}
@@ -507,8 +509,14 @@ class Pipeline:
          if opamp not in self.shutterFrames:
             shfile = join(self.calibrations, 'CAL', "SH{}.fits".format(opamp))
             self.shutterFrames[opamp] = fits.open(shfile, memmap=False)
-         fts = ccdred.LinearityCorrect(fts, chip=opamp)
-         err = ccdred.LinearityCorrect(fts, sigma=err, chip=opamp)
+         # Get linearity corrections
+         if opamp not in self.lincorrs:
+            jfile = join(self.calibrations, 'CAL', "linearity.json")
+            with open(jfile, 'r') as fin:  d = json.load(fin)
+            self.lincorrs[opamp] = d[str(opamp)]
+         fts = ccdred.LinearityCorrect(fts, chip=opamp, lincors=self.lincorrs[opamp])
+         err = ccdred.LinearityCorrect(fts, sigma=err, chip=opamp, 
+                                       lincors=self.lincorrs[opamp])
          fts = ccdred.ShutterCorrect(fts, frame=self.shutterFrames[opamp])
          err = ccdred.ShutterCorrect(err, frame=self.shutterFrames[opamp])
          bfile = self.getWorkName(f, 'b')
@@ -771,7 +779,7 @@ class Pipeline:
                   verbose=True, other=['--overwrite','-p'], 
                   dir=cfg.software.astrometry)
             if new is None:
-               self.log("astrometry.net failed for {}. No WCS coputed, "
+               self.log("astrometry.net failed for {}. No WCS computed, "
                         "skipping...".format(fil))
                self.ignore.append(fil)
                continue
