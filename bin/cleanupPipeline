@@ -11,6 +11,7 @@ mv SFlat*.fits FinalProducts
 mv pipeline.log FinalProducts
 mv *.cfg FinalProducts
 mv *.txt FinalProducts
+mv SNphot.adt FinalProducts
 
 # Flat-fielded and mosaic'ed products
 mv fcd????c?.fits FinalProducts
