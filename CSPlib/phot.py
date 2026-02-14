@@ -581,6 +581,7 @@ class BasePhot:
       #if len(tab) < Nmin:
       #   raise ValueError("Less than Nmin ({}) stars fit".format(Nmin))
 
+      success = True
       mask = (tab['snr'] > SNRmin)
       if np.sum(mask) > Nmin:
          fwhm = np.median(tab['fwhm'][mask])
@@ -594,23 +595,30 @@ class BasePhot:
          fwhm = tab['fwhm'][idx]
          mask[idx] = True
       else:
-         return -1,tab
+         success = False
+         #return -1,tab
 
       if plotfile is not None:
          ax.axhline(0.5, color='red')
-         ax.axvline(fwhm/self.scale/2)
+         if success: ax.axvline(fwhm/self.scale/2)
 
          # make the not-used profiles less prominent
          for i in range(len(mask)):
             if not mask[i]:
                ax.lines[2*i].set_alpha(0.05)
                ax.lines[2*i+1].set_alpha(0.1)
-         ax.set_xlim(0, fwhm*10)
+         if success:
+            ax.set_xlim(0, fwhm*10)
+         else:
+            ax.set_xlim(0, 10)
          ax.set_ylim(-0.1, 1.1)
          fig.tight_layout()
          fig.savefig(plotfile)
          plt.close(fig)
-      return fwhm,tab
+      if success:
+         return fwhm,tab
+      else:
+         return -1,tab
 
    def plot_field(self, percent=99.):
       '''PLot the data as a field of view with LS stars plotted if loaded
