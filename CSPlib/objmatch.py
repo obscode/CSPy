@@ -183,7 +183,7 @@ def objmatch(x1,y1,x2,y2, dtol, atol, scale1=1.0, scale2=1.0,
    xscat = max([1.0,xscat])
    yshift,yscat = bwt(yy1-yt2)
    yscat = max([1.0,yscat])
-   print(xscat,yscat)
+   if verb: print(xscat,yscat)
    keep = less(absolute(xx1-xt2-xshift),3*xscat)*\
           less(absolute(yy1-yt2-yshift),3*yscat)
    xx1,yy1,xx2,yy2 = compress( keep, [xx1,yy1,xx2,yy2], 1)
@@ -243,7 +243,7 @@ def iterativeSol(x1, y1, x2, y2, scale1=1.0, scale2=1.0, dtol=1.0, atol=1.0,
       if verb:
          print("Pass {} with {} objects.".format(iter+1, len(x1)))
       xshift,yshift,scale,rot,ix,iy,sol = fitscalerot(xx1,yy1,xx2,yy2)
-      print(xshift,yshift, scale, rot)
+      if verb:  print(xshift,yshift, scale, rot)
       delx = ix-xx2
       dely = iy-yy2
       dels = sqrt(power(delx,2) + power(dely,2))
@@ -358,9 +358,10 @@ def WCStoImage(wcsimage, image, thresh=3, threshw=3, scale='SCALE', tel='SWO',
    pi,pj = nwcs.wcs_world2pix(x,y,1)
    dists = sqrt(power(pi-ii,2) + power(pj-ij,2))
    sig = 1.5*median(dists)
-   print("MAD dispersion in WCS determination: {}".format(sig))
+   if verbose:
+      print("MAD dispersion in WCS determination: {}".format(sig))
    if sig > 5.0:
-      print("MAD > 5.0, looks like we failed to converge")
+      if verbose: print("MAD > 5.0, looks like we failed to converge")
       return None
 
    if plotfile is not None:
@@ -417,7 +418,7 @@ def TweakWCS(wcsimage, image, tel='SWO', ins='NC', Nstars=100, verbose=False,
 
    gids = equal(flags, 0)
    if sum(gids) < 5:
-      print("Not enough good stars")
+      if verbose: print("Not enough good stars")
       return None
 
    i0 = image[0].data.shape[1]//2
@@ -447,7 +448,7 @@ def TweakWCS(wcsimage, image, tel='SWO', ins='NC', Nstars=100, verbose=False,
    sig = 1.5*median(dists)
    print("MAD dispersion in WCS determination: {}".format(sig))
    if sig > tol:
-      print("MAD > {} looks like we failed to converge".format(tol))
+      if verbose: print("MAD > {} looks like we failed to converge".format(tol))
       return None
 
    return image
@@ -488,7 +489,6 @@ def FindIsolatedStars(stab, cat, wcs, mindist, Nmin):
    # Find the catalog objects within the frame and corresponsing detections
    gids = less(sep.to(u.arcsec).value, 0.5)   # less than 0.5 arc-second
    cat = cat[gids]
-   print(len(cat))
    i = i[gids]
    j = j[gids]
    c1 = c1[gids]

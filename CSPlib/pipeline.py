@@ -41,6 +41,13 @@ if not sys.warnoptions:
     import warnings
     warnings.simplefilter("ignore")
 
+try:
+   # Optional progress bar
+   from tqdm import tqdm
+except:
+   # Not found
+   tqdm = None
+
 cfg = getconfig()
 
 def night2JD(night):
@@ -69,7 +76,7 @@ class Pipeline:
    def __init__(self, datadir, workdir=None, prefix='ccd', suffix='.fits',
          calibrations=cfg.data.calibrations, templates=cfg.data.templates,
          catalogs=cfg.data.templates, fsize=9512640, tmin=0, update_db=True,
-         gsub=None, reduced=None, SNphot=cfg.photometry.SNphot):
+         gsub=None, reduced=None, SNphot=cfg.photometry.SNphot, quiet=False):
       '''
       Initialize the pipeline object.
 
@@ -94,6 +101,7 @@ class Pipeline:
                         and WCS computed files are stored. If None, they are
                         only left in the working folder.
          SNphot (str): File where supernova photometry will be saved to file.
+         quiet (bool): If true, don't print excess stuff to screen
       Returns:
          Pipeline object
       '''
@@ -107,6 +115,7 @@ class Pipeline:
       self.fsize = [fsize+i*2880 for i in range(3)]  # that should be enough!
       self.tmin = tmin
       self.update_db = update_db
+      self.quiet = quiet
 
       # Some status values to avoid repeatedly trying unaccessible remotes
       self._rclone_reachable = True
@@ -227,37 +236,42 @@ class Pipeline:
 
    def log(self, message):
       '''log the message to the log file and print it to the screen.'''
-      print(message)
+      if not self.quiet: print(message)
       self.logfile.write(message+"\n")
       self.logfile.flush()
+
+   def progress(self, iterable, desc=None):
+      if tqdm is None:
+         return iterable
+      return tqdm(iterable, desc=desc)
 
    def Rclone(self, location, target='.'):
       '''Use rclone to get a file specified by "location" and put it
       in "target".'''
       if not self._rclone_reachable:
          return -3
-      cmd = "{} copy {} {}".format(cfg.software.rclone, location, target)
-      res = os.system(cmd)
-      if res != 0: self._rclone_reachable = False
+      cmd = [cfg.software.rclone, 'copy', location, target]
+      res = subprocess.run(cmd, capture_output=True)
+      if res.returncode != 0: self._rclone_reachable = False
       return res
 
    def reportFiles(self):
       '''Make a report on the files that have been found.'''
-      print("----  The following files have been found ---")
-      print("")
-      print("Files not used/identified:",len(self.files['none']))
-      print("Bias:")
+      self.log("----  The following files have been found ---")
+      self.log("")
+      self.log("Files not used/identified:"+str(len(self.files['none'])))
+      self.log("Bias:")
       for opamp in self.files['zero']:
-         print("\tC{}: {}".format(opamp, len(self.files['zero'][opamp])))
+         self.log("\tC{}: {}".format(opamp, len(self.files['zero'][opamp])))
 
       for typ in self.files:
          if typ == 'none' or typ =='zero': 
             continue
-         print(typ+":")
+         self.log(typ+":")
          for filt in self.files[typ]:
-            print("\t"+filt+":")
+            self.log("\t"+filt+":")
             for opamp in self.files[typ][filt]:
-               print("\t\tC{}: {} files".format(opamp,len(self.files[typ][filt][opamp])))
+               self.log("\t\tC{}: {} files".format(opamp,len(self.files[typ][filt][opamp])))
 
    def addFile(self, filename):
       '''Add a new file to the pipeline. We need to do some initial fixing
@@ -411,7 +425,7 @@ class Pipeline:
                   self.biasFrames[opamp] = fits.open(join(self.workdir, 
                      'Zeroc{}.fits'.format(opamp)), memmap=False)
                else:
-                  print("Error! could not make BIAS for c{}, or find it in "\
+                  self.log("Error! could not make BIAS for c{}, or find it in "\
                         "calibration library".format(opamp))
                   self.biasFrames[opamp] = None
 
@@ -460,12 +474,12 @@ class Pipeline:
              
                   # Now get list of Flats we have in the database
                   cmd = [cfg.software.rclone, 'ls','--include',
-                         'ut*/SFlat{}c{}'.format(filt,opamp),
+                         'ut*/SFlat{}c{}.fits'.format(filt,opamp),
                          'CSP:Swope/Calibrations']
              
-                  res = subprocess.run(cmd, stdout=subprocess.PIPE)
-                  if res != 0:
-                     print("Error:  can't contact CSP google drive")
+                  res = subprocess.run(cmd, capture_output=True)
+                  if res.returncode != 0:
+                     self.log("Error:  can't contact CSP google drive")
                      self.flatFrames[filt][opamp] = None
                   lines = res.stdout.decode('utf-8').split('\n')
                   lines = [line for line in lines if len(line) > 0]
@@ -500,7 +514,7 @@ class Pipeline:
                continue
             todo.append(wfile)
 
-      for f in todo:
+      for f in self.progress(todo, desc="Bias + Linearity"):
          self.log('Bias correcting CCD frames...')
          opamp = self.getHeaderData(f,'OPAMP')
          fts = ccdred.biasCorrect(f, overscan=True, frame=self.biasFrames[opamp])
@@ -539,12 +553,12 @@ class Pipeline:
                ffile = self.getWorkName(f, 'f')
                if bfile in self.bfiles and ffile not in self.ffiles:  
                   if isfile(ffile):
-                     print('  '+ffile)
+                     self.log('  '+ffile)
                      self.ffiles.append(ffile)
                      continue
                   todo.append(bfile)
 
-      for f in todo:
+      for f in self.progress(todo, desc="Flat fieldting"):
          filt = self.getHeaderData(f,'FILTER')
          opamp = self.getHeaderData(f,'OPAMP')
          bfile = self.getWorkName(f, 'b')
@@ -553,7 +567,7 @@ class Pipeline:
          sfile2 = ffile.replace('.fits','_sigma.fits')
          if filt not in self.flatFrames or opamp not in self.flatFrames[filt] or \
             self.flatFrames[filt][opamp] is None:
-            print("No c{} flat for filter {}, skipping".format(opamp, filt))
+            self.log("No c{} flat for filter {}, skipping".format(opamp, filt))
             self.ignore.append(ffile)
             continue
          self.log("Flat field correcting {} --> {}".format(bfile,ffile))
@@ -568,7 +582,7 @@ class Pipeline:
       '''Figure out the identities of the objects and get their data if
       we can.'''
       todo = [f for f in self.ffiles if f not in self.ignore]
-      for f in todo:
+      for f in self.progress(todo, desc="Identifying"):
          if f in self.ZIDs or f in self.stdIDs:  continue   # done it already
          filt = self.getHeaderData(f, 'FILTER')
          obj = self.getHeaderData(f,'OBJECT')
@@ -699,7 +713,7 @@ class Pipeline:
       todo = [fil for fil in list(self.ZIDs.keys())+list(self.stdIDs.keys()) \
             if fil not in self.wcsSolved and fil not in self.ignore]
 
-      for fil in todo:
+      for fil in self.progress(todo, desc="Solving WCS"):
          self.log("Solving WCS for {}".format(fil))
          if fil in self.ZIDs:
             ZID = self.ZIDs[fil]
@@ -776,7 +790,7 @@ class Pipeline:
          if new is None:
             self.log("Fast WCS failed... resorting to astrometry.net")
             new = do_astrometry.do_astrometry([fil], replace=True,
-                  verbose=True, other=['--overwrite','-p'], 
+                  verbose=(not self.quiet), other=['--overwrite','-p'], 
                   dir=cfg.software.astrometry)
             if new is None:
                self.log("astrometry.net failed for {}. No WCS computed, "
@@ -812,7 +826,7 @@ class Pipeline:
          else:
             quads[base][opamp] = fil
 
-      for quad in quads:
+      for quad in self.progress(quads, desc="Mosaic'ing"):
          if isfile(quad+"c1-4.fits"):
             self.addFile(quad+"c1-4.fits")
             self.mosaics.append(quad+"c1-4.fits")
@@ -865,7 +879,7 @@ class Pipeline:
       else:
          stdf = None
 
-      for fil in todo:
+      for fil in self.progress(todo, desc='Initial Photometry'):
          standard = fil in self.stdIDs
          self.log('Working on photometry for {}'.format(fil))
          # Check to see if we've done the photometry already
@@ -899,7 +913,8 @@ class Pipeline:
             # First, see if we can retrieve it:
             res = self.Rclone('CSP:Swope/templates/{}_LS.cat'.format(obj),
                self.templates)
-            if res > 0:
+            print("res:  ",res)
+            if res != 0:
                # Now remove stars below/above thresholds
                gids = np.ones(len(allcat), dtype=bool)
                for filt in ['u','g','r','i','B','V']:
@@ -1418,7 +1433,7 @@ class Pipeline:
             fil not in self.finalPhot and fil not in self.ignore]
 
 
-      for fil in todo:
+      for fil in self.progress(todo, desc="Subtracted Photometry"):
          self.log('Working on final photometry for {}'.format(fil))
          if isfile(fil.replace('.fits','.phot')):
             try:
@@ -1495,7 +1510,7 @@ class Pipeline:
       todo = [fil for fil in self.initialPhot if fil not in self.subtracted \
             and fil not in self.ignore and fil not in self.stdIDs and \
             fil not in self.no_temp and fil not in self.short]
-      for fil in todo:
+      for fil in self.progress(todo, desc="Galaxy Subtraction"):
          obj = self.ZIDs[fil]
          if obj is None: continue
          diff = fil.replace('.fits','diff.fits')
@@ -1530,7 +1545,7 @@ class Pipeline:
          try:
             obs = ImageMatch.Observation(fil, scale=0.435, saturate=4e4, 
                   reject=True, snx='SNRA', sny='SNDEC', magmax=22,
-                  magmin=11)
+                  magmin=11, verbose=False, log_stream=self.logfile)
             ref = ImageMatch.Observation(template, scale=0.25, saturate=6e4,
                   reject=True, magmax=22, magmin=11)
             res = obs.GoCatGo(ref, skyoff=True, pwid=11, perr=3.0, nmax=100, 
@@ -1601,8 +1616,9 @@ class Pipeline:
             if done: break
          #print("Checking for new files")
          files = self.getNewFiles()
-         for fil in files:
-            time.sleep(wait_for_write)
+         for fil in self.progress(files, desc="Ingesting Files"):
+            if poll_interval > 0:
+               time.sleep(wait_for_write)
             self.addFile(fil)
 
          self.BiasLinShutCorr()

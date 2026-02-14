@@ -155,7 +155,8 @@ def do_astrometry(files, trim=None, replace=False, dir='/usr/local/astrometry',
       
       newfile = '.'.join(fil.split('.')[:-1])+'.new'
       if not os.path.isfile(newfile):
-         print('solve-field failed for {}. Check {}.log'.format(fil,logfile))
+         if verbose:
+            print('solve-field failed for {}. Check {}'.format(fil,logfile))
          return None
       if replace:
          os.system('mv {} {}'.format(newfile, fil))
