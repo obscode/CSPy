@@ -2,29 +2,61 @@
 
 import argparse
 from CSPlib.database import getConnection
+import sys
 
 parser = argparse.ArgumentParser(description="Get Swope photometry")
 parser.add_argument('SN', help='Name of the SN from the database')
 parser.add_argument('-db', help="Name of the database", default='SBS')
 parser.add_argument('-u', help="Get un-subtracted photometry (obj=0)",
       action='store_true')
+parser.add_argument('-snpy', help='Output in SNooPy-compatible format',
+                    action='store_true')
 args = parser.parse_args()
 
 db = getConnection(db=args.db)
 c = db.cursor()
 SN = args.SN
 
-if args.u:
-   N = c.execute('select * from MAGSN where field=%s and obj = 0 order by JD', 
-         SN)
-else:
-   N = c.execute('select * from MAGSN where field=%s and obj = -1 order by JD', 
-         SN)
-data = c.fetchall()
-for dat in data:
-   if len(dat) == 10:
-      dt,name,idx,filt,fits,mag,emag,_,_,JD = dat
+if not args.snpy:
+   if args.u:
+      N = c.execute('select * from MAGSN where field=%s and obj = 0 order by JD', 
+            SN)
    else:
-      _,dt,name,idx,filt,fits,mag,emag,_,_,JD = dat
-   print("{:.2f} {} {:.3f} {:.3f} {}".format(JD,filt,mag,emag,fits))
+      N = c.execute('select * from MAGSN where field=%s and obj = -1 order by JD', 
+            SN)
+   data = c.fetchall()
+   for dat in data:
+      if len(dat) == 10:
+         dt,name,idx,filt,fits,mag,emag,_,_,JD = dat
+      else:
+         _,dt,name,idx,filt,fits,mag,emag,_,_,JD = dat
+      print("{:.2f} {} {:.3f} {:.3f} {}".format(JD,filt,mag,emag,fits))
+else:
+   N = c.execute('select SN,ZC,RA,DE from SNList'\
+                 ' where SN=%s or NAME_CSP=%s or NAME_PSN=%s',
+                 (args.SN,args.SN,args.SN))
+   if N == 0:
+      print('Error:  cannot find {} in database'.format(args.SN))
+      sys.exit(1)
+   sn,zc,ra,de = c.fetchone()
+   print("{} {} {} {}".format(sn,zc/3e5,ra*15,de))
+   for filt in ['u','B','V','g','r','i']:
+      if args.u:
+         N = c.execute('select * from MAGSN '\
+                       'where field=%s and obj=0 and filt=%s order by JD',
+                       (sn,filt))
+      else:
+         N = c.execute('select * from MAGSN '\
+                       'where field=%s and obj=-1 and filt=%s order by JD',
+                       (sn,filt))
+      if N == 0: continue
+      print("filter {}".format(filt))
+      data = c.fetchall()
+      for dat in data:
+         if len(dat) == 10:
+            dt,name,idx,f,fits,mag,emag,_,_,JD = dat
+         else:
+            _,dt,name,idx,f,fits,mag,emag,_,_,JD = dat
+         print("{:.3f} {:.3f} {:.3f}".format(JD,mag,emag))
+
 

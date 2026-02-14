@@ -4,7 +4,7 @@ from astropy.table import Table
 from astropy.time import Time
 import pymysql
 import os
-from numpy import argsort,array
+from numpy import argsort,array,nan
 from datetime import date
 from .config import getconfig
 import re
@@ -125,7 +125,23 @@ def getMAGINS(SN=None, fitsfile=None, db=default_db):
       if N == 0:
          raise RuntimeError(f"No entries in MAGINS for fits={fitsfile} found")
       rows = c.fetchall()
-   tab = Table(rows=rows, names=["night","fits","tel","ins","filt","airm",
+   
+   # Handle missing values (None)
+   newrow = []
+   for row in rows:
+      newrow.append([])
+      for i in range(len(row)):
+         if row[i] is None:
+            if i in [0,1,2,3,4,9]:
+               newrow[-1].append("")
+            elif i in [7,10,30]:
+               newrow[-1].append(-99)
+            else:
+               newrow[-1].append(nan)
+         else:
+            newrow[-1].append(row[i])
+
+   tab = Table(rows=newrow, names=["night","fits","tel","ins","filt","airm",
                                  "expt","ncombine","jd","field","obj","alpha",
                                  "delta","xc","yc","psf","psfer","ap3","ap3er",
                                  "ap5","ap5er","ap7","ap7er","flux","sky","stdev",

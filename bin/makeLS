@@ -2,7 +2,7 @@
 import argparse
 
 def keyvent(event):
-   global cut,keep_going
+   global cut,keep_going,args
    if event.key == 'Q':
       keep_going = False
       plt.close(event.inaxes.figure)
@@ -14,6 +14,8 @@ def keyvent(event):
    else:
       cat[event.inaxes.idx]['good'] = True
       [ap.set_color('green') for ap in event.inaxes.aps]
+      if args.v:
+          print(cat[event.inaxes.idx])
    plt.draw()
 
 
@@ -33,11 +35,14 @@ parser.add_argument('-cspoutput', help='Final output LS catalog in CSP format',
       default='mycat.cat')
 parser.add_argument('-n', help='number of rows/columns to show', default=10,
       type=int)
+parser.add_argument('-mmax', help='Maximum magnitude', default=20, type=float)
+parser.add_argument('-mmin', help='Minimum magnitude', default=11, type=float)
 parser.add_argument('-scale', help='Image scale arc-sec/pix', default=0.435)
 parser.add_argument('-aps', help='list of aperture radii in arc-sec',
       default=[], nargs='*')
 parser.add_argument('-db', help='Database to query if we need coordinates',
                     default='POISE')
+parser.add_argument('-v', help='Verbose', action='store_true')
 
 args = parser.parse_args()
 
@@ -67,7 +72,8 @@ if args.cat is None:
    elif res == -2:
       print("Database connection failed")
       sys.exit(1)
-   cat = getStarCat(res[0], res[1], np.sqrt(2)*0.125, mmin=11, mmax=20)
+   cat = getStarCat(res[0], res[1], np.sqrt(2)*0.125, mmin=args.mmin, 
+                    mmax=args.mmax)
    print(cat.colnames)
    cat.sort(keys='rmag')
    cat.insert_row(0, [0, res[0],res[1],-1,-1,-1,-1,-1,-1])

@@ -1,0 +1,36 @@
+#!/usr/bin/env python
+
+import argparse
+from CSPlib import ccdred
+import numpy as np
+from glob import glob
+
+
+parser = argparse.ArgumentParser(description="Construct bias frame and subtract")
+parser.add_argument('bframes', help='bias frames (glob or filename)')
+parser.add_argument('cframes', help='frames to correct (glob or filename)')
+parser.add_argument('-output', help='Output bias frame', default='Zero.fits')
+parser.add_argument('-tel', help='Telescope code (default SWO)', default='SWO')
+parser.add_argument('-ins', help='Instrument code (default NC)', default='NC')
+
+args = parser.parse_args()
+
+if args.bframes[0] == '@':
+   # file listing
+   with open(args.bframes[1:]) as fin:
+      blist = [line.strip() for line in fin.readlines()]
+else:
+   blist = glob(args.bframes)
+
+if args.cframes[0] == '@':
+   # file listing
+   with open(args.cframes[1:]) as fin:
+      clist = [line.strip() for line in fin.readlines()]
+else:
+   clist = glob(args.cframes)
+
+bias = ccdred.makeBiasFrame(blist, outfile=args.output, tel=args.tel, 
+                            ins=args.ins)
+for file in clist:
+   ccdred.biasCorrect(file, frame=bias, tel=args.tel, ins=args.ins,
+                      outfile='b'+file[1:])

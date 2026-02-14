@@ -5,6 +5,7 @@ from astropy.io import ascii
 from .tel_specs import getTelIns
 import tempfile
 import os
+import subprocess
 from scipy.stats import exponnorm
 import numpy as np
 
@@ -104,8 +105,8 @@ class SexTractor:
          fout.write('MAG_APER(1)\nX_IMAGE\nY_IMAGE\nFWHM_IMAGE\nCLASS_STAR\n')
          fout.write('FLAGS\n')
 
-      os.system('cp {} {}'.format(os.path.join(datadir, 'sextractor.nnw'),
-         tmpdir))
+      res = subprocess.run(['cp',os.path.join(datadir,'sextractor.nnw'),
+                           tmpdir], capture_output=True)
 
    def cleanup(self):
       for fil in ['sextractor.in','sextractor.cat','sextractor.nnw',
@@ -126,9 +127,9 @@ class SexTractor:
       else:
          image = self.image
 
-      ret = os.system('sex {} -c {}/sextractor.in'.format(image,
-         self.tmpdir))
-      if ret != 0:
+      cmd = ['sex',image,'-c', os.path.join(self.tmpdir, 'sextractor.in')]
+      ret = subprocess.run(cmd, capture_output=True)
+      if ret.returncode != 0:
          raise RuntimeError('Sextractor failed')
 
    def parseCatFile(self):

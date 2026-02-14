@@ -4,6 +4,7 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 from math import floor
 from CSPlib import wairmass_for_lco_images
+from CSPlib import version
 
 obstypes = {'dflat':'dflat',
             'sflat':'sflat',
@@ -20,11 +21,27 @@ obstypes = {'dflat':'dflat',
             'pointing':'none',
             }
 
-def shift_center(header):
+# A map from WHEEL1,WHEEL2 values to simpler strings
+filter_map = {
+   "B (LC3013)":"B",
+   "V9844":"V",
+}
+
+filter_combos = {
+   ('ND 0.9','Halpha-off'):'H',
+   ('ND-0.9','Halpha-off'):'H',
+   ('ND-09','Halpha-off'):'H',
+   ('ND 0.9','7415'):'C',
+   ('ND-0.9','7415'):'C',
+   ('ND-09','7415'):'C',
+}
+
+def shift_center(header, inverse=False):
    '''Shift the RA/DEC from center of detector to center of chip.
    
    Args:
       header (astropy.fits header):  Header of the image.
+      inverse (bool): go the opposite way (back to detector center)
 
    Returns:
       (RA,DEC):  tuple of new center coordinates.
@@ -45,6 +62,7 @@ def shift_center(header):
       return(newra,newdec)
 
    offset = 10.5*u.arcmin
+   if inverse: offset = -offset
    if ( jd < 2456871.917):
       pa = [-45, 45, 135, -135][chip-1]
    else:
@@ -80,8 +98,16 @@ def update_header(f, fout=None):
    if h['OBJECT'].find(' ') > 0:
       h['OBJECT'] = h['OBJECT'].replace(' ','_')
 
-   # Strip out any excess strings from FILTERS
-   if len(h['FILTER']) > 0:
+   # Deal with filters.
+   if h['FILTER'] == 'COMBO':
+      # Combination of two filters. Check map, otherwise concatenate
+      if (h['WHEEL1'],h['WHEEL2']) in filter_combos:
+         h['FILTER'] = filter_combos[(h['WHEEL1'],h['WHEEL2'])]
+      else:
+         w1 = h['WHEEL1'].replace(' ','')
+         w2 = h['WHEEL2'].replace(' ','')
+         h['FILTER'] = w1+'+'+w2
+   elif len(h['FILTER']) > 0:
       h['FILTER'] = h['FILTER'][0]
 
    # First, update the OBSTYPE, as per PREV_SWONC
@@ -91,6 +117,8 @@ def update_header(f, fout=None):
       obstype = 'focus'
    elif exptype == 'bias':
       obstype = 'bias'
+   elif exptype == 'flat':
+      obstype = 'sflat'
    else:
       # Get rid of spaces!!!
       obj = obj.replace(' ','_')
@@ -124,6 +152,9 @@ def update_header(f, fout=None):
    tsidh = int(floor(stmid.hour))
    tsidm = int(floor((stmid.hour-tsidh)*60))
    tsids = (stmid.hour-tsidh-tsidm/60)*3600
+
+   # Keep track of pipeline version used
+   h['PIPEVER'] = version
 
    h['TELESCOP'] = ("SWO", "Telescope. CSP Keyword")
    h['INSTRUM'] = ("NC", "Instrument. CSP Keyword")

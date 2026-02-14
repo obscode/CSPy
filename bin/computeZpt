@@ -231,6 +231,7 @@ if __name__ == "__main__":
       print('Determined zero-point to be {:.3f} +/- {:.3f}'.format(zp,ezp))
       hdr['ZP'] = zp
       hdr['EZP'] = ezp
+      hdr['ZPAPP'] = "r = 7 arc-sec"
       hdr['MAGMAX'] = np.round(popt[1],2)
 
       # make some diagnostic plots of aperture correction and zp determ.
