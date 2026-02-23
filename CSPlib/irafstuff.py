@@ -3,7 +3,8 @@ from astropy import units as u
 from astropy.time import Time
 from astropy.coordinates import SkyCoord, EarthLocation, AltAz
 from astropy.io import fits
-from numpy import *
+#from numpy import *
+import numpy as np
 from .npextras import mode
 import os
 from glob import glob
@@ -98,9 +99,9 @@ def wairmass_for_lco_images(ra, dec, equinox, dateobs, utstart, exptime,
 
    altaz = obj.transform_to(AltAz(obstime=[obstime, utmid, utend],
       location=lco))
-   elev = altaz.alt.value*pi/180
-   x = scale*sin(elev)
-   AMs = sqrt(x**2 + 2*scale + 1) - x
+   elev = altaz.alt.value*np.pi/180
+   x = scale*np.sin(elev)
+   AMs = np.sqrt(x**2 + 2*scale + 1) - x
    AM = (AMs[0] + 4*AMs[1] + AMs[2])/6
    return(AM, tsid, utmid)
 
@@ -120,17 +121,17 @@ def computeCenter(cube, axis=0, mclip=False, exclude_ends=False, mask=None):
 
    if mclip:
       if mask is not None:
-         return ma.median(ma.masked_array(cube, ~mask))
-      return median(cube, axis=axis)
+         return np.ma.median(np.ma.masked_array(cube, ~mask))
+      return np.median(cube, axis=axis)
    if exclude_ends:
-      sortcube = sort(cube, axis=0)
-      return(mean(sortcube[1:-1], axis=0))
-   return sum(cube*mask, axis=axis)/sum(mask, axis=axis)
+      sortcube = np.sort(cube, axis=0)
+      return(np.mean(sortcube[1:-1], axis=0))
+   return np.sum(cube*mask, axis=axis)/np.sum(mask, axis=axis)
 
 def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
-      gain=1, rdnoise=0, lsigma=3, hsigma=3, pclip=-0.5, nlow=0, nhigh=1,
+      lsigma=3, hsigma=3, pclip=-0.5, nlow=0, nhigh=1,
       nkeep=1, mclip=False, weight=None, scale=None, 
-      expname='EXPTIME', verbose=False):
+      expname='EXPTIME', rdnoise='ENOISE', verbose=False):
    '''Combine images, a la IRAF imcombine.
 
    Args:
@@ -138,8 +139,6 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
       compbine (str):  'average' or 'median'
       reject (str): 'avsigclip', 'sigclip', 'minmax', or 'none'
       statsec (str): section for statistics in the form [N:M,n:m]
-      gain (float): conversion from data units to electrons
-      rdnoise (float): read noise in electrons
       lsigma (float): lower sigma for clipping
       hsigma (float): upper sigma for clipping
       pclip (float):  percentile clipping (see IRAF docs for useage)
@@ -149,7 +148,8 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
       mcplip (bool): use average (false)  or median (true) for sigma clipping
       weight (array): weight array to use in weighted average
       scale (str): scale the images ('mode','median','mean','exposure')
-      expname (str): exposure keyader keyword
+      expname (str): exposure header keyword
+      rdnoise (str): read noise header keyword
 
    Returns:
       FITS HDUList of combined image, with header copied from first input
@@ -157,9 +157,13 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
 
    ftslist = getInputList(inp)
    Nim = len(ftslist)
+   if Nim < 2:
+      if verbose:  print("Error:  need more than one image to combine!")
+      return None
+
    if verbose: print("Working on {} images".format(Nim))
    try:
-      cube = asarray([f[0].data for f in ftslist])
+      cube = np.asarray([f[0].data for f in ftslist])
    except:
       raise ValueError("Cannot create a data cube. Not all consistent shape?")
 
@@ -175,31 +179,31 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
 
    # Figure out the scales
    if scale is None:
-      scales = ones(cube.shape[0])
+      scales = np.ones(cube.shape[0])
    elif scale == 'mode':
       #from scipy.stats import mode
-      scales = array([1.0/mode(cube[i][slc]) \
+      scales = np.array([1.0/mode(cube[i][slc]) \
             for i in range(cube.shape[0])])
    elif scale == 'median':
-      scales = array([1.0/median(cube[i][slc],axis=None) \
+      scales = np.array([1.0/np.median(cube[i][slc],axis=None) \
             for i in range(cube.shape[0])])
    elif scale == 'mean':
-      scales = array([1.0/mean(cube[i][slc],axis=None) \
+      scales = np.array([1.0/np.mean(cube[i][slc],axis=None) \
             for i in range(cube.shape[0])])
    elif scale == 'exposure':
-      scales = array([1.0/f[0].header[expname] for f in flist])
+      scales = np.array([1.0/f[0].header[expname] for f in ftslist])
    else:
       raise ValueError('Unrecognized scale method {}'.format(scale))
 
-   cube = cube * scales[:,newaxis,newaxis]
+   cube = cube * scales[:,np.newaxis,np.newaxis]
 
    # Make a mask for rejections
    if reject == 'minmax':
       if nlow + nhigh >= Nim:
          raise ValueError("Error:  nlow +nhigh > number of images")
-      sids = argsort(cube, axis=0)
-      mask = greater(sids, nlow-1) * less(sids, Nim-nhigh)
-      if verbose: print("Using min/max rejected {} pixels".format(sum(~mask)))
+      sids = np.argsort(cube, axis=0)
+      mask = np.greater(sids, nlow-1) * np.less(sids, Nim-nhigh)
+      if verbose: print("Using min/max rejected {} pixels".format(np.sum(~mask)))
    elif reject == 'sigclip':
       if Nim < 3:
          raise ValueError("Error:  sigclip needs at least 3 images")
@@ -207,69 +211,71 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
       center = computeCenter(cube, axis=0, mclip=mclip, exclude_ends=True,
             mask=None)
       # sigma about center:
-      resids = cube - center[newaxis,:,:]
-      sigma = std(resids, axis=0)
-      mask = greater(resids, -sigma*lsigma)*less(resids,sigma*hsigma)
-      keep = sum(mask, axis=0)
-      if verbose: print("Using sigclip rejected {} pixels".format(sum(~mask)))
-      while any(greater(keep, 3)):
+      resids = cube - center[np.newaxis,:,:]
+      sigma = np.std(resids, axis=0)
+      mask = np.greater(resids, -sigma*lsigma)*np.less(resids,sigma*hsigma)
+      keep = np.sum(mask, axis=0)
+      if verbose: print("Using sigclip rejected {} pixels".format(np.sum(~mask)))
+      while np.any(np.greater(keep, 3)):
          center = computeCenter(cube, axis=0, mclip=mclip, exclude_ends=False,
                mask=mask)
-         resids = cube-center[newaxis,:,:]
-         sigma = std(resids, axis=0)
-         mask = greater(resids, -sigma*lsigma)*less(resids, sigma*hsigma)
-         if alltrue(equal(sum(mask, axis=0) - keep, 0)):
+         resids = cube-center[np.newaxis,:,:]
+         sigma = np.std(resids, axis=0)
+         mask = np.greater(resids, -sigma*lsigma)*np.less(resids, sigma*hsigma)
+         if np.alltrue(np.equal(np.sum(mask, axis=0) - keep, 0)):
             # No change, we're done
             break
-         keep = sum(mask, axis=0)
-         if verbose: print("   iterate rejected {} pixels".format(sum(~mask)))
+         keep = np.sum(mask, axis=0)
+         if verbose: print("   iterate rejected {} pixels".format(np.sum(~mask)))
 
    elif reject == 'avsigclip':
       # See IRAF docs
       # first, we compute the average gain across rows
       center = computeCenter(cube, axis=0, mclip=mclip, exclude_ends=True,
             mask=None)
-      v = var(cube-center[newaxis,:,:], axis=0)
-      gain = mean(v/center, axis=1)
-      sigma = sqrt(gain[:,newaxis]*center)
-      if verbose: print("AVSIGCLIP:  gain:{}, sigma:{}-{}".format(mean(gain),
+      v = np.var(cube-center[np.newaxis,:,:], axis=0)
+      gain = np.mean(v/center, axis=1)
+      sigma = np.sqrt(gain[:,np.newaxis]*center)
+      if verbose: print("AVSIGCLIP:  gain:{}, sigma:{}-{}".format(np.mean(gain),
          sigma.min(), sigma.max()))
 
       # Now have sigma for each pixel
-      resids = cube - center[newaxis,:,:]
-      mask = greater(resids, -sigma*lsigma)*less(resids,sigma*hsigma)
-      if verbose: print("Using avsigclip rejected {} pixels".format(sum(~mask)))
-      keep = sum(mask, axis=0)
-      while any(greater(keep, 3)):
+      resids = cube - center[np.newaxis,:,:]
+      mask = np.greater(resids, -sigma*lsigma)*np.less(resids,sigma*hsigma)
+      if verbose: print("Using avsigclip rejected {} pixels".format(np.sum(~mask)))
+      keep = np.sum(mask, axis=0)
+      while np.any(np.greater(keep, 3)):
          center = computeCenter(cube, axis=0, mclip=mclip, exclude_ends=False,
                mask=mask)
-         resids = cube-center[newaxis,:,:]
-         mask = greater(resids, -sigma*lsigma)*less(resids, sigma*hsigma)
-         if alltrue(equal(sum(mask, axis=0) - keep, 0)):
+         resids = cube-center[np.newaxis,:,:]
+         mask = np.greater(resids, -sigma*lsigma)*np.less(resids, sigma*hsigma)
+         if np.alltrue(np.equal(np.sum(mask, axis=0) - keep, 0)):
             # No change, we're done
             break
-         keep = sum(mask, axis=0)
-         if verbose: print("   iterate rejected {} pixels".format(sum(~mask)))
+         keep = np.sum(mask, axis=0)
+         if verbose: print("   iterate rejected {} pixels".format(np.sum(~mask)))
+   elif reject == 'none':
+      mask = ~np.isnan(cube)
    else:
       raise NotImplemented("rejection method {} not implemented yet".format(
          reject))
    if reject in ['sigclip','avsigclip']:
-      keep = sum(mask, axis=0)
-      if any(keep < nkeep):
-         resids = absolute(resids)
-         sids = argsort(resids, axis=0)
+      keep = np.sum(mask, axis=0)
+      if np.any(keep < nkeep):
+         resids = np.absolute(resids)
+         sids = np.argsort(resids, axis=0)
          # number that need to be added
-         numadd = where(keep < nkeep, nkeep-keep, 0)
-         ii,jj = nonzero(numadd > 0)
+         numadd = np.where(keep < nkeep, nkeep-keep, 0)
+         ii,jj = np.nonzero(numadd > 0)
          if verbose: 
             print("Need to work on putting back data for {} pixels".format(
                len(ii)))
          for i,j in zip(ii,jj):
-            sids = argsort(resids[:,i,j])
+            sids = np.argsort(resids[:,i,j])
             resid = resids[:,i,j][sids[numadd[i,j]]]
-            gids = less_equal(resids[:,i,j], resid)
+            gids = np.less_equal(resids[:,i,j], resid)
             mask[gids,i,j] = True
-      keep = sum(mask, axis=0)
+      keep = np.sum(mask, axis=0)
 
    # Now do the math:
    if combine == 'average':
@@ -277,10 +283,12 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
          weight = mask*1.0
       else:
          weight = weight*mask
-      retdata = sum(weight*cube, axis=0)/sum(weight, axis=0)
+      retdata = np.sum(weight*cube, axis=0)/np.sum(weight, axis=0)
    elif combine == 'median':
-      retdata = ma.median(ma.masked_array(cube, mask=~mask), axis=0)
-      retdata = ma.filled(retdata, fill_value=1.0)
+      retdata = np.ma.median(np.ma.masked_array(cube, mask=~mask), axis=0)
+      retdata = np.ma.filled(retdata, fill_value=1.0)
+   elif combine == 'sum':
+      retdata = np.sum(cube, axis=0)
    else:
       raise NotImplemented("Combine method {} not implemented yet".format(
          combine))
@@ -293,6 +301,13 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
       else:
          Ncombines += 1
    phdu.header['NCOMBINE'] = Ncombines
+   phdu.header['COMBTYPE'] = combine
+   if combine == 'sum':
+      # Modify the readnoise and exptime to effective values:
+      phdu.header[rdnoise] = phdu.header[rdnoise]*np.sqrt(Ncombines)
+      exps = np.array([f[0].header[expname] for f in ftslist])
+      phdu.header[expname] = np.sum(exps)
+
    phdu.header['COMMENT'] = "Imcombine using reject={} and combine={}".format(
          reject, combine)
    return fits.HDUList([phdu])

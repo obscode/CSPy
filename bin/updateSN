@@ -10,10 +10,13 @@ parser.add_argument('-status', help='Update status to STATUS')
 parser.add_argument('-info', help='Add an info argument')
 parser.add_argument('-priority', help='Update priority status')
 parser.add_argument('-observation', help='Update filter suite')
+parser.add_argument('-qs', help="Queues to add (comma-separated) "\
+                    "[OptPhot,NIRPhot,OptSpec,NIRSpec]")
 args = parser.parse_args()
 
 from CSPlib import database
 from astropy.time import Time
+import sys
 
 status_str = {'Active':1,
               'Inactive':2,
@@ -26,6 +29,8 @@ status_str = {'Active':1,
               'Followup':9}
 priorities = ['Calib', 'done', 'High', 'Low', 'Med-rare', 'Medium', 'Monthly',
               'Raw-high', 'Template']
+
+Queues = ["OptPhot", "NIRPhot", "OptSpec", "NIRspec"]
 
 db = database.getConnection(db=args.db)
 c = db.cursor()
@@ -70,4 +75,19 @@ if args.observation is not None:
       ' VALUES (%s,%s,%s,%s,%s)',
       (dt,args.poster,"observation", args.observation,snid))
 
+if args.qs is not None:
+   qs = args.qs.split(',')
+   for q in qs:
+       if q not in Queues:
+           print("Error:  unkonwn queue",q)
+           sys.exit(1)
+   if "OptPhot" in qs:
+      c.execute('UPDATE SNList SET QSWO=1 WHERE ID=%s', (snid))
+   if "NIRPhot" in qs:
+      c.execute('UPDATE SNList SET QRC=1 WHERE ID=%s', (snid))
+   if "OptSpec" in qs:
+      c.execute('UPDATE SNList SET QWFCCD=1 WHERE ID=%s', (snid))
+   if "NIRSpec" in qs:
+      c.execute('UPDATE SNList SET QFIRE=1 WHERE ID=%s', (snid))
+   
 db.close()

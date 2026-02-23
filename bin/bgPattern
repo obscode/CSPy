@@ -1,0 +1,70 @@
+#!/usr/bin/env python
+
+import argparse
+parser = argparse.ArgumentParser(
+    description="Solve for the BG patter from observed FITS files")
+parser.add_argument('fits', help='FITS files to consider', nargs='+')
+parser.add_argument('-out', help='output file (default background.fits)',
+                    default='background.fits')
+parser.add_argument('-bgcorrect', help='Do the BG correction',
+                    action='store_true')
+args = parser.parse_args()
+
+from astropy.io import fits
+import numpy as np
+from astropy.stats import sigma_clipped_stats, SigmaClip
+from photutils.segmentation import detect_threshold, detect_sources
+from photutils.utils import circular_footprint
+from astropy.convolution import convolve
+from astropy.stats import biweight_location
+from photutils.segmentation import make_2dgaussian_kernel
+from CSPlib.fitsutils import qdump
+from glob import glob
+
+def make_disk(radius=5):
+    len = 2*radius + 1
+    ii,jj = np.indeces((len,len))
+    dists = (ii-radius)**2 + (jj - radius)**2
+    return np.less(dists, radius**2)
+
+ftss = [fits.open(f) for f in args.fits]
+cube = np.array([fts[0].data for fts in ftss])
+
+# Mask out sources. We can make sigma prety high since we'll be
+# doing a median combine.
+sigma_clip = SigmaClip(sigma=3.0, maxiters=10)
+kernel = make_2dgaussian_kernel(3.0, size=5) 
+foot = circular_footprint(radius=10)
+scales = np.zeros((len(ftss)))
+for iter in range(3):
+   masks = []
+   work = cube*1.0
+
+   for i in range(cube.shape[0]):
+      if not iter:
+         bg = biweight_location(cube[i])
+      else:
+         bg = result*scales[i]
+      threshold = detect_threshold(cube[i]-bg, nsigma=2, sigma_clip=sigma_clip)
+      cdata = convolve(cube[i]-bg, kernel)
+      segment_img = detect_sources(cdata, threshold, npixels=10)
+      mask = segment_img.make_source_mask(footprint=foot)
+      qdump(args.fits[i].replace('.fits','mask.fits'), mask*1.0, 
+            header=ftss[i][0].header)
+      masks.append(mask)
+      mn, md, st = sigma_clipped_stats(cube[i], sigma=3.0, mask=mask)
+      scales[i] = md
+      work[i][:] = cube[i][:] / md
+
+   # Median combine using masks
+   masks = np.array(masks)
+   result = np.ma.median(np.ma.masked_array(work, mask=masks), axis=0)
+   result = np.ma.filled(result, fill_value=1.0)
+
+if args.bgcorrect:
+    for i,fts in np.enumerate(ftss):
+        fts[0].data -= result*scales[i]
+        fts[0].data.writeto(args.fits[i].replace('.fits','bgsub.fits'), 
+                            overwrite=True)
+ftss[0][0].data = result
+ftss[0].writeto(args.out, overwrite=True)

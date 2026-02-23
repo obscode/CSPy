@@ -10,6 +10,7 @@ from .tel_specs import getTelIns
 from . import fitsutils
 import re
 from .irafstuff import imcombine
+from .headers import shift_center
 
 slice_pat = re.compile(r'\[([0-9]+|\*):([0-9]+|\*),([0-9]+|\*):([0-9]+|\*)\]')
 
@@ -94,6 +95,12 @@ def makeBiasFrame(blist, outfile=None, tel='SWO', ins='NC'):
       OV2 = np.concatenate([[OV[0]],0.5*OV[1:-1]+0.25*OV[:-2]+0.25*OV[2:],
          [OV[-1]]])
       A = A - OV2[np.newaxis,:]
+
+   if np.any(np.isnan(A)):
+      # Quick fix for Nan's
+      mask = ~np.isnan(A).ravel()
+      Aavg = np.mean(A.ravel()[mask])
+      A = np.where(np.isnan(A), Aavg, A)
 
    phdu = fits.PrimaryHDU(A.astype(np.float32), header=res[0].header)
    fts = fits.HDUList([phdu])
@@ -211,7 +218,7 @@ def makeSigmaMap(fts, tel='SWO', ins='NC', outfile=None):
       nfts.writeto(outfile, overwrite=True)
    return nfts
 
-def LinearityCorrect(fts, copy=False, tel='SWO',ins='NC', chip='@OPAMP', 
+def LinearityCorrect(fts, copy=False, lincors=None, tel='SWO',ins='NC', chip='@OPAMP', 
       sigma=None):
    '''Perform linearity correction on the data. 
 
@@ -219,9 +226,12 @@ def LinearityCorrect(fts, copy=False, tel='SWO',ins='NC', chip='@OPAMP',
       fts (fits object):  Data frame to correct
       copy (bool):  If true, copy the data before modifying and return copy
                     Otherwise, modify data in-place and return
+      lincors (dict):  dictionary d[coef] that contains the linearity
+                       coefficients 'alpha', 'c1', 'c2', and 'c3'. 
+                       If None, get them from the tel_specs module
       tel (str):  Telescope code
       ins (str):  Instrument code
-      chop (str, int, or None):  If None, there is only one chip, so not needed,
+      chip (str, int, or None):  If None, there is only one chip, so not needed,
                   if int, use that as chip number, if string starting with @,
                   use as header keyword
       sigma (fits object): If supplied, fts is used for linearity calcution,
@@ -236,14 +246,16 @@ def LinearityCorrect(fts, copy=False, tel='SWO',ins='NC', chip='@OPAMP',
       else:
          fts = fitsutils.copyFits(fts)
 
-   lincors = getTelIns(tel,ins)['lincorr']
-   if chip is not None:
-      if type(chip) is str and chip[0] == '@':
-         chip = fts[0].header[chip[1:]]
-      if chip not in lincors:
-         raise ValueError('chip {} not found in tel_specs for {}{}'.format(
-            chip,tel,ins))
-      lincors = lincors[chip]
+   if lincors is None:
+      lincors = getTelIns(tel,ins)['lincorr']
+
+      if chip is not None:
+         if type(chip) is str and chip[0] == '@':
+            chip = fts[0].header[chip[1:]]
+         if chip not in lincors:
+           raise ValueError('chip {} not found in tel_specs for {}{}'.format(
+             chip,tel,ins))
+         lincors = lincors[chip]
    alpha = lincors['alpha']
    c1 = lincors['c1']
    c2 = lincors['c2']
@@ -306,7 +318,7 @@ def ShutterCorrect(fts, frame=None, copy=False, tel='SWO',ins='NC',
    return fts
 
 
-def makeFlatFrame(flist, outfile=None, tel='SWO', ins='NC'):
+def makeFlatFrame(flist, outfile=None, tel='SWO', ins='NC', statsec=None):
    '''Given a set of sky flat frames, combine into a single frame using
    imcombine. It is assumed the flats have already been corrected for
    BIAS, dark, etc.
@@ -324,18 +336,18 @@ def makeFlatFrame(flist, outfile=None, tel='SWO', ins='NC'):
    '''
    specs = getTelIns(tel,ins)
 
+   if statsec is None:
+       statsec = specs['statsec']
+
    # We'll use the median here as it's faster than the mode
    res = imcombine(flist, combine='median', reject='sigclip', 
-         lsigma=3, hsigma=3, nkeep=1, scale='median', statsec=specs['statsec'])
+         lsigma=3, hsigma=3, nkeep=1, scale='median', statsec=statsec)
 
    # Determine the mode of the pixels
-   if 'statsec' in specs:
-      x0,x1,y0,y1 = specs['statsec']
-      y0 = y0 - 1   # FITS index from 1, not zero
-      x0 = x0 - 1
-      subdata = res[0].data[y0:y1,x0:x1]
-   else:
-      subdata = res[0].data
+   x0,x1,y0,y1 = statsec
+   y0 = y0 - 1   # FITS index from 1, not zero
+   x0 = x0 - 1
+   subdata = res[0].data[y0:y1,x0:x1]
 
    mod = mode(subdata.ravel()) 
    
@@ -364,11 +376,15 @@ def flatCorrect(image, flat, outfile=None, replace=1.0):
 
    if isinstance(flat, str):
       flatfts = fits.open(flat)
-      newhdr['COMMENT'] = "Flat field corrected using {}".format(flat)
+      flatfile = flat
    else:
       flatfts = flat
+   flatdate = flatfts[0].header['DATE-OBS']
+   flatfile = flatfts[0].header['FILENAME']
+   newhdr['COMMENT'] = "Flat field corrected using {} ({})".format(
+      flatfile,flatdate)
 
-   corr = np.where(np.equal(flat[0].data, 0.0), replace, 
+   corr = np.where(np.equal(flatfts[0].data, 0.0), replace, 
          image[0].data/flat[0].data)
 
    newhdu = fits.PrimaryHDU(data=corr, header=newhdr)
@@ -378,13 +394,16 @@ def flatCorrect(image, flat, outfile=None, replace=1.0):
       newfts.writeto(outfile, overwrite=True)
    return newfts
 
-def stitchSWONC(c1,c2,c3,c4):
+def stitchSWONC(c1,c2,c3,c4, rotate=False, normamp=None):
    '''Given the 4 "chips" as FITS files (or FITS instances), create a new FITS
     image as a mosaic with the corect orientations (RA increases to lower x-pixel,
-    DEC increases to higher y-pixel).
+    DEC increases to higher y-pixel). It is assumed the images have already been
+    rotated/flipped so that increasing X pixels decrase RA and increasing Y-pixels
+    increase DEC
     
     Args:
        c1,c2,c2,c4 (str or fits):  filenames or fits instances to mosaic
+       rotate (bool):  If True, rotate/invert the data before stitching
        
     Returns:
        fits instance of the mosaic'ed data'''
@@ -394,16 +413,45 @@ def stitchSWONC(c1,c2,c3,c4):
    if isinstance(c3, str): c3 = fits.open(c3)   
    if isinstance(c4, str): c4 = fits.open(c4)   
 
+   d1 = c1[0].data*1.0
+   d2 = c2[0].data*1.0
+   d3 = c3[0].data*1.0
+   d4 = c4[0].data*1.0
+
+   if rotate:
+      d1 = d1.T[::-1,::]
+      d2 = d2.T
+      d3 = d3.T[::,::-1]
+      d4 = d4.T[::-1,::-1]
+
+   for d in [d1,d2,d3,d4]:
+      if d.shape[0] != 2048 or d.shape[1] != 2056:
+         raise ValueError("Error:  input arrays are incorrect shape.")
+
    newarr = np.zeros((4096,4112), dtype=np.float32)
 
-   newarr[:2048,:2056] = c2[0].data.T[:,:]
-   newarr[:2048,2056:] = c3[0].data.T[:,::-1]
-   newarr[2048:,:2056] = c1[0].data.T[::-1,:]
-   newarr[2048:,2056:] = c4[0].data.T[::-1,::-1]
+   newarr[:2048,:2056] = d2   # bottom-left
+   newarr[:2048,2056:] = d3   # bottom-right
+   newarr[2048:,:2056] = d1   # top-left
+   newarr[2048:,2056:] = d4   # top-right
 
-   h = c1[0].header.copy()
+   h = c2[0].header.copy()
+   if rotate:
+      h['ROTANG'] = 90
+   if 'NOPAMPS' in h:  h['NOPAMPS'] = 1
+   if 'DATASEC' in h:  
+      if rotate:
+         h['DATASEC'] = "[1:4112,1:4096]"
+      else:
+         h['DATASEC'] = "[1:4096,1:4112]"
+   if 'TRIMSEC' in h: h['TRIMSEC'] = h['DATASEC']
+
+   # Shift back to center of the array
+   newra,newdec = shift_center(h, inverse=True)
+   h['RA'] = newra
+   h['DEC'] = newdec
    if 'OPAMP' in h:  h['OPAMP'] = "1-4"
-   if 'DATASEC' in h:  h['DATASEC'] = "[1:4112,1:4096]"
+
    hdu = fits.PrimaryHDU(data=newarr, header=h)
    newfts = fits.HDUList([hdu])
    return newfts
