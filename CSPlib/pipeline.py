@@ -76,7 +76,8 @@ class Pipeline:
    def __init__(self, datadir, workdir=None, prefix='ccd', suffix='.fits',
          calibrations=cfg.data.calibrations, templates=cfg.data.templates,
          catalogs=cfg.data.templates, fsize=9512640, tmin=0, update_db=True,
-         gsub=None, reduced=None, SNphot=cfg.photometry.SNphot, quiet=False):
+         gsub=None, reduced=None, SNphot=cfg.photometry.SNphot, quiet=False,
+         ignorePats=[]):
       '''
       Initialize the pipeline object.
 
@@ -102,6 +103,8 @@ class Pipeline:
                         only left in the working folder.
          SNphot (str): File where supernova photometry will be saved to file.
          quiet (bool): If true, don't print excess stuff to screen
+         ignorePats (list of str): patterns for OBJECT/EXPTYPE to ignore
+                                   completely. For example: linear, shtter
       Returns:
          Pipeline object
       '''
@@ -115,6 +118,7 @@ class Pipeline:
       self.fsize = [fsize+i*2880 for i in range(3)]  # that should be enough!
       self.tmin = tmin
       self.update_db = update_db
+      self.ignorePats = ignorePats
       self.quiet = quiet
 
       # Some status values to avoid repeatedly trying unaccessible remotes
@@ -294,6 +298,15 @@ class Pipeline:
                      'skipping...'.format(filename))
             self.badfiles.append(filename)
             return
+
+      if self.ignorePats:
+         obj = fts[0].header['OBJECT']
+         for pat in self.ignorePats:
+            if obj.lower().find(pat.lower()) >= 0:
+               # Ignored object
+               self.log('Ignoring {} based on patter {}'.format(filename,pat))
+               self.badfiles.append(filename)
+               return
 
       fil = basename(filename)
       self.headerData[fil] = {}

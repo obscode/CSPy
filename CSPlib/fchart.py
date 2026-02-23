@@ -42,6 +42,13 @@ def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
    fig = plt.figure(figsize=(9,9))
 
    wcs = WCS(fts[0])
+
+   # Check for flips:  we want RA increasing with decreasong pixels
+   x0,y0 = wcs.wcs_pix2world(0,0,0)
+   x1,y1 = wcs.wcs_pix2world(1,1,0)
+   deltx = x1 - x0
+   delty = y1 - y0
+
    ax = fig.add_subplot(111, projection=wcs)
    plt.subplots_adjust(left=0.2)
    norm = simple_norm(fts[0].data, percent=percent, 
@@ -151,6 +158,13 @@ def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
 
 
    ax.set_title(sn, loc='left')
+
+   if deltx > 0:
+      ax.invert_xaxis()
+      ins.invert_xaxis()
+   if delty < 0:
+      ax.invert_yaxis()
+      ins.invert_yaxis()
 
    # Scale
    ii0,jj0 = isize*0.05,jsize*0.05
