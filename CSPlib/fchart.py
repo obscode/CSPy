@@ -8,7 +8,7 @@ from astropy.wcs import WCS
 catalog stars.'''
 
 
-def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
+def Fchart(fts, percent=99, zpercent=None, maxpercent=None, minpercent=None,
       offsetcat=None, LScat=None, zoomfac=4, snx='SNX', sny='SNY',
       sn=None, loffset=0.02, fixnan=True, dx=0, dy=0):
    '''Draw a finder chart for the given FITS image. 
@@ -53,6 +53,7 @@ def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
    plt.subplots_adjust(left=0.2)
    norm = simple_norm(fts[0].data, percent=percent, 
          max_percent=maxpercent, min_percent=minpercent)
+   
    if fixnan and np.any(np.isnan(fts[0].data)):
       gids = ~np.isnan(fts[0].data.ravel())
       maxdata = (fts[0].data.ravel()[gids]).max()
@@ -136,7 +137,11 @@ def Fchart(fts, percent=99, maxpercent=None, minpercent=None,
  
       #subdata = fts[0].data[yy0:yy1,xx0:xx1]
       subdata = fdata[yy0:yy1,xx0:xx1]
-      ins.imshow(subdata,origin='lower', norm=norm, cmap='gray_r')
+      if zpercent is not None:
+         znorm = simple_norm(subdata, percent=zpercent)
+      else:
+         znorm = norm
+      ins.imshow(subdata,origin='lower', norm=znorm, cmap='gray_r')
  
       #centered on SN, so no need for trans.
       ins.plot([0.25,0.45],[0.5, 0.5], '-', color='red', alpha=0.5,
