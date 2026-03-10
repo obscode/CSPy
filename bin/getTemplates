@@ -124,12 +124,8 @@ for sn,ra,dec in l:
             delimiter=' ', overwrite=True)
 
       # Now make natural system catalog
-      if skymap and not useRefcat:
-         nats = SMstand2nat(cat['gmag'],cat['rmag'],cat['imag'], cat['gerr'],
-               cat['rerr'], cat['ierr'])
-      else:
-         nats = PSstand2nat(cat['gmag'],cat['rmag'],cat['imag'], cat['gerr'],
-               cat['rerr'], cat['ierr'])
+      nats = PSstand2nat(cat['gmag'],cat['rmag'],cat['imag'], cat['gerr'],
+         cat['rerr'], cat['ierr'])
       newtab = hstack([cat,nats])
       newtab.remove_columns(['gmag','gerr','rmag','rerr','imag','ierr'])
       if 0 in newtab['objID']:
@@ -158,10 +154,18 @@ for sn,ra,dec in l:
 
    try:
       fig = Fchart(fts, percent=99.5, offsetcat=offcat, zoomfac=5, fixnan=True,
+<<<<<<< HEAD
                    sn=sn+" (archival)")
       fig.savefig(fchart) 
       plt.close(fig)
    except:
       print('Finder chart failed for {}'.format(sn))
+=======
+                sn=sn+" (archival)")
+      fig.savefig(fchart) 
+      plt.close(fig)
+   except:
+      print('Finder failed for {}'.format(sn))
+>>>>>>> 424203a (Refcat2 is all PS calib)
       continue
    
