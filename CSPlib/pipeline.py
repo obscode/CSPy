@@ -77,7 +77,7 @@ class Pipeline:
          calibrations=cfg.data.calibrations, templates=cfg.data.templates,
          catalogs=cfg.data.templates, fsize=9512640, tmin=0, update_db=True,
          gsub=None, reduced=None, SNphot=cfg.photometry.SNphot, quiet=False,
-         ignorePats=cfg.data.ignore):
+         progress=False, ignorePats=cfg.data.ignore):
       '''
       Initialize the pipeline object.
 
@@ -103,6 +103,7 @@ class Pipeline:
                         only left in the working folder.
          SNphot (str): File where supernova photometry will be saved to file.
          quiet (bool): If true, don't print excess stuff to screen
+         progress (bool): print out a progress meter?
          ignorePats (list of str): patterns for OBJECT/EXPTYPE to ignore
                                    completely. For example: linear, shtter
       Returns:
@@ -120,6 +121,7 @@ class Pipeline:
       self.update_db = update_db
       self.ignorePats = ignorePats
       self.quiet = quiet
+      self._progress = progress
 
       # Some status values to avoid repeatedly trying unaccessible remotes
       self._rclone_reachable = True
@@ -245,7 +247,7 @@ class Pipeline:
       self.logfile.flush()
 
    def progress(self, iterable, desc=None):
-      if tqdm is None:
+      if tqdm is None or not self._progress:
          return iterable
       return tqdm(iterable, desc=desc)
 
@@ -256,7 +258,7 @@ class Pipeline:
          return -3
       cmd = [cfg.software.rclone, 'copy', location, target]
       res = subprocess.run(cmd, capture_output=True)
-      if res.returncode != 0: self._rclone_reachable = False
+      #if res.returncode != 0: self._rclone_reachable = False
       return res
 
    def reportFiles(self):
@@ -999,8 +1001,11 @@ class Pipeline:
                pass
 
          if computeFWHM and not standard:
-            fwhm,tab = ap.fitFWHM(plotfile=fil.replace('.fits','_fwhm.pdf'), 
-                                  profile='Gauss')
+            try:
+               fwhm,tab = ap.fitFWHM(plotfile=fil.replace('.fits','_fwhm.pdf'), 
+                                     profile='Moffat')
+            except:
+               fwhm = -1 
             if fwhm > 0:
                ap.head['FWHM'] = np.round(fwhm,3)
                update = True
@@ -1558,7 +1563,7 @@ class Pipeline:
          try:
             obs = ImageMatch.Observation(fil, scale=0.435, saturate=4e4, 
                   reject=True, snx='SNRA', sny='SNDEC', magmax=22,
-                  magmin=11, verbose=False, log_stream=self.logfile)
+                  magmin=11, verbose=False)
             ref = ImageMatch.Observation(template, scale=0.25, saturate=6e4,
                   reject=True, magmax=22, magmin=11)
             res = obs.GoCatGo(ref, skyoff=True, pwid=11, perr=3.0, nmax=100, 
@@ -1572,7 +1577,7 @@ class Pipeline:
                self.ignore.append(fil)
                continue
             self.subtracted.append(fil)
-
+       
             # If requested, save the template subtraction image
             if self.gsub is not None:
                subimg = fil.replace('.fits','SN_diff.jpg')
@@ -1589,7 +1594,7 @@ class Pipeline:
                 fil))
             self.ignore.append(fil)
 
-   def initialize(self):
+   def initialize(self, once=False):
       '''Make a first run through the data and see if we \
               have what we need
       to get going. We can always fall back on generic calibrations if
@@ -1602,7 +1607,13 @@ class Pipeline:
       for fil in self.progress(files, desc="Ingesting Data"):
          self.addFile(fil)
 
-      self.reportFiles()
+      if not once:
+         # running pipeline to watch futuer files. Add all filters
+         for filt in cfg.data.filtlist:
+            if filt not in self.filters:
+               self.filters.append(filt)
+
+      if once: self.reportFiles()
 
       self.makeBias()
       self.BiasLinShutCorr()
