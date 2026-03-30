@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from CSPlib import getPS,getSM,getRefcat2,getPOSS
+from CSPlib import getPS,getSM,getRefcat2,getPOSS,getDECcam
 from CSPlib.fchart import Fchart
 from CSPlib.calibration import PSstand2nat,SMstand2nat
 from CSPlib.config import getconfig
@@ -58,22 +58,34 @@ for sn,ra,dec in l:
       flist = getPS.getFITS(ra, dec, chart_size, 'gri', mosaic=True)
       if flist is None:
          print("Error, could not download PS image data "
-             "for {}({:.5f}{:.5f}), trying SM".format(sn,ra,dec))
-         flist = getSM.getFITS(ra, dec, chart_size, 'gri', mosaic=True)
-         skymap = True
-         if flist is None:
-            print("Error, could not download SM image data "\
-                  "for {}({:.5f}{:.5f})".format(sn,ra,dec))
-            fts = getPOSS.getFITS(ra, dec, chart_size)
-            flist = [fts,fts,fts]
-            # Can't do template subtractions, so best is skip
-            with open(join(templates, "{}_tskip".format(sn)), 'w') as fout:
-               fout.write("\n")
-            skymap = False
+             "for {}({:.5f}{:.5f}), trying DECcam".format(sn,ra,dec))
+         flist = getDECcam.getFITS(ra, dec, chart_size, ['g','r','i'])
+         found = True
+         for f in flist:
+            if f is None:
+               found = False
+               break
+
+         if not found:
+            print("Error, could not download DECcam image data "
+                "for {}({:.5f}{:.5f}), trying SM".format(sn,ra,dec))
+            flist = getSM.getFITS(ra, dec, chart_size, 'gri', mosaic=True)
+            skymap = True
+            if flist is None:
+               print("Error, could not download SM image data "\
+                     "for {}({:.5f}{:.5f})".format(sn,ra,dec))
+               fts = getPOSS.getFITS(ra, dec, chart_size)
+               flist = [fts,fts,fts]
+               # Can't do template subtractions, so best is skip
+               with open(join(templates, "{}_tskip".format(sn)), 'w') as fout:
+                  fout.write("\n")
+               skymap = False
+            else:
+               # Skymapper comes back with mosaic FITS (first) and template (second)
+               # We save the templates
+               [flist[i][1].writeto(fnames[i], overwrite=True) for i in range(3)]
          else:
-            # Skymapper comes back with mosaic FITS (first) and template (second)
-            # We save the templates
-            [flist[i][1].writeto(fnames[i], overwrite=True) for i in range(3)]
+            [flist[i].writeto(fnames[i], overwrite=True) for i in range(3)]
       else:
          # PS comes with just the mosaic
          [flist[i].writeto(fnames[i], overwrite=True) for i in range(3)]
@@ -112,7 +124,7 @@ for sn,ra,dec in l:
             delimiter=' ', overwrite=True)
 
       # Now make natural system catalog
-      if skymap:
+      if skymap and not useRefcat:
          nats = SMstand2nat(cat['gmag'],cat['rmag'],cat['imag'], cat['gerr'],
                cat['rerr'], cat['ierr'])
       else:
@@ -144,8 +156,12 @@ for sn,ra,dec in l:
    else:
       offcat = None
 
-   fig = Fchart(fts, percent=99.5, offsetcat=offcat, zoomfac=5, fixnan=True,
-                sn=sn+" (archival)")
-   fig.savefig(fchart) 
-   plt.close(fig)
+   try:
+      fig = Fchart(fts, percent=99.5, offsetcat=offcat, zoomfac=5, fixnan=True,
+                   sn=sn+" (archival)")
+      fig.savefig(fchart) 
+      plt.close(fig)
+   except:
+      print('Finder chart failed for {}'.format(sn))
+      continue
    
