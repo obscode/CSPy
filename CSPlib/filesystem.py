@@ -37,6 +37,12 @@ def CSPname(fitsfile, idx=1, suffix='.fits', object=None):
       jd = Time(fts[0].header['MJD'] + 0.5, format='mjd')
    elif 'MJD-OBS' in fts[0].header:
       jd = Time(fts[0].header['MJD-OBS'] + 0.5, format='mjd')
+   elif 'DATE-OBS' in fts[0].header:
+      jd = Time(fts[0].header['DATE-OBS'])
+   elif 'DATEOBS1' in fts[0].header:
+      jd = Time(fts[0].header['DATEOBS1'])
+   else:
+      jd = Time.now()
       
    dt = jd.to_datetime()
    YY,MM,DD = dt.year,dt.month,dt.day
