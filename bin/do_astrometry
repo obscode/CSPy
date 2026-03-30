@@ -31,6 +31,8 @@ bindir = os.path.join(args.dir, 'bin')
 
 if args.extra is not None:
    extra_args = args.extra.split(',')
+else:
+   extra_args = []
 
 ret = do_astrometry(args.files, args.trim, args.replace, args.dir, extra_args,
       verbose=args.v)
