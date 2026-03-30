@@ -3,6 +3,8 @@ seems to only do aperture photometry reliably.'''
 
 from .config import config
 from .tel_specs import getTelIns
+from . import getRefcat2
+from .calibration import PSstand2nat
 
 from astropy.stats import sigma_clipped_stats, SigmaClip
 from astropy.stats import gaussian_fwhm_to_sigma as FtoS
@@ -21,14 +23,11 @@ from photutils import SkyCircularAperture, SkyCircularAnnulus
 from photutils import aperture_photometry
 from photutils.centroids import centroid_com,centroid_1dg,centroid_quadratic
 from photutils.psf import PSFPhotometry, IntegratedGaussianPRF, SourceGrouper
-#from photutils.psf import BasicPSFPhotometry, IntegratedGaussianPRF, DAOGroup
-#from photutils.psf import EPSFBuilder, extract_stars
 from .myepsfbuilder import FlowsEPSFBuilder as EPSFBuilder
 from photutils.psf import extract_stars
-from photutils.background import MMMBackground, MedianBackground,Background2D,LocalBackground
+from photutils.background import MedianBackground,Background2D,LocalBackground
 from astropy.modeling.fitting import LevMarLSQFitter
 from astropy.modeling import models
-from scipy.optimize import least_squares
 
 from matplotlib import pyplot as plt
 from astropy.visualization import simple_norm
@@ -37,7 +36,7 @@ from warnings import catch_warnings, simplefilter
 import os
 import numpy as np
 from .npextras import between
-from astropy.table import vstack,Table
+from astropy.table import Table,hstack
 import tempfile
 from copy import deepcopy
 
@@ -201,7 +200,12 @@ def centroid2D(data, i0, j0, fwhm0, radius, var=None, gain=1, rdnoise=0,
       g2.gamma.bounds = (fwhm0/10, 5*fwhm0)
 
    yy,xx = np.mgrid[:subdat.shape[1], :subdat.shape[0]]
-   fit = fitter(g2, x=xx, y=yy, z=subdat, weights=weights)
+   print(np.sometrue(np.isnan(subdat)))
+   try:
+      fit = fitter(g2, x=xx, y=yy, z=subdat, weights=weights)
+   except:
+      return False,i0,j0,fwhm0,-1,-1
+
    #p0 = [1.0, radius, radius, fwhm0*FtoS]
    #res = least_squares(objfunc, p0, args=(g2, xx, yy, subdat, weights))
    #model = g2.evaluate(xx, yy, res.x[0], res.x[1], res.x[2], res.x[3], res.x[3], 0)
@@ -1028,6 +1032,76 @@ class ApPhot(BasePhot):
             ax[i].set_yticks([])
          #fig.tight_layout()
          fig.savefig(self.ftsfile+"_cutout{}.png".format(p))
+   
+   def getLSCatalog(self):
+      '''Query Refcat2 to build a list of local sequence stars and compute
+      their natural (Swope) photometry.'''
+      
+      # First, we need the size of the image. If WCS is valid, use that
+      # otherwise guestimate based on coordinates and scales
+      if self.wcs.has_celestial:
+         corners = self.wcs.calc_footprint()
+         ra_cen = corners[:,0].mean()
+         de_cen = corners[:,1].mean()
+         ra_siz = (corners[:,0].max()-corners[:,0].min())*\
+            np.cos(de_cen*np.pi/180)
+         de_siz = corners[:,1].max()-corners[:,1].min()
+         rad = max(ra_siz, de_siz)*0.707    # radius = max size/2*sqrt(2)
+      else:
+         rad = max(self.data.shape)*self.scale/3600*0.707
+      
+      # Download all refcat2 stars
+      cat = getRefcat2.getStarCat(ra_cen, de_cen, rad)
+      
+      # Now do some filtering.  Order by brightness
+      sids = np.argsort(cat['rmag'])
+      cat = cat[sids]
+      cat['RA'].info.format = "%.8f"
+      cat['DEC'].info.format = "%.8f"
+      for filt in ['g','r','i']:
+         cat[filt+'mag'].info.format="%.4f"
+         cat[filt+'err'].info.format="%.4f"
+      #cat.write(join(templates, "{}.cat".format(sn)),format='ascii.fixed_width',
+      #      delimiter=' ', overwrite=True)
+
+      # Now make natural system catalog
+      nats = PSstand2nat(cat['gmag'],cat['rmag'],cat['imag'], cat['gerr'],
+               cat['rerr'], cat['ierr'])
+      newtab = hstack([cat,nats])
+      newtab.remove_columns(['gmag','gerr','rmag','rerr','imag','ierr'])
+
+      gids = np.ones(len(nats), dtype=bool)
+      for filt in ['u','g','r','i','B','V']:
+         m = getattr(nats[filt], 'mask', np.zeros(len(nats), dtype=bool))
+         gids = gids*(~m)
+      nats = nats[gids]
+      if len(nats) > 5000:
+         # Too many stars, randomly trim them down
+         idx = np.random.choice(len(nats), size=5000, replace=False)
+         nats = nats[idx]
+      gids = np.array(nats['r'] < 20)
+      gids = gids*np.array(np.greater(nats['er'], 0))
+      # make sure well-separated
+      ra = np.array(nats['RA']);  dec = np.array(nats['DEC'])
+      maxdist = 11.
+      dists = np.sqrt(np.power(dec[np.newaxis,:]-dec[:,np.newaxis],2)\
+            + np.power((ra[np.newaxis,:]-ra[:,np.newaxis])*\
+            np.cos(dec*np.pi/180), 2))
+      Nnn = np.sum(np.less(dists, 11.0/3600), axis=0)
+      gids = gids*np.equal(Nnn,1)
+      # Check for no more than 400 objects
+      while sum(gids) > 400:
+         maxdist += 1
+         Nnn = np.sum(np.less(dists, maxdist/3600), axis=0)
+         gids = gids*np.equal(Nnn,1)
+      nats = nats[gids]
+      return nats
+      
+
+
+
+
+
 
 def NN1(phot, std_key, inst_key='ap2', sigma=3, niter=3, fthresh=0.3):
    '''Construct the N(N-1) combinations of differences between the instrumental
