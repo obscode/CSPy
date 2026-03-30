@@ -77,7 +77,7 @@ class Pipeline:
          calibrations=cfg.data.calibrations, templates=cfg.data.templates,
          catalogs=cfg.data.templates, fsize=9512640, tmin=0, update_db=True,
          gsub=None, reduced=None, SNphot=cfg.photometry.SNphot, quiet=False,
-         ignorePats=[]):
+         ignorePats=cfg.data.ignore):
       '''
       Initialize the pipeline object.
 
@@ -226,7 +226,7 @@ class Pipeline:
       for filt in filtlist: 
          self.files['dflat'][filt] = {1:[],2:[],3:[],4:[]}
          self.files['sflat'][filt] = {1:[],2:[],3:[],4:[]}
-         self.files['astro'][filt] = {1:[],2:[],3:[],4:[]}
+         self.files['astro'][filt] = {1:[],2:[],3:[],4:[],'1-4':[]}
 
       self.biasFrames = {}     # indexed by opamp
       self.shutterFrames = {}  # indexed by opamp
@@ -1598,7 +1598,8 @@ class Pipeline:
       self.log("Start pipeline at {}".format(
           time.strftime('%Y/%m/%d %H:%M:%S')))
       files = self.getNewFiles()
-      for fil in files:
+      #for f in self.progress(todo, desc="Flat fieldting"):
+      for fil in self.progress(files, desc="Ingesting Data"):
          self.addFile(fil)
 
       self.reportFiles()

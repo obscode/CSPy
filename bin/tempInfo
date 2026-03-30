@@ -4,13 +4,19 @@ import argparse
 parser = argparse.ArgumentParser(
     description="Update FITS headers with template information")
 parser.add_argument('template', help='The template FITS file')
-parser.add_argument('SN', nargs="+", help='The template FITS file')
+parser.add_argument('SN', nargs="+", help='The supernova FITS file')
 
 args = parser.parse_args()
 
 from astropy.io import fits
 import os
 import re
+try:
+    from imagematch import __version__ as imvers
+except:
+    imvers = "0.2"
+
+
 
 CSPpat = re.compile(r'[^\/_]+_[uBVgri][0-9][0-9]_SWO_NC_[0-9]{4,4}_[0-9]{2,2}'\
                     r'_[0-9]{2,2}\.fits')
@@ -24,6 +30,7 @@ th = temp[0].header
 telescope = th.get('TELESCOP',None)
 instrument = th.get('INSTRUME', None)
 filename = th.get('FILENAME', "Unknown")
+night = th.get('NIGHT', None)
 fwhm = th.get('FWHM',-1)
 extra = ''
 datetime = ''
@@ -34,6 +41,8 @@ if telescope == 'SWO':
     res = CSPpat.search(os.path.realpath(args.template))
     if res:
         filename = res.group(0)
+    elif night is not None and filename is not None:
+        filename = night+'/'+filename
 
 # Cases that are a little more complicated
 if telescope is None and instrument is None:
@@ -51,7 +60,7 @@ if telescope.strip() == "SkyMapper":
     extra = "Downloaded from SkyMapper server"
 
 
-history.append("TEMPSUB:  ImageMatch 0.1.0 template subtraction")
+history.append(f"TEMPSUB:  ImageMatch {imvers} template subtraction")
 history.append(f"TEMPSUB:  telescope: {telescope}")
 history.append(f"TEMPSUB:  instrument: {instrument}")
 history.append(f"TEMPSUB:  filename: {filename}")
@@ -64,3 +73,4 @@ for sn in args.SN:
     for line in history:
         fts[0].header['HISTORY'] = line
     fts.writeto(sn, overwrite=True)
+
