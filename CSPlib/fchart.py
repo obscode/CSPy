@@ -153,6 +153,8 @@ def Fchart(fts, percent=99, zpercent=None, maxpercent=None, minpercent=None,
       ins.plot([0.5,0.5],[0.55, 0.75], '-', color='red', alpha=0.5,
          transform=ins.transAxes)
 
+   else:
+      ins = None
    # Compass
    ax.plot([0.95,0.85],[0.05,0.05], '-', color='blue', transform=ax.transAxes)
    ax.plot([0.95,0.95],[0.05,0.15], '-', color='blue', transform=ax.transAxes)
@@ -166,10 +168,10 @@ def Fchart(fts, percent=99, zpercent=None, maxpercent=None, minpercent=None,
 
    if deltx > 0:
       ax.invert_xaxis()
-      ins.invert_xaxis()
+      if ins: ins.invert_xaxis()
    if delty < 0:
       ax.invert_yaxis()
-      ins.invert_yaxis()
+      if ins: ins.invert_yaxis()
 
    # Scale
    ii0,jj0 = isize*0.05,jsize*0.05
