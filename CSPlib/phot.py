@@ -242,7 +242,8 @@ def centroid2D(data, i0, j0, fwhm0, radius, var=None, gain=1, rdnoise=0,
 
 class BasePhot:
 
-   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None):
+   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None,
+                verbose=True):
       '''Initialize this photometry class with a tel/ins configuration
       and FITS file.
       
@@ -252,11 +253,13 @@ class BasePhot:
          ins (str):  instrument code (e.g., NC)
          sigma (str or FITS): The FITS file with error (noise) map
          mask (str or FITS): The optional FITS file with mask (True=Bad) 
+         verbose (bool): print messages?
       
       Returns:
          PSFPhot instance.
       '''
       self.cfg = getTelIns(tel,ins)
+      self.verbose = verbose
       if not os.path.isfile(ftsfile):
          raise ValueError("Error:  not such file {}".format(ftsfile))
       if isinstance(ftsfile, str):
@@ -301,6 +304,7 @@ class BasePhot:
 
       self.background = None
 
+
    def _parse_key(self, key, fallback=None):
       '''Given a key, we try to figure out what value it sould have. First,
       we check if the key exists in the config dict. If it is a string has
@@ -313,7 +317,8 @@ class BasePhot:
             fitskey = val[1:]
             if fitskey not in self.head:
                if fallback is not None:
-                  print("Warning: Header keyword {}, not found, using fallback={}".format(
+                  if self.verbose:
+                     print("Warning: Header keyword {}, not found, using fallback={}".format(
                      fitskey, fallback))
                   return fallback
                raise KeyError("header keyword {} not found".format(fitskey))
@@ -585,7 +590,6 @@ class BasePhot:
       #if len(tab) < Nmin:
       #   raise ValueError("Less than Nmin ({}) stars fit".format(Nmin))
 
-      success = True
       mask = (tab['snr'] > SNRmin)
       if np.sum(mask) > Nmin:
          fwhm = np.median(tab['fwhm'][mask])
@@ -599,30 +603,23 @@ class BasePhot:
          fwhm = tab['fwhm'][idx]
          mask[idx] = True
       else:
-         success = False
-         #return -1,tab
+         return -1,tab
 
       if plotfile is not None:
          ax.axhline(0.5, color='red')
-         if success: ax.axvline(fwhm/self.scale/2)
+         ax.axvline(fwhm/self.scale/2)
 
          # make the not-used profiles less prominent
          for i in range(len(mask)):
             if not mask[i]:
                ax.lines[2*i].set_alpha(0.05)
                ax.lines[2*i+1].set_alpha(0.1)
-         if success:
-            ax.set_xlim(0, fwhm*10)
-         else:
-            ax.set_xlim(0, 10)
+         ax.set_xlim(0, fwhm*10)
          ax.set_ylim(-0.1, 1.1)
          fig.tight_layout()
          fig.savefig(plotfile)
          plt.close(fig)
-      if success:
-         return fwhm,tab
-      else:
-         return -1,tab
+      return fwhm,tab
 
    def plot_field(self, percent=99.):
       '''PLot the data as a field of view with LS stars plotted if loaded

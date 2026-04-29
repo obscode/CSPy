@@ -46,7 +46,8 @@ datadir = os.path.realpath(os.path.join(os.path.dirname(__file__), 'data'))
 class SexTractor:
    '''A class to runs source extractor on an image.'''
 
-   def __init__(self, image, tel='SWO', ins='NC', scale=None, gain=None):
+   def __init__(self, image, tel='SWO', ins='NC', scale=None, gain=None,
+                verbose=False):
 
       self.image = image
       teldata = getTelIns(tel, ins)
@@ -74,6 +75,7 @@ class SexTractor:
       if gain is not None: self.gain = gain
       self.tmpdir = tempfile.mkdtemp(dir='.')
       self.tab = None
+      self.verbose = verbose
 
    def makeSexFiles(self, aper, datamax, fwhm, thresh, deblend_mc=0.005):
       '''Output a sextractor config file.
@@ -131,6 +133,8 @@ class SexTractor:
       ret = subprocess.run(cmd, capture_output=True)
       if ret.returncode != 0:
          raise RuntimeError('Sextractor failed')
+      if self.verbose:
+         print(ret.stdout)
 
    def parseCatFile(self):
       '''Read in the catalog data.'''
