@@ -200,7 +200,7 @@ def centroid2D(data, i0, j0, fwhm0, radius, var=None, gain=1, rdnoise=0,
       g2.gamma.bounds = (fwhm0/10, 5*fwhm0)
 
    yy,xx = np.mgrid[:subdat.shape[1], :subdat.shape[0]]
-   print(np.sometrue(np.isnan(subdat)))
+   #print(np.sometrue(np.isnan(subdat)))
    try:
       fit = fitter(g2, x=xx, y=yy, z=subdat, weights=weights)
    except:
