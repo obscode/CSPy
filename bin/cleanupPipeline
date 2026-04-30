@@ -28,6 +28,9 @@ mv *_SWO_NC*[0-9]_sigma.fits FinalProducts
 # Any scripts we might have made
 mv *.py FinalProducts
 
+# Failures
+mv wcstotal* FinalProducts
+
 # The actual cleanup
 rm *
 mv FinalProducts/* .
