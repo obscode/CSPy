@@ -19,10 +19,10 @@ from astropy.convolution import Gaussian2DKernel,convolve
 #from photutils.segmentation import make_source_mask
 from photutils.segmentation import detect_threshold, detect_sources,SourceCatalog
 from photutils.utils import circular_footprint, calc_total_error
-from photutils import SkyCircularAperture, SkyCircularAnnulus
-from photutils import aperture_photometry
+from photutils.aperture import SkyCircularAperture, SkyCircularAnnulus
+from photutils.aperture import aperture_photometry
 from photutils.centroids import centroid_com,centroid_1dg,centroid_quadratic
-from photutils.psf import PSFPhotometry, IntegratedGaussianPRF, SourceGrouper
+from photutils.psf import PSFPhotometry, GaussianPRF, SourceGrouper
 from .myepsfbuilder import FlowsEPSFBuilder as EPSFBuilder
 from photutils.psf import extract_stars
 from photutils.background import MedianBackground,Background2D,LocalBackground
@@ -781,7 +781,7 @@ class PSFPhot2(BasePhot):
       group = SourceGrouper(min_separation=10/self.scale)   # 10 arc-sec
       fitter = LevMarLSQFitter()
       if psfModel is None:
-         psfModel = IntegratedGaussianPRF(sigma=1.0/self.scale)
+         psfModel = GaussianPRF(sigma=1.0/self.scale)
 
       # Fit Size of the image:  10x10 arcsec
       pix = int(20.0/self.scale) 
