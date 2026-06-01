@@ -14,31 +14,31 @@ cfg = getconfig()
 dbs = {'SBS': {
          'host':'sql.obs.carnegiescience.edu',
          'user':'CSP',
-         'db':'CSP'},
+         'database':'CSP'},
        'SBSpub':{
          'host':'sql.obs.carnegiescience.edu',
          'user':'CSP',
-         'db':'CSPpub'},
+         'database':'CSPpub'},
        'LCO': {
           'host':'csp2.lco.cl',
           'user':'cburns',
-          'db':'Phot'},
+          'database':'Phot'},
        'SSH': {
           'host':'localhost',
           'user':'cburns',
-          'db':'Phot'},
+          'database':'Phot'},
        'cspSSH': {
           'host':'localhost',
           'user':'csp',
-          'db':'Phot'},
+          'database':'Phot'},
        'POISE':{
           'host':'sql.obs.carnegiescience.edu',
           'user':'cburns',
-          'db':'POISE'},
+          'database':'POISE'},
        'POISEtest':{
           'host':'sql.obs.carnegiescience.edu',
           'user':'CSP',
-          'db':'POISEtest'},
+          'database':'POISEtest'},
        }
               
 # Campaign strings to numbers
@@ -75,7 +75,7 @@ def getConnection(db=default_db):
             prompt="SQL passwd:")
    else:
       resp = passwd
-   d = pymysql.connect(passwd=resp, **dbs[db])
+   d = pymysql.connect(password=resp, **dbs[db])
    passwd = resp
    return d
 
