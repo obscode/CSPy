@@ -33,6 +33,7 @@ import signal
 from . import database
 from .config import getconfig
 import json
+import tarfile
 
 from matplotlib import pyplot as plt
 
@@ -1525,6 +1526,14 @@ class Pipeline:
       '''For objects with initial photometry, do template-subtraction
       and then redo the photometry for the SN object'''
 
+      # Check sextractor datafile is there
+      if not isdir('./sex'):
+         self.log("Sextractor directory not found, getting default")
+         libdir = os.path.realpath(os.path.dirname(ImageMatch.__file__))
+
+         t = tarfile.open(join(libdir, 'data','sexdir.tar.gz'))
+         t.extractall()
+
       todo = [fil for fil in self.initialPhot if fil not in self.subtracted \
             and fil not in self.ignore and fil not in self.stdIDs and \
             fil not in self.no_temp and fil not in self.short]
@@ -1563,12 +1572,12 @@ class Pipeline:
          try:
             obs = ImageMatch.Observation(fil, scale=0.435, saturate=4e4, 
                   reject=True, snx='SNRA', sny='SNDEC', magmax=22,
-                  magmin=11, verbose=False)
+                  magmin=11, logfile=fil.replace('.fits','_tempsub.log'))
             ref = ImageMatch.Observation(template, scale=0.25, saturate=6e4,
                   reject=True, magmax=22, magmin=11)
             res = obs.GoCatGo(ref, skyoff=True, pwid=11, perr=3.0, nmax=100, 
                   nord=3, match=True, subt=True, quick_convolve=True, 
-                  do_sex=True, thresh=3., sexdir=sex_dir, diff_size=35,bs=False,
+                  do_sex=True, thresh=3., sexdir="./sex/", diff_size=35,bs=False,
                   usewcs=True, xwin=[200,1848], ywin=[200,1848], vcut=1e8,
                   magcat=magcat, magcol='r', maxdist=700)
             if res != 0:
@@ -1577,7 +1586,7 @@ class Pipeline:
                self.ignore.append(fil)
                continue
             self.subtracted.append(fil)
-       
+        
             # If requested, save the template subtraction image
             if self.gsub is not None:
                subimg = fil.replace('.fits','SN_diff.jpg')
@@ -1590,9 +1599,9 @@ class Pipeline:
                      os.mkdir(sdir)
                   os.system('cp {} {}'.format(newf, sdir))
          except:
-            self.log('Template subtraction failed for {}, skipping'.format(
-                fil))
-            self.ignore.append(fil)
+               self.log('Template subtraction failed for {}, skipping'.format(
+                   fil))
+               self.ignore.append(fil)
 
    def initialize(self, once=False):
       '''Make a first run through the data and see if we \
