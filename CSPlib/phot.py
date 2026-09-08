@@ -200,7 +200,6 @@ def centroid2D(data, i0, j0, fwhm0, radius, var=None, gain=1, rdnoise=0,
       g2.gamma.bounds = (fwhm0/10, 5*fwhm0)
 
    yy,xx = np.mgrid[:subdat.shape[1], :subdat.shape[0]]
-   #print(np.sometrue(np.isnan(subdat)))
    try:
       fit = fitter(g2, x=xx, y=yy, z=subdat, weights=weights)
    except:
@@ -428,7 +427,7 @@ class BasePhot:
          rms = 1.49*np.median(np.absolute(self.data-bg))
 
       threshold = bg + thresh*rms
-      seg = detect_sources(cdata, threshold, npixels=minarea)
+      seg = detect_sources(cdata, threshold, n_pixels=minarea)
       self.seg = seg.data
 
       # get the source locations and photometry
@@ -464,9 +463,9 @@ class BasePhot:
       '''
       
       sigma_clip = SigmaClip(sigma=3.)
-      threshold = detect_threshold(self.data, nsigma=nsigma, 
+      threshold = detect_threshold(self.data, n_sigma=nsigma, 
                                    sigma_clip=sigma_clip)
-      segimg = detect_sources(self.data, threshold, npixels=npixels)
+      segimg = detect_sources(self.data, threshold, n_pixels=npixels)
       footprint = circular_footprint(radius=10)
       mask = segimg.make_source_mask(footprint=footprint)
       mask = mask & self.mask
@@ -650,8 +649,8 @@ class BasePhot:
 
 class PSFPhot(BasePhot):
 
-   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None):
-      super(PSFPhot,self).__init__(ftsfile, tel, ins, sigma, mask)
+   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None, verbose=True):
+      super(PSFPhot,self).__init__(ftsfile, tel, ins, sigma, mask, verbose)
 
    def doPhotometry(self, magins='MAGINS', stdcat='STDS.cat'):
       '''Do the PSF photometry using the magins command.
@@ -702,8 +701,8 @@ class PSFPhot(BasePhot):
 
 class PSFPhot2(BasePhot):
 
-   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None):
-      super(PSFPhot2,self).__init__(ftsfile, tel, ins, sigma, mask)
+   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None, verbose=True):
+      super(PSFPhot2,self).__init__(ftsfile, tel, ins, sigma, mask, verbose)
 
    def ModelPSF(self, size=20, oversampling=4):
       '''Use the star catalog to make cutouts and model the PSF using
@@ -797,7 +796,7 @@ class PSFPhot2(BasePhot):
 
 class ApPhot(BasePhot):
 
-   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None):
+   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None, verbose=True):
       '''Initialize this aperture photometry class with a tel/ins configuration
       and FITS file.
       
@@ -811,7 +810,7 @@ class ApPhot(BasePhot):
       Returns:
          ApPhot instance.
       '''
-      super(ApPhot,self).__init__(ftsfile, tel, ins, sigma, mask)
+      super(ApPhot,self).__init__(ftsfile, tel, ins, sigma, mask, verbose)
       self.apps = []
       self.skyap = None
 
@@ -979,10 +978,10 @@ class ApPhot(BasePhot):
 
       # Do some flags
       flags = np.zeros(len(phot_table), dtype=int)
-      flags = np.where(phot_table['xcenter'].value < 5, flags|1, flags)
-      flags = np.where(phot_table['xcenter'].value > self.data.shape[1]-5, flags|1,flags)
-      flags = np.where(phot_table['ycenter'].value < 5, flags|1, flags)
-      flags = np.where(phot_table['ycenter'].value > self.data.shape[0]-5, flags|1,flags)
+      flags = np.where(phot_table['x_center'].value < 5, flags|1, flags)
+      flags = np.where(phot_table['x_center'].value > self.data.shape[1]-5, flags|1,flags)
+      flags = np.where(phot_table['y_center'].value < 5, flags|1, flags)
+      flags = np.where(phot_table['y_center'].value > self.data.shape[0]-5, flags|1,flags)
       for i in range(len(self.apps)-1):
          flags = np.where(np.isnan(phot_table['ap{}'.format(i)]),
                        flags | 2, flags)
