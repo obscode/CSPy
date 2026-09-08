@@ -230,6 +230,7 @@ class Pipeline:
          self.files['dflat'][filt] = {1:[],2:[],3:[],4:[]}
          self.files['sflat'][filt] = {1:[],2:[],3:[],4:[]}
          self.files['astro'][filt] = {1:[],2:[],3:[],4:[],'1-4':[]}
+      self.files['zero'] = {1:[],2:[],3:[],4:[]}
 
       self.biasFrames = {}     # indexed by opamp
       self.shutterFrames = {}  # indexed by opamp
@@ -452,11 +453,18 @@ class Pipeline:
          if filt not in self.flatFrames:
             self.flatFrames[filt] = {}
          for opamp in self.opamps:
-            fname = join(self.workdir, "SFlat{}c{}.fits".format(filt, opamp))
-            if isfile(fname):
-                self.flatFrames[filt][opamp] = fits.open(fname, memmap=False)
-                self.log("Found existing flat {}. Using that.".format(fname))
-                continue
+            sfname = join(self.workdir, "SFlat{}c{}.fits".format(filt, opamp))
+            dfname = join(self.workdir, "DFlat{}c{}.fits".format(filt, opamp))
+            if isfile(sfname):
+               # prefer sky flats
+               self.flatFrames[filt][opamp] = fits.open(sfname, memmap=False)
+               self.log("Found existing Sky flat {}. Using that.".format(sfname))
+               continue
+            if isfile(dfname):
+               self.flatFrames[filt][opamp] = fits.open(dfname, memmap=False)
+               self.log("Found existing Dome flat {}. Using that.".format(dfname))
+               continue
+            # Okay, need to make or retrieve a flat. Prefer sky flats, but if not enough, use dome flats.
             if filt in self.files['sflat'] and \
                   opamp in self.files['sflat'][filt] and \
                   len(self.files['sflat'][filt][opamp]) > 3:
@@ -471,16 +479,40 @@ class Pipeline:
                else:
                    statsec = None
                self.flatFrames[filt][opamp] = ccdred.makeFlatFrame(files, 
-                                            outfile=fname, statsec=statsec)
-               self.log("Flat field saved to {}".format(fname))
+                                            outfile=sfname, statsec=statsec)
+               self.log("Sky Flat field saved to {}".format(sfname))
+            elif filt in self.files['dflat'] and \
+                  opamp in self.files['dflat'][filt] and \
+                  len(self.files['dflat'][filt][opamp]) > 3:
+               # We will settle for a dome flat taken on the same night
+               self.log("Found {} {}-band dome flats for c{}, bias and flux "
+                     "  correcting...".format(
+                         len(self.files['dflat'][filt][opamp]), filt, opamp))
+               files = [self.getWorkName(f,'b') for f \
+                       in self.files['dflat'][filt][opamp]]
+               if opamp == '1-4':
+                   # Use special statsec
+                   statsec = [300+2056,1600+2056,300,1600]
+
+               else:
+                   statsec = None
+               self.flatFrames[filt][opamp] = ccdred.makeFlatFrame(files, 
+                                            outfile=dfname, statsec=statsec)
+               self.log("Dome Flat field saved to {}".format(dfname))
             else:
                # Get from calibration location
-               cfile = join(self.calibrations, "CAL", 
+               sfile = join(self.calibrations, "CAL", 
                      "SFlat{}c{}.fits".format(filt, opamp))
-               if os.path.exists(cfile):
-                  self.flatFrames[filt][opamp] = fits.open(cfile, memmap=False)
-                  self.flatFrames[filt][opamp].writeto(fname)
-                  self.log("Retrieved backup FLAT frame from {}".format(cfile))
+               dfile = join(self.calibrations, "CAL", 
+                     "DFlat{}c{}.fits".format(filt, opamp))
+               if os.path.exists(sfile):
+                  self.flatFrames[filt][opamp] = fits.open(sfile, memmap=False)
+                  self.flatFrames[filt][opamp].writeto(sfname)
+                  self.log("Retrieved backup Sky FLAT frame from {}".format(sfile))
+               elif os.path.exists(dfile):
+                  self.flatFrames[filt][opamp] = fits.open(dfile, memmap=False)
+                  self.flatFrames[filt][opamp].writeto(dfname)
+                  self.log("Retrieved backup Dome FLAT frame from {}".format(dfile))
                else:
                   # Find the best flat based on date
                   # First, we need the current date JD
@@ -973,7 +1005,8 @@ class Pipeline:
          else:
             cat = ascii.read(catfile)
 
-         ap = ApPhot(fil, sigma=fil.replace('.fits','_sigma.fits'))
+         ap = ApPhot(fil, sigma=fil.replace('.fits','_sigma.fits'),
+                     verbose=(not self.quiet))
          ap.loadObjCatalog(table=cat, racol='RA', deccol='DEC', 
                objcol='objID')
 
@@ -1181,7 +1214,8 @@ class Pipeline:
          allcat = ascii.read(join(self.templates, '{}.nat'.format(obj)),
                   fill_values=[('...',0)])
 
-         psf = PSFPhot(fil.replace('.fits','diff.fits'), tel='SWO', ins='NC')
+         psf = PSFPhot(fil.replace('.fits','diff.fits'), tel='SWO', ins='NC',
+                       verbose=(not self.quiet))
          # Use 'id' instead of 'objID' as MAGINS can't handle the large ints
          psf.loadObjCatalog(table=cat, racol='RA', deccol='DEC',
                objcol='id')
