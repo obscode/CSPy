@@ -8,6 +8,7 @@
 mkdir FinalProducts
 mv Zero*.fits FinalProducts
 mv SFlat*.fits FinalProducts
+mv DFlat*.fits FinalProducts
 mv pipeline.log FinalProducts
 mv *.cfg FinalProducts
 mv *.txt FinalProducts
