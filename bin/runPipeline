@@ -45,9 +45,9 @@ pipe = Pipeline(datadir=args.datadir, workdir=args.workdir, prefix=args.prefix,
       suffix=args.suffix, calibrations=args.calibrations, 
       templates=args.templates, fsize=args.fsize, tmin=args.tmin,
       update_db=(not args.noupdate), reduced=args.reduced, gsub=args.gsub,
-      SNphot=args.snphot, quiet=args.once)
+      SNphot=args.snphot, progress=args.once, quiet=args.once)
 
-pipe.initialize()
+pipe.initialize(once=args.once)
 if args.justcalib:
    sys.exit(0)
 if args.once:

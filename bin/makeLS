@@ -16,6 +16,8 @@ def keyvent(event):
       [ap.set_color('green') for ap in event.inaxes.aps]
       if args.v:
           print(cat[event.inaxes.idx])
+   
+   event.inaxes.figure.suptitle("Total selected: {}".format(np.sum(cat['good'])))
    plt.draw()
 
 
@@ -121,6 +123,7 @@ for fts in ftss:
       if not keep_going:
          break
       fig = plt.figure(figsize=(10,10), constrained_layout=False)
+      fig.suptitle("Total selected: {}".format(np.sum(cat['good'])))
       grid = fig.add_gridspec(n,n, wspace=0, hspace=0)
       axes = grid.subplots()
       axes = axes.ravel()

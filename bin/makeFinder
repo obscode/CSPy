@@ -20,6 +20,8 @@ parser.add_argument('-zoom', help="Zoom factor for inset", type=float,
                      default=4.)
 parser.add_argument('-p', help="percent of pixels to plot", type=float, 
       default=99.)
+parser.add_argument('-pz', help="percent of pixels to plot in zoom", type=float,
+                    default=None)
 parser.add_argument('-lp', help="lower percent of pixels to plot", type=float)
 parser.add_argument('-up', help="upper percent of pixels to plot", type=float)
 parser.add_argument('-flipx', help='Flip X (RA)', action='store_true')
@@ -71,7 +73,7 @@ for magmin,magmax in [(11,12),(12,13),(13,14),(14,15),(16,17)]:
 pids = np.array(pids)
 
 fig = fchart.Fchart(fts, offsetcat=cat[pids], snx=ra, sny=dec, 
-      percent=args.p, maxpercent=args.up, minpercent=args.lp,
+      percent=args.p, zpercent=args.pz, maxpercent=args.up, minpercent=args.lp,
       zoomfac=args.zoom, sn=args.objname, fixnan=args.fixnan, dx=args.dx,
       dy=args.dy)
 if args.flipx:

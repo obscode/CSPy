@@ -1,0 +1,47 @@
+#!/usr/bin/env python
+import argparse
+parser = argparse.ArgumentParser(description="Upload FITS meta-data to database")
+parser.add_argument('fitsfiles', help='list of fits files', nargs="+")
+parser.add_argument('-db', help='Which database to update (default: POISE)',
+                    default='POISE')
+parser.add_argument('-dry', help="Dry run:  don't update database",
+                    action='store_true')
+args = parser.parse_args()
+
+from CSPlib.database import getConnection
+from astropy.io import fits
+import os
+if not args.dry:
+    db = getConnection(db=args.db)
+    c = db.cursor()
+
+for fil in args.fitsfiles:
+    fts = fits.open(fil)
+    h = fts[0].header
+    if 'NIGHT' not in h or 'FILENAME' not in h:
+        print("Warning:  NIGHT or FILENAME not found in {}, skipping...".\
+              format(fil))
+        continue
+    ID = "{}/{}".format(h['NIGHT'],h['FILENAME'])
+    FITS = os.path.basename(fil)
+    field = h.get('OBJECT', "UNKNOWN")
+    JD = h.get('JD', "UNKNOWN")
+    exptime = h.get('EXPTIME',-1)
+    filt = h.get('FILTER','?')
+    fwhm = h.get('FWHM',-1)
+
+    if args.dry:
+        print(f'{fil}: ID={ID}, field={field}, filter={filt}, exptim={exptime},'\
+              f'JD={JD}, FWHM={fwhm}')
+    else:
+        c.execute('REPLACE INTO fitsfiles (ID,FITS,field,filter,exptime,JD,FWHM)'\
+                   'VALUES (%s,%s,%s,%s,%s,%s,%s)', (ID,FITS,field,filt,exptime,JD,fwhm))
+
+if not args.dry:
+    db.close()
+
+
+
+
+
+

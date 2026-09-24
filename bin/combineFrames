@@ -2,6 +2,7 @@
 
 from argparse import ArgumentParser
 parser = ArgumentParser(description='Combine sequential frames by summing')
+parser.add_argument('-fromfile', help="Get files to process from file")
 parser.add_argument('-prefix', help="FITS file prefix (default fcd)",
                     default='fcd')
 parser.add_argument('-suffix', help="FITS file suffix (default c3.fits)",
@@ -10,7 +11,9 @@ parser.add_argument('-maxint', help='maximum time intervale (s) between'\
                     ' frames', type=float, default=1800.)
 parser.add_argument('-minexp', help='Minimum exposure time (s) to include',
                     type=int, default=11)
-parser.add_argument('-report', help='Report only, do actually do the combines',
+parser.add_argument('-maxsep', type=float, default=1,
+                    help="max separation of CRVALs in arc-sec")
+parser.add_argument('-report', help='Report only, do not actually do the combines',
                     action='store_true')
 
 args = parser.parse_args()
@@ -19,9 +22,15 @@ import os,sys
 from glob import glob
 from astropy.io import fits
 from astropy.time import Time
+from astropy.wcs import WCS
 import numpy as np
 
-filelist = glob(args.prefix+'*'+args.suffix)
+if args.fromfile is not None:
+    # Get list of files from input file
+    with open(args.fromfile) as fin:
+        filelist = [line.strip() for line in fin.readlines()]
+else:
+    filelist = glob(args.prefix+'*'+args.suffix)
 if len(filelist) < 2:
     print("Error:  need at least two files")
     sys.exit(1)
@@ -39,17 +48,22 @@ for fil in filelist:
     obj = fts[0].header['OBJECT']
     filt = fts[0].header['FILTER']
     JD = fts[0].header['JD']
+    wcs = WCS(fts[0])
+    RA,DEC = wcs.wcs_pix2world(1024,1024,0)
     fts.close()
     if currentObject is None:
         # first time through, set values
         currentObject = obj
         currentFilter = filt
         currentJD = JD
+        currentRA,currentDEC = wcs.wcs_pix2world(1024,1024,0)
         combines.append([fil])
         JDs.append([JD])
         continue
+    dA = np.sqrt(((currentRA-RA)/np.cos(DEC*np.pi/180))**2 + \
+                 (currentDEC-DEC)**2)*3600
     if obj == currentObject and filt == currentFilter and \
-       (JD - currentJD)*3600 < args.maxint:
+       (JD - currentJD)*3600 < args.maxint and dA < args.maxsep:
         combines[-1].append(fil)
         JDs[-1].append(JD)
     else:
@@ -57,6 +71,8 @@ for fil in filelist:
         currentObject = obj
         currentFilter = filt
         currentJD = JD
+        currentRA = RA
+        currentDEC = DEC
         combines.append([fil])       
         JDs.append([JD])
 

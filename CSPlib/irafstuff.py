@@ -222,7 +222,7 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
          resids = cube-center[np.newaxis,:,:]
          sigma = np.std(resids, axis=0)
          mask = np.greater(resids, -sigma*lsigma)*np.less(resids, sigma*hsigma)
-         if np.alltrue(np.equal(np.sum(mask, axis=0) - keep, 0)):
+         if np.all(np.equal(np.sum(mask, axis=0) - keep, 0)):
             # No change, we're done
             break
          keep = np.sum(mask, axis=0)
@@ -249,7 +249,7 @@ def imcombine(inp, combine='average', reject='avsigclip', statsec=None,
                mask=mask)
          resids = cube-center[np.newaxis,:,:]
          mask = np.greater(resids, -sigma*lsigma)*np.less(resids, sigma*hsigma)
-         if np.alltrue(np.equal(np.sum(mask, axis=0) - keep, 0)):
+         if np.all(np.equal(np.sum(mask, axis=0) - keep, 0)):
             # No change, we're done
             break
          keep = np.sum(mask, axis=0)

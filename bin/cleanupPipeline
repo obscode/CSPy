@@ -8,20 +8,29 @@
 mkdir FinalProducts
 mv Zero*.fits FinalProducts
 mv SFlat*.fits FinalProducts
+mv DFlat*.fits FinalProducts
 mv pipeline.log FinalProducts
 mv *.cfg FinalProducts
 mv *.txt FinalProducts
-mv SNphot.adt FinalProducts
+mv SNphot.dat FinalProducts
+mv list FinalProducts
 
 # Flat-fielded and mosaic'ed products
 mv fcd????c?.fits FinalProducts
 mv fcd????c?_sigma.fits FinalProducts
 mv fcd????c1-4.fits FinalProducts
 mv fcd????c1-4_sigma.fits FinalProducts
+mv comb*.fits FinalProducts
 
 # CSP named files
 mv *_SWO_NC*[0-9].fits FinalProducts
 mv *_SWO_NC*[0-9]_sigma.fits FinalProducts
+
+# Any scripts we might have made
+mv *.py FinalProducts
+
+# Failures
+mv wcstotal* FinalProducts
 
 # The actual cleanup
 rm *

@@ -14,31 +14,31 @@ cfg = getconfig()
 dbs = {'SBS': {
          'host':'sql.obs.carnegiescience.edu',
          'user':'CSP',
-         'db':'CSP'},
+         'database':'CSP'},
        'SBSpub':{
          'host':'sql.obs.carnegiescience.edu',
          'user':'CSP',
-         'db':'CSPpub'},
+         'database':'CSPpub'},
        'LCO': {
           'host':'csp2.lco.cl',
           'user':'cburns',
-          'db':'Phot'},
+          'database':'Phot'},
        'SSH': {
           'host':'localhost',
           'user':'cburns',
-          'db':'Phot'},
+          'database':'Phot'},
        'cspSSH': {
           'host':'localhost',
           'user':'csp',
-          'db':'Phot'},
+          'database':'Phot'},
        'POISE':{
           'host':'sql.obs.carnegiescience.edu',
           'user':'cburns',
-          'db':'POISE'},
+          'database':'POISE'},
        'POISEtest':{
           'host':'sql.obs.carnegiescience.edu',
           'user':'CSP',
-          'db':'POISEtest'},
+          'database':'POISEtest'},
        }
               
 # Campaign strings to numbers
@@ -75,7 +75,7 @@ def getConnection(db=default_db):
             prompt="SQL passwd:")
    else:
       resp = passwd
-   d = pymysql.connect(passwd=resp, **dbs[db])
+   d = pymysql.connect(password=resp, **dbs[db])
    passwd = resp
    return d
 
@@ -98,19 +98,55 @@ def getPhotometricNights(SN, db=default_db):
    db.close()
    return [item[0] for item in nights]
 
-def getMAGINS(SN=None, fitsfile=None, db=default_db):
+def getMAGSN(SN=None, fitsfile=None, db=default_db):
+   '''Retrieve a table of MAGSN entries from the database.
+   
+   Args:
+      SN (str):  Supernova name. All rows with field=SN are retrieved
+      fitsfile (str): Name of a specific FITS file. Only rows with 
+                      fits=fitsfile are retrieved
+      db:  Database to query
+   
+   Returns:
+      table:  astropy.Table with MAGSN rows
+      
+   Note: Must specify either SN or fitsfile'''
+   db = getConnection(db=db)
+   c = db.cursor()
+   if SN is not None:
+      if fitsfile is not None:
+         raise RuntimeError("You must specify EITHER SN or fitsfile")
+      N = c.execute("SELECT field,obj,filt,jd,mag,sqrt(err*err+fiterr*fiterr) "\
+                    "FROM  MAGSN WHERE field=%s", (SN,))
+      if N == 0:
+         raise RuntimeError(f"No entries in MAGSN for SN={SN} found")
+      rows = c.fetchall()
+   elif fitsfile is not None:
+      N = c.execute("SELECT field,obj,filt,jd,mag,sqrt(err*err+fiterr*fiterr) "\
+                    "FROM MAGSN WHERE FITS=%s", (fitsfile,))
+      if N == 0:
+         raise RuntimeError(f"No entries in MAGSN for FITS={fitsfile} found")
+      rows = c.fetchall()
+   else:
+      raise RuntimeError("You must specify either SN or fitsfile")
+   tab = Table(rows=rows, names=["SN","obj","filt","jd","mag","err"])
+
+   return tab
+   
+
+
+def getMAGINS(SN=None, fitsfile=None, night=None, db=default_db):
    '''Retrieve a table of MAGINS entries from the database as a table
    
    Args:
       SN (str):  Supernova name. All rows with field=SN are retrieved
       fitsfile(str): Name of specific FITS file. Only rows with fits=fitsfile
                      are retrieved
+      night (str):  Night code. All rows with night=night are retrieved
                      
    Returns:
       table:  astropy.Table with MAGINS rows.   
    '''
-   if SN is None and fitsfile is None:
-      raise RuntimeError("You must specify either SN or fitsfile")
    db = getConnection(db=db)
    c = db.cursor()
    if SN is not None:
@@ -120,11 +156,19 @@ def getMAGINS(SN=None, fitsfile=None, db=default_db):
       if N == 0:
          raise RuntimeError(f"No entries in MAGINS for SN={SN} found")
       rows = c.fetchall()
-   else:
+   elif fitsfile is not None:
       N= c.execute("SELECT * from MAGINS where fits=%s", (fitsfile,))
       if N == 0:
          raise RuntimeError(f"No entries in MAGINS for fits={fitsfile} found")
       rows = c.fetchall()
+   elif night is not None:
+      N = c.execute("SELECT * from MAGINS where night=%s", (night,))
+      if N == 0:
+         raise RuntimeError(f"No entries in MAGINS for night={night} found")
+      rows = c.fetchall()
+   else:
+      raise RuntimeError("Must specify one of SN, fitsfile, or night")
+
    
    # Handle missing values (None)
    newrow = []

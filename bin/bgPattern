@@ -45,9 +45,9 @@ for iter in range(3):
          bg = biweight_location(cube[i])
       else:
          bg = result*scales[i]
-      threshold = detect_threshold(cube[i]-bg, nsigma=2, sigma_clip=sigma_clip)
+      threshold = detect_threshold(cube[i]-bg, n_sigma=2, sigma_clip=sigma_clip)
       cdata = convolve(cube[i]-bg, kernel)
-      segment_img = detect_sources(cdata, threshold, npixels=10)
+      segment_img = detect_sources(cdata, threshold, n_pixels=10)
       mask = segment_img.make_source_mask(footprint=foot)
       qdump(args.fits[i].replace('.fits','mask.fits'), mask*1.0, 
             header=ftss[i][0].header)

@@ -118,7 +118,22 @@ def update_header(f, fout=None):
    elif exptype == 'bias':
       obstype = 'bias'
    elif exptype == 'flat':
-      obstype = 'sflat'
+      # Try to figure out what kind of flat:  dome or sky
+      if obj.find('slfat') >= 0:
+         obstype = 'sflat'
+      elif obj.find('dflat') >= 0:
+         obstype = 'dflat'
+      elif obj.find('dome') >= 0:
+         obstype = 'dflat'
+      elif obj.find('sky') >= 0:
+         obstype = 'sflat'
+      elif obj.find('s') >= 0:
+         obstype = 'sflat'
+      elif obj.find('d') >= 0:
+         obstype = 'dflat'
+      else:
+         # If we can't figure it out, just call it a sky flat
+         obstype = 'sflat'
    else:
       # Get rid of spaces!!!
       obj = obj.replace(' ','_')

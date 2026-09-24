@@ -8,18 +8,6 @@ def svdfit(b,y):
       stuff = lstsq(b,y, rcond=None)
       return stuff[0]
 
-#      decomp = svd(b)
-#      print(decomp[0].shape, decomp[1].shape, decomp[2].shape)
-#      sol1 = transpose(decomp[2])
-#      sol2 = divz(1.0,decomp[1])
-#      sol3 = dot(transpose(decomp[0]),y)
-#      if sometrue(sol3):
-#        solr = (sol2*sol3)
-#        soll = dot(sol1,solr)
-#      else:
-#        soll = zeros(sol3.shape)
-#      return soll
-
 def abasis(nord,ix,iy,rot=0):
    I=ones(ix.shape)
    Z=zeros(ix.shape)

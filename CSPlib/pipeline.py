@@ -33,6 +33,7 @@ import signal
 from . import database
 from .config import getconfig
 import json
+import tarfile
 
 from matplotlib import pyplot as plt
 
@@ -77,7 +78,7 @@ class Pipeline:
          calibrations=cfg.data.calibrations, templates=cfg.data.templates,
          catalogs=cfg.data.templates, fsize=9512640, tmin=0, update_db=True,
          gsub=None, reduced=None, SNphot=cfg.photometry.SNphot, quiet=False,
-         ignorePats=cfg.data.ignore):
+         progress=False, ignorePats=cfg.data.ignore):
       '''
       Initialize the pipeline object.
 
@@ -103,6 +104,7 @@ class Pipeline:
                         only left in the working folder.
          SNphot (str): File where supernova photometry will be saved to file.
          quiet (bool): If true, don't print excess stuff to screen
+         progress (bool): print out a progress meter?
          ignorePats (list of str): patterns for OBJECT/EXPTYPE to ignore
                                    completely. For example: linear, shtter
       Returns:
@@ -120,6 +122,7 @@ class Pipeline:
       self.update_db = update_db
       self.ignorePats = ignorePats
       self.quiet = quiet
+      self._progress = progress
 
       # Some status values to avoid repeatedly trying unaccessible remotes
       self._rclone_reachable = True
@@ -227,6 +230,7 @@ class Pipeline:
          self.files['dflat'][filt] = {1:[],2:[],3:[],4:[]}
          self.files['sflat'][filt] = {1:[],2:[],3:[],4:[]}
          self.files['astro'][filt] = {1:[],2:[],3:[],4:[],'1-4':[]}
+      self.files['zero'] = {1:[],2:[],3:[],4:[]}
 
       self.biasFrames = {}     # indexed by opamp
       self.shutterFrames = {}  # indexed by opamp
@@ -245,7 +249,7 @@ class Pipeline:
       self.logfile.flush()
 
    def progress(self, iterable, desc=None):
-      if tqdm is None:
+      if tqdm is None or not self._progress:
          return iterable
       return tqdm(iterable, desc=desc)
 
@@ -256,7 +260,7 @@ class Pipeline:
          return -3
       cmd = [cfg.software.rclone, 'copy', location, target]
       res = subprocess.run(cmd, capture_output=True)
-      if res.returncode != 0: self._rclone_reachable = False
+      #if res.returncode != 0: self._rclone_reachable = False
       return res
 
    def reportFiles(self):
@@ -449,11 +453,18 @@ class Pipeline:
          if filt not in self.flatFrames:
             self.flatFrames[filt] = {}
          for opamp in self.opamps:
-            fname = join(self.workdir, "SFlat{}c{}.fits".format(filt, opamp))
-            if isfile(fname):
-                self.flatFrames[filt][opamp] = fits.open(fname, memmap=False)
-                self.log("Found existing flat {}. Using that.".format(fname))
-                continue
+            sfname = join(self.workdir, "SFlat{}c{}.fits".format(filt, opamp))
+            dfname = join(self.workdir, "DFlat{}c{}.fits".format(filt, opamp))
+            if isfile(sfname):
+               # prefer sky flats
+               self.flatFrames[filt][opamp] = fits.open(sfname, memmap=False)
+               self.log("Found existing Sky flat {}. Using that.".format(sfname))
+               continue
+            if isfile(dfname):
+               self.flatFrames[filt][opamp] = fits.open(dfname, memmap=False)
+               self.log("Found existing Dome flat {}. Using that.".format(dfname))
+               continue
+            # Okay, need to make or retrieve a flat. Prefer sky flats, but if not enough, use dome flats.
             if filt in self.files['sflat'] and \
                   opamp in self.files['sflat'][filt] and \
                   len(self.files['sflat'][filt][opamp]) > 3:
@@ -468,16 +479,40 @@ class Pipeline:
                else:
                    statsec = None
                self.flatFrames[filt][opamp] = ccdred.makeFlatFrame(files, 
-                                            outfile=fname, statsec=statsec)
-               self.log("Flat field saved to {}".format(fname))
+                                            outfile=sfname, statsec=statsec)
+               self.log("Sky Flat field saved to {}".format(sfname))
+            elif filt in self.files['dflat'] and \
+                  opamp in self.files['dflat'][filt] and \
+                  len(self.files['dflat'][filt][opamp]) > 3:
+               # We will settle for a dome flat taken on the same night
+               self.log("Found {} {}-band dome flats for c{}, bias and flux "
+                     "  correcting...".format(
+                         len(self.files['dflat'][filt][opamp]), filt, opamp))
+               files = [self.getWorkName(f,'b') for f \
+                       in self.files['dflat'][filt][opamp]]
+               if opamp == '1-4':
+                   # Use special statsec
+                   statsec = [300+2056,1600+2056,300,1600]
+
+               else:
+                   statsec = None
+               self.flatFrames[filt][opamp] = ccdred.makeFlatFrame(files, 
+                                            outfile=dfname, statsec=statsec)
+               self.log("Dome Flat field saved to {}".format(dfname))
             else:
                # Get from calibration location
-               cfile = join(self.calibrations, "CAL", 
+               sfile = join(self.calibrations, "CAL", 
                      "SFlat{}c{}.fits".format(filt, opamp))
-               if os.path.exists(cfile):
-                  self.flatFrames[filt][opamp] = fits.open(cfile, memmap=False)
-                  self.flatFrames[filt][opamp].writeto(fname)
-                  self.log("Retrieved backup FLAT frame from {}".format(cfile))
+               dfile = join(self.calibrations, "CAL", 
+                     "DFlat{}c{}.fits".format(filt, opamp))
+               if os.path.exists(sfile):
+                  self.flatFrames[filt][opamp] = fits.open(sfile, memmap=False)
+                  self.flatFrames[filt][opamp].writeto(sfname)
+                  self.log("Retrieved backup Sky FLAT frame from {}".format(sfile))
+               elif os.path.exists(dfile):
+                  self.flatFrames[filt][opamp] = fits.open(dfile, memmap=False)
+                  self.flatFrames[filt][opamp].writeto(dfname)
+                  self.log("Retrieved backup Dome FLAT frame from {}".format(dfile))
                else:
                   # Find the best flat based on date
                   # First, we need the current date JD
@@ -970,7 +1005,8 @@ class Pipeline:
          else:
             cat = ascii.read(catfile)
 
-         ap = ApPhot(fil, sigma=fil.replace('.fits','_sigma.fits'))
+         ap = ApPhot(fil, sigma=fil.replace('.fits','_sigma.fits'),
+                     verbose=(not self.quiet))
          ap.loadObjCatalog(table=cat, racol='RA', deccol='DEC', 
                objcol='objID')
 
@@ -999,8 +1035,11 @@ class Pipeline:
                pass
 
          if computeFWHM and not standard:
-            fwhm,tab = ap.fitFWHM(plotfile=fil.replace('.fits','_fwhm.pdf'), 
-                                  profile='Gauss')
+            try:
+               fwhm,tab = ap.fitFWHM(plotfile=fil.replace('.fits','_fwhm.pdf'), 
+                                     profile='Moffat')
+            except:
+               fwhm = -1 
             if fwhm > 0:
                ap.head['FWHM'] = np.round(fwhm,3)
                update = True
@@ -1175,7 +1214,8 @@ class Pipeline:
          allcat = ascii.read(join(self.templates, '{}.nat'.format(obj)),
                   fill_values=[('...',0)])
 
-         psf = PSFPhot(fil.replace('.fits','diff.fits'), tel='SWO', ins='NC')
+         psf = PSFPhot(fil.replace('.fits','diff.fits'), tel='SWO', ins='NC',
+                       verbose=(not self.quiet))
          # Use 'id' instead of 'objID' as MAGINS can't handle the large ints
          psf.loadObjCatalog(table=cat, racol='RA', deccol='DEC',
                objcol='id')
@@ -1520,6 +1560,14 @@ class Pipeline:
       '''For objects with initial photometry, do template-subtraction
       and then redo the photometry for the SN object'''
 
+      # Check sextractor datafile is there
+      if not isdir('./sex'):
+         self.log("Sextractor directory not found, getting default")
+         libdir = os.path.realpath(os.path.dirname(ImageMatch.__file__))
+
+         t = tarfile.open(join(libdir, 'data','sexdir.tar.gz'))
+         t.extractall()
+
       todo = [fil for fil in self.initialPhot if fil not in self.subtracted \
             and fil not in self.ignore and fil not in self.stdIDs and \
             fil not in self.no_temp and fil not in self.short]
@@ -1558,12 +1606,12 @@ class Pipeline:
          try:
             obs = ImageMatch.Observation(fil, scale=0.435, saturate=4e4, 
                   reject=True, snx='SNRA', sny='SNDEC', magmax=22,
-                  magmin=11, verbose=False, log_stream=self.logfile)
+                  magmin=11, logfile=fil.replace('.fits','_tempsub.log'))
             ref = ImageMatch.Observation(template, scale=0.25, saturate=6e4,
                   reject=True, magmax=22, magmin=11)
             res = obs.GoCatGo(ref, skyoff=True, pwid=11, perr=3.0, nmax=100, 
                   nord=3, match=True, subt=True, quick_convolve=True, 
-                  do_sex=True, thresh=3., sexdir=sex_dir, diff_size=35,bs=False,
+                  do_sex=True, thresh=3., sexdir="./sex/", diff_size=35,bs=False,
                   usewcs=True, xwin=[200,1848], ywin=[200,1848], vcut=1e8,
                   magcat=magcat, magcol='r', maxdist=700)
             if res != 0:
@@ -1572,7 +1620,7 @@ class Pipeline:
                self.ignore.append(fil)
                continue
             self.subtracted.append(fil)
-
+        
             # If requested, save the template subtraction image
             if self.gsub is not None:
                subimg = fil.replace('.fits','SN_diff.jpg')
@@ -1585,11 +1633,11 @@ class Pipeline:
                      os.mkdir(sdir)
                   os.system('cp {} {}'.format(newf, sdir))
          except:
-            self.log('Template subtraction failed for {}, skipping'.format(
-                fil))
-            self.ignore.append(fil)
+               self.log('Template subtraction failed for {}, skipping'.format(
+                   fil))
+               self.ignore.append(fil)
 
-   def initialize(self):
+   def initialize(self, once=False):
       '''Make a first run through the data and see if we \
               have what we need
       to get going. We can always fall back on generic calibrations if
@@ -1602,7 +1650,13 @@ class Pipeline:
       for fil in self.progress(files, desc="Ingesting Data"):
          self.addFile(fil)
 
-      self.reportFiles()
+      if not once:
+         # running pipeline to watch futuer files. Add all filters
+         for filt in cfg.data.filtlist:
+            if filt not in self.filters:
+               self.filters.append(filt)
+
+      if once: self.reportFiles()
 
       self.makeBias()
       self.BiasLinShutCorr()

@@ -47,6 +47,10 @@ def ylim(ydata, yerrors, symmetric=True, pad=0.1):
 def printit(event):
    print(event.mouseevent.inaxes.tab[event.ind[0]][0])
 
+def key_event(event):
+   print("t = {}".format(event.xdata))
+
+
 def examine_night(event):
    global args
    if not plt.fignum_exists(2):
@@ -229,6 +233,7 @@ ax.set_xlabel('JD (days)')
 ax.set_ylabel('mag')
 ax.legend()
 fig1.canvas.mpl_connect('pick_event', examine_night)
+fig1.canvas.mpl_connect('key_press_event', key_event)
 plt.show()
 if args.out:
    fig1.savefig(args.out)

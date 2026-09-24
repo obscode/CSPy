@@ -19,10 +19,10 @@ from astropy.convolution import Gaussian2DKernel,convolve
 #from photutils.segmentation import make_source_mask
 from photutils.segmentation import detect_threshold, detect_sources,SourceCatalog
 from photutils.utils import circular_footprint, calc_total_error
-from photutils import SkyCircularAperture, SkyCircularAnnulus
-from photutils import aperture_photometry
+from photutils.aperture import SkyCircularAperture, SkyCircularAnnulus
+from photutils.aperture import aperture_photometry
 from photutils.centroids import centroid_com,centroid_1dg,centroid_quadratic
-from photutils.psf import PSFPhotometry, IntegratedGaussianPRF, SourceGrouper
+from photutils.psf import PSFPhotometry, GaussianPRF, SourceGrouper
 from .myepsfbuilder import FlowsEPSFBuilder as EPSFBuilder
 from photutils.psf import extract_stars
 from photutils.background import MedianBackground,Background2D,LocalBackground
@@ -200,7 +200,6 @@ def centroid2D(data, i0, j0, fwhm0, radius, var=None, gain=1, rdnoise=0,
       g2.gamma.bounds = (fwhm0/10, 5*fwhm0)
 
    yy,xx = np.mgrid[:subdat.shape[1], :subdat.shape[0]]
-   print(np.sometrue(np.isnan(subdat)))
    try:
       fit = fitter(g2, x=xx, y=yy, z=subdat, weights=weights)
    except:
@@ -242,7 +241,8 @@ def centroid2D(data, i0, j0, fwhm0, radius, var=None, gain=1, rdnoise=0,
 
 class BasePhot:
 
-   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None):
+   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None,
+                verbose=True):
       '''Initialize this photometry class with a tel/ins configuration
       and FITS file.
       
@@ -252,11 +252,13 @@ class BasePhot:
          ins (str):  instrument code (e.g., NC)
          sigma (str or FITS): The FITS file with error (noise) map
          mask (str or FITS): The optional FITS file with mask (True=Bad) 
+         verbose (bool): print messages?
       
       Returns:
          PSFPhot instance.
       '''
       self.cfg = getTelIns(tel,ins)
+      self.verbose = verbose
       if not os.path.isfile(ftsfile):
          raise ValueError("Error:  not such file {}".format(ftsfile))
       if isinstance(ftsfile, str):
@@ -301,6 +303,7 @@ class BasePhot:
 
       self.background = None
 
+
    def _parse_key(self, key, fallback=None):
       '''Given a key, we try to figure out what value it sould have. First,
       we check if the key exists in the config dict. If it is a string has
@@ -313,7 +316,8 @@ class BasePhot:
             fitskey = val[1:]
             if fitskey not in self.head:
                if fallback is not None:
-                  print("Warning: Header keyword {}, not found, using fallback={}".format(
+                  if self.verbose:
+                     print("Warning: Header keyword {}, not found, using fallback={}".format(
                      fitskey, fallback))
                   return fallback
                raise KeyError("header keyword {} not found".format(fitskey))
@@ -423,7 +427,7 @@ class BasePhot:
          rms = 1.49*np.median(np.absolute(self.data-bg))
 
       threshold = bg + thresh*rms
-      seg = detect_sources(cdata, threshold, npixels=minarea)
+      seg = detect_sources(cdata, threshold, n_pixels=minarea)
       self.seg = seg.data
 
       # get the source locations and photometry
@@ -459,9 +463,9 @@ class BasePhot:
       '''
       
       sigma_clip = SigmaClip(sigma=3.)
-      threshold = detect_threshold(self.data, nsigma=nsigma, 
+      threshold = detect_threshold(self.data, n_sigma=nsigma, 
                                    sigma_clip=sigma_clip)
-      segimg = detect_sources(self.data, threshold, npixels=npixels)
+      segimg = detect_sources(self.data, threshold, n_pixels=npixels)
       footprint = circular_footprint(radius=10)
       mask = segimg.make_source_mask(footprint=footprint)
       mask = mask & self.mask
@@ -585,7 +589,6 @@ class BasePhot:
       #if len(tab) < Nmin:
       #   raise ValueError("Less than Nmin ({}) stars fit".format(Nmin))
 
-      success = True
       mask = (tab['snr'] > SNRmin)
       if np.sum(mask) > Nmin:
          fwhm = np.median(tab['fwhm'][mask])
@@ -599,30 +602,23 @@ class BasePhot:
          fwhm = tab['fwhm'][idx]
          mask[idx] = True
       else:
-         success = False
-         #return -1,tab
+         return -1,tab
 
       if plotfile is not None:
          ax.axhline(0.5, color='red')
-         if success: ax.axvline(fwhm/self.scale/2)
+         ax.axvline(fwhm/self.scale/2)
 
          # make the not-used profiles less prominent
          for i in range(len(mask)):
             if not mask[i]:
                ax.lines[2*i].set_alpha(0.05)
                ax.lines[2*i+1].set_alpha(0.1)
-         if success:
-            ax.set_xlim(0, fwhm*10)
-         else:
-            ax.set_xlim(0, 10)
+         ax.set_xlim(0, fwhm*10)
          ax.set_ylim(-0.1, 1.1)
          fig.tight_layout()
          fig.savefig(plotfile)
          plt.close(fig)
-      if success:
-         return fwhm,tab
-      else:
-         return -1,tab
+      return fwhm,tab
 
    def plot_field(self, percent=99.):
       '''PLot the data as a field of view with LS stars plotted if loaded
@@ -653,8 +649,8 @@ class BasePhot:
 
 class PSFPhot(BasePhot):
 
-   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None):
-      super(PSFPhot,self).__init__(ftsfile, tel, ins, sigma, mask)
+   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None, verbose=True):
+      super(PSFPhot,self).__init__(ftsfile, tel, ins, sigma, mask, verbose)
 
    def doPhotometry(self, magins='MAGINS', stdcat='STDS.cat'):
       '''Do the PSF photometry using the magins command.
@@ -705,8 +701,8 @@ class PSFPhot(BasePhot):
 
 class PSFPhot2(BasePhot):
 
-   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None):
-      super(PSFPhot2,self).__init__(ftsfile, tel, ins, sigma, mask)
+   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None, verbose=True):
+      super(PSFPhot2,self).__init__(ftsfile, tel, ins, sigma, mask, verbose)
 
    def ModelPSF(self, size=20, oversampling=4):
       '''Use the star catalog to make cutouts and model the PSF using
@@ -784,7 +780,7 @@ class PSFPhot2(BasePhot):
       group = SourceGrouper(min_separation=10/self.scale)   # 10 arc-sec
       fitter = LevMarLSQFitter()
       if psfModel is None:
-         psfModel = IntegratedGaussianPRF(sigma=1.0/self.scale)
+         psfModel = GaussianPRF(sigma=1.0/self.scale)
 
       # Fit Size of the image:  10x10 arcsec
       pix = int(20.0/self.scale) 
@@ -800,7 +796,7 @@ class PSFPhot2(BasePhot):
 
 class ApPhot(BasePhot):
 
-   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None):
+   def __init__(self, ftsfile, tel='SWO', ins='NC', sigma=None, mask=None, verbose=True):
       '''Initialize this aperture photometry class with a tel/ins configuration
       and FITS file.
       
@@ -814,7 +810,7 @@ class ApPhot(BasePhot):
       Returns:
          ApPhot instance.
       '''
-      super(ApPhot,self).__init__(ftsfile, tel, ins, sigma, mask)
+      super(ApPhot,self).__init__(ftsfile, tel, ins, sigma, mask, verbose)
       self.apps = []
       self.skyap = None
 
@@ -982,10 +978,10 @@ class ApPhot(BasePhot):
 
       # Do some flags
       flags = np.zeros(len(phot_table), dtype=int)
-      flags = np.where(phot_table['xcenter'].value < 5, flags|1, flags)
-      flags = np.where(phot_table['xcenter'].value > self.data.shape[1]-5, flags|1,flags)
-      flags = np.where(phot_table['ycenter'].value < 5, flags|1, flags)
-      flags = np.where(phot_table['ycenter'].value > self.data.shape[0]-5, flags|1,flags)
+      flags = np.where(phot_table['x_center'].value < 5, flags|1, flags)
+      flags = np.where(phot_table['x_center'].value > self.data.shape[1]-5, flags|1,flags)
+      flags = np.where(phot_table['y_center'].value < 5, flags|1, flags)
+      flags = np.where(phot_table['y_center'].value > self.data.shape[0]-5, flags|1,flags)
       for i in range(len(self.apps)-1):
          flags = np.where(np.isnan(phot_table['ap{}'.format(i)]),
                        flags | 2, flags)
