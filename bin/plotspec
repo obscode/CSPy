@@ -1,0 +1,575 @@
+#!/usr/bin/env python3
+"""
+plot_multispec.py — Interactive plotter for IRAF/multispec-format FITS spectra.
+
+Usage:
+    python plot_multispec.py <fits_file> [options]
+
+Navigation (keyboard):
+    Aperture cycling:
+        →  / n   : next aperture
+        ←  / p   : previous aperture
+        g        : go to a specific aperture number (prompted in terminal)
+
+    Band cycling:
+        ↑  / ]   : next band
+        ↓  / [   : previous band
+        b        : go to a specific band number (prompted in terminal)
+
+    View controls:
+        r        : reset zoom / pan to full view
+        l        : toggle log scale on flux axis
+        s        : save current aperture + band plot as PNG
+        q / Esc  : quit
+
+Dependencies:
+    pip install astropy matplotlib numpy
+"""
+
+import os
+import sys
+import argparse
+import numpy as np
+import matplotlib
+import matplotlib.pyplot as plt
+from matplotlib.widgets import Button
+from astropy.io import fits
+
+
+# ---------------------------------------------------------------------------
+# Multispec wavelength solution decoder
+# ---------------------------------------------------------------------------
+
+def _parse_multispec_wcs(header, n_apertures, n_pixels):
+    """
+    Decode wavelength arrays from a multispec FITS header.
+
+    Supports:
+      - Linear / log-linear dispersion (CTYPE1 = 'LINEAR' or 'LOG-LINEAR')
+      - IRAF WAT2_xxx / APNUM keywords (multispec dispersion functions)
+
+    Returns
+    -------
+    wavelengths : list of 1-D np.ndarray, length = n_apertures
+    units       : str  (e.g. 'Angstroms')
+    """
+
+    # -- Collect WAT2 string (may be split across WAT2_001, WAT2_002 …) -----
+    wat2 = ""
+    i = 1
+    while True:
+        key = f"WAT2_{i:03d}"
+        if key not in header:
+            break
+        # FITS pads to 68 chars; preserve internal spaces, strip trailing only
+        wat2 += header[key].rstrip()
+        i += 1
+
+    units = "Angstroms"
+    if "units=" in wat2.lower():
+        for token in wat2.replace('"', ' ').split():
+            if token.lower().startswith("units="):
+                units = token.split("=", 1)[1].strip()
+                break
+
+    wavelengths = []
+
+    # -- Try to extract per-aperture dispersion functions from WAT2 ----------
+    if "spec" in wat2.lower():
+        wavelengths = _decode_wat2_specs(wat2, n_apertures, n_pixels)
+
+    # -- Fallback: plain linear / log-linear WCS via astropy -----------------
+    if not wavelengths:
+        wavelengths = _linear_wcs(header, n_apertures, n_pixels)
+
+    return wavelengths, units
+
+
+def _decode_wat2_specs(wat2, n_apertures, n_pixels):
+    """Parse 'spec1 = "..." spec2 = "..."' records from the WAT2 string."""
+    import re
+
+    pattern = re.compile(r'spec\d+\s*=\s*"([^"]*)"', re.IGNORECASE)
+    specs = pattern.findall(wat2)
+
+    wavelengths = []
+    for k in range(n_apertures):
+        if k < len(specs):
+            wav = _spec_string_to_wave(specs[k], n_pixels)
+        else:
+            wav = np.arange(1, n_pixels + 1, dtype=float)
+        wavelengths.append(wav)
+    return wavelengths
+
+
+def _spec_string_to_wave(spec_str, n_pixels):
+    """
+    Convert one IRAF spec string to a wavelength array.
+
+    The spec string format (space-separated):
+      ap  beam  dtype  w1  dw  nw  z  aplow  aphigh  [function params …]
+
+    dtype:
+      0 = linear
+      1 = log-linear
+      2 = non-linear (Chebyshev, Legendre, spline3, …)
+    """
+    tokens = spec_str.split()
+    if len(tokens) < 9:
+        return np.arange(1, n_pixels + 1, dtype=float)
+
+    try:
+        dtype = int(float(tokens[2]))
+        w1    = float(tokens[3])
+        dw    = float(tokens[4])
+        nw    = int(float(tokens[5]))
+        z     = float(tokens[6])
+    except (ValueError, IndexError):
+        return np.arange(1, n_pixels + 1, dtype=float)
+
+    npix = nw if nw > 0 else n_pixels
+
+    if dtype == 0:
+        wav = w1 + dw * np.arange(npix)
+    elif dtype == 1:
+        wav = 10.0 ** (w1 + dw * np.arange(npix))
+    elif dtype == 2 and len(tokens) >= 12:
+        wav = _nonlinear_dispersion(tokens, npix, w1, dw)
+    else:
+        wav = w1 + dw * np.arange(npix)
+
+    if z != 0.0:
+        wav = wav / (1.0 + z)
+
+    if len(wav) < n_pixels:
+        wav = np.concatenate([wav, np.full(n_pixels - len(wav), np.nan)])
+    return wav[:n_pixels]
+
+
+def _nonlinear_dispersion(tokens, npix, w1_fallback, dw_fallback):
+    """Evaluate Chebyshev / Legendre / spline3 / pixel dispersion functions."""
+    try:
+        func_type = int(float(tokens[11]))
+        order     = int(float(tokens[12]))
+        xmin      = float(tokens[13])
+        xmax      = float(tokens[14])
+        coeffs    = [float(t) for t in tokens[15:15 + order]]
+    except (ValueError, IndexError):
+        return w1_fallback + dw_fallback * np.arange(npix)
+
+    x = np.arange(1, npix + 1, dtype=float)
+
+    if func_type in (1, 2):
+        xn = (2.0 * x - (xmax + xmin)) / (xmax - xmin)
+        if func_type == 1:
+            wav = np.polynomial.chebyshev.chebval(xn, coeffs)
+        else:
+            wav = np.polynomial.legendre.legval(xn, coeffs)
+    elif func_type == 5:
+        wav = w1_fallback + dw_fallback * (x - 1)
+    else:
+        wav = w1_fallback + dw_fallback * (x - 1)
+
+    return wav
+
+
+def _linear_wcs(header, n_apertures, n_pixels):
+    """Fallback: build wavelength arrays from CRPIX1/CRVAL1/CD1_1 or CDELT1."""
+    try:
+        crpix = float(header.get("CRPIX1", 1))
+        crval = float(header.get("CRVAL1", 1))
+        cdelt = float(header.get("CD1_1", header.get("CDELT1", 1)))
+        ctype = header.get("CTYPE1", "LINEAR").upper()
+
+        pixels = np.arange(1, n_pixels + 1, dtype=float)
+        wav    = crval + cdelt * (pixels - crpix)
+
+        if "LOG" in ctype:
+            wav = 10.0 ** wav
+
+        return [wav.copy() for _ in range(n_apertures)]
+    except Exception:
+        pix = np.arange(1, n_pixels + 1, dtype=float)
+        return [pix.copy() for _ in range(n_apertures)]
+
+
+# ---------------------------------------------------------------------------
+# Band label helpers
+# ---------------------------------------------------------------------------
+
+# Common IRAF multispec band assignments (used as fallback labels)
+_IRAF_BAND_LABELS = {
+    0: "Flux",
+    1: "Raw flux",
+    2: "Background",
+    3: "Sigma",
+}
+
+
+def _build_band_labels(header, n_bands):
+    """
+    Return a list of human-readable band labels.
+
+    Tries BANDID<n> keywords first; falls back to generic names.
+    """
+    labels = []
+    for b in range(n_bands):
+        key = f"BANDID{b + 1}"
+        if key in header:
+            labels.append(header[key].strip())
+        else:
+            labels.append(_IRAF_BAND_LABELS.get(b, f"Band {b + 1}"))
+    return labels
+
+
+# ---------------------------------------------------------------------------
+# FITS loader
+# ---------------------------------------------------------------------------
+
+def load_multispec(filepath):
+    """
+    Load a multispec FITS file.
+
+    Returns
+    -------
+    data        : np.ndarray, shape (n_bands, n_apertures, n_pixels)
+    wavelengths : list of np.ndarray, length n_apertures
+    wav_units   : str
+    aperture_ids: list of str
+    band_labels : list of str
+    filename    : str
+    header      : fits.Header
+    """
+    with fits.open(filepath) as hdul:
+        hdu    = hdul[0]
+        header = hdu.header
+        data   = hdu.data.astype(float)
+
+    if data is None:
+        raise ValueError("Primary HDU contains no data.")
+
+    # Normalise to 3-D: (n_bands, n_apertures, n_pixels)
+    if data.ndim == 1:
+        # Single spectrum — wrap into (1 band, 1 aperture, n_pixels)
+        data = data[np.newaxis, np.newaxis, :]
+    elif data.ndim == 2:
+        # (n_apertures, n_pixels) — add a single band axis
+        data = data[np.newaxis, :, :]
+    elif data.ndim == 3:
+        # Already (n_bands, n_apertures, n_pixels) — keep as-is
+        pass
+    else:
+        raise ValueError(f"Unexpected data shape: {data.shape}")
+
+    n_bands, n_apertures, n_pixels = data.shape
+
+    wavelengths, wav_units = _parse_multispec_wcs(header, n_apertures, n_pixels)
+    band_labels            = _build_band_labels(header, n_bands)
+
+    # Build aperture IDs from APNUM keywords when available
+    aperture_ids = []
+    for k in range(1, n_apertures + 1):
+        key = f"APNUM{k}"
+        if key in header:
+            aperture_ids.append(header[key].split()[0])
+        else:
+            aperture_ids.append(str(k))
+
+    filename = os.path.basename(filepath)
+
+    return data, wavelengths, wav_units, aperture_ids, band_labels, filename, header
+
+
+# ---------------------------------------------------------------------------
+# Interactive plotter
+# ---------------------------------------------------------------------------
+
+# Colour cycle for bands so they are visually distinct
+_BAND_COLORS = [
+    "steelblue", "tomato", "seagreen", "darkorange",
+    "mediumpurple", "saddlebrown", "deeppink", "teal",
+]
+
+
+class SpectrumViewer:
+    def __init__(self, data, wavelengths, wav_units,
+                 aperture_ids, band_labels, filename, header):
+        # data shape: (n_bands, n_apertures, n_pixels)
+        self.data         = data
+        self.wavelengths  = wavelengths
+        self.wav_units    = wav_units
+        self.aperture_ids = aperture_ids
+        self.band_labels  = band_labels
+        self.filename     = filename
+        self.header       = header
+
+        self.n_bands      = data.shape[0]
+        self.n_apertures  = data.shape[1]
+        self.current_ap   = 0
+        self.current_band = 0
+        self.log_scale    = False
+
+        self._build_figure()
+        self._plot_current()
+        self._connect_events()
+
+    # -- Figure layout -------------------------------------------------------
+
+    def _build_figure(self):
+        self.fig = plt.figure(figsize=(13, 6.5))
+        self.fig.canvas.manager.set_window_title(
+            f"MultiSpec Viewer — {self.filename}"
+        )
+
+        # Main plot — extra bottom margin for two button rows
+        self.ax = self.fig.add_axes([0.08, 0.24, 0.88, 0.68])
+
+        btn_w, btn_h = 0.10, 0.065
+
+        # ── Row 1 (y≈0.13): aperture controls + view controls ──────────────
+        y1 = 0.13
+        ax_prev_ap = self.fig.add_axes([0.08, y1, btn_w, btn_h])
+        ax_next_ap = self.fig.add_axes([0.20, y1, btn_w, btn_h])
+        ax_ap_info = self.fig.add_axes([0.32, y1, 0.10, btn_h])   # aperture counter
+        ax_reset   = self.fig.add_axes([0.44, y1, btn_w, btn_h])
+        ax_log     = self.fig.add_axes([0.56, y1, btn_w, btn_h])
+        ax_save    = self.fig.add_axes([0.68, y1, btn_w, btn_h])
+        ax_quit    = self.fig.add_axes([0.82, y1, btn_w, btn_h])
+
+        self.btn_prev_ap = Button(ax_prev_ap, "◀ Ap",    color="0.85", hovercolor="0.7")
+        self.btn_next_ap = Button(ax_next_ap, "Ap ▶",    color="0.85", hovercolor="0.7")
+        self.btn_reset   = Button(ax_reset,   "Reset",   color="0.85", hovercolor="0.7")
+        self.btn_log     = Button(ax_log,     "Log",     color="0.85", hovercolor="0.7")
+        self.btn_save    = Button(ax_save,    "Save PNG",color="0.85", hovercolor="0.7")
+        self.btn_quit    = Button(ax_quit,    "Quit",    color="salmon",hovercolor="tomato")
+
+        self.btn_prev_ap.on_clicked(lambda e: self._go_ap(self.current_ap - 1))
+        self.btn_next_ap.on_clicked(lambda e: self._go_ap(self.current_ap + 1))
+        self.btn_reset.on_clicked(  lambda e: self._reset_zoom())
+        self.btn_log.on_clicked(    lambda e: self._toggle_log())
+        self.btn_save.on_clicked(   lambda e: self._save_png())
+        self.btn_quit.on_clicked(   lambda e: plt.close(self.fig))
+
+        ax_ap_info.set_axis_off()
+        self._ap_info_text = ax_ap_info.text(
+            0.5, 0.5, "", ha="center", va="center", fontsize=9,
+            transform=ax_ap_info.transAxes,
+            bbox=dict(boxstyle="round,pad=0.4", fc="lightcyan", alpha=0.85)
+        )
+
+        # ── Row 2 (y≈0.03): band controls + band info label ────────────────
+        y2 = 0.03
+        ax_prev_band = self.fig.add_axes([0.08, y2, btn_w, btn_h])
+        ax_next_band = self.fig.add_axes([0.20, y2, btn_w, btn_h])
+        ax_band_info = self.fig.add_axes([0.32, y2, 0.50, btn_h])  # wider label
+
+        self.btn_prev_band = Button(ax_prev_band, "◀ Band", color="0.78", hovercolor="0.62")
+        self.btn_next_band = Button(ax_next_band, "Band ▶", color="0.78", hovercolor="0.62")
+
+        self.btn_prev_band.on_clicked(lambda e: self._go_band(self.current_band - 1))
+        self.btn_next_band.on_clicked(lambda e: self._go_band(self.current_band + 1))
+
+        ax_band_info.set_axis_off()
+        self._band_info_text = ax_band_info.text(
+            0.5, 0.5, "", ha="center", va="center", fontsize=9,
+            transform=ax_band_info.transAxes,
+            bbox=dict(boxstyle="round,pad=0.4", fc="lightyellow", alpha=0.85)
+        )
+
+    # -- Plotting ------------------------------------------------------------
+
+    def _plot_current(self):
+        ap    = self.current_ap
+        band  = self.current_band
+        wav   = self.wavelengths[ap]
+        flx   = self.data[band, ap, :]
+        color = _BAND_COLORS[band % len(_BAND_COLORS)]
+        band_label = self.band_labels[band]
+
+        self.ax.cla()
+
+        mask = np.isfinite(wav) & np.isfinite(flx)
+        self.ax.plot(wav[mask], flx[mask], color=color, lw=0.9, alpha=0.92)
+
+        self.ax.set_xlabel(f"Wavelength ({self.wav_units})", fontsize=11)
+        self.ax.set_ylabel(band_label,                       fontsize=11)
+        self.ax.set_title(
+            f"{self.filename}   —   "
+            f"Aperture {self.aperture_ids[ap]}  ({ap + 1} / {self.n_apertures})   │   "
+            f"Band: {band_label}  ({band + 1} / {self.n_bands})",
+            fontsize=10, fontweight="bold"
+        )
+
+        if self.log_scale:
+            self.ax.set_yscale("log")
+
+        self.ax.grid(True, alpha=0.3, linestyle="--")
+        self.ax.minorticks_on()
+
+        # Update counter labels in button rows
+        self._ap_info_text.set_text(f"{ap + 1} / {self.n_apertures}")
+        self._band_info_text.set_text(
+            f"Band {band + 1} / {self.n_bands}:  {band_label}"
+        )
+
+        self.fig.canvas.draw_idle()
+
+    # -- Navigation ----------------------------------------------------------
+
+    def _go_ap(self, idx):
+        self.current_ap = idx % self.n_apertures
+        self._plot_current()
+
+    def _go_band(self, idx):
+        self.current_band = idx % self.n_bands
+        self._plot_current()
+
+    def _reset_zoom(self):
+        self.ax.autoscale()
+        self.fig.canvas.draw_idle()
+
+    def _toggle_log(self):
+        self.log_scale = not self.log_scale
+        self._plot_current()
+
+    def _save_png(self):
+        stem  = os.path.splitext(self.filename)[0]
+        ap_id = self.aperture_ids[self.current_ap]
+        band  = self.current_band + 1
+        path  = f"{stem}_ap{ap_id}_band{band}.png"
+        self.fig.savefig(path, dpi=150, bbox_inches="tight")
+        print(f"[saved] {path}")
+
+    # -- Keyboard events -----------------------------------------------------
+
+    def _connect_events(self):
+        self.fig.canvas.mpl_connect("key_press_event", self._on_key)
+
+    def _on_key(self, event):
+        key = event.key
+        # Aperture
+        if key in ("right", "n"):
+            self._go_ap(self.current_ap + 1)
+        elif key in ("left", "p"):
+            self._go_ap(self.current_ap - 1)
+        elif key == "g":
+            self._prompt_goto_ap()
+        # Band
+        elif key in ("up", "]"):
+            self._go_band(self.current_band + 1)
+        elif key in ("down", "["):
+            self._go_band(self.current_band - 1)
+        elif key == "b":
+            self._prompt_goto_band()
+        # View
+        elif key == "r":
+            self._reset_zoom()
+        elif key == "l":
+            self._toggle_log()
+        elif key == "s":
+            self._save_png()
+        elif key in ("q", "escape"):
+            plt.close(self.fig)
+
+    def _prompt_goto_ap(self):
+        try:
+            raw = input(f"Go to aperture number (1–{self.n_apertures}): ").strip()
+            n   = int(raw)
+            if 1 <= n <= self.n_apertures:
+                self._go_ap(n - 1)
+            else:
+                print(f"  Out of range (1–{self.n_apertures})")
+        except (ValueError, EOFError):
+            print("  Cancelled.")
+
+    def _prompt_goto_band(self):
+        print("Available bands:")
+        for i, lbl in enumerate(self.band_labels):
+            marker = "  ◀ current" if i == self.current_band else ""
+            print(f"  {i + 1}: {lbl}{marker}")
+        try:
+            raw = input(f"Go to band number (1–{self.n_bands}): ").strip()
+            n   = int(raw)
+            if 1 <= n <= self.n_bands:
+                self._go_band(n - 1)
+            else:
+                print(f"  Out of range (1–{self.n_bands})")
+        except (ValueError, EOFError):
+            print("  Cancelled.")
+
+    # -- Show ----------------------------------------------------------------
+
+    def show(self):
+        plt.show()
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Interactive multispec FITS spectrum viewer.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__
+    )
+    parser.add_argument("fits_file", help="Path to a multispec FITS file")
+    parser.add_argument(
+        "--start-ap", "-a", type=int, default=1, metavar="N",
+        help="Aperture number to display first (1-based, default: 1)"
+    )
+    parser.add_argument(
+        "--start-band", "-B", type=int, default=1, metavar="N",
+        help="Band number to display first (1-based, default: 1)"
+    )
+    parser.add_argument(
+        "--backend", "-b", default=None,
+        help="Matplotlib backend override (e.g. TkAgg, Qt5Agg, MacOSX)"
+    )
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+
+    if args.backend:
+        matplotlib.use(args.backend)
+
+    print(f"Loading: {args.fits_file}")
+    try:
+        data, wavelengths, wav_units, aperture_ids, band_labels, filename, header = \
+            load_multispec(args.fits_file)
+    except FileNotFoundError:
+        sys.exit(f"Error: file not found — {args.fits_file}")
+    except Exception as exc:
+        sys.exit(f"Error loading FITS file: {exc}")
+
+    n_bands, n_ap, n_pix = data.shape
+    print(f"  Bands     : {n_bands}")
+    for i, lbl in enumerate(band_labels):
+        print(f"              {i + 1}: {lbl}")
+    print(f"  Apertures : {n_ap}")
+    print(f"  Pixels    : {n_pix}")
+    print(f"  Wav units : {wav_units}")
+    print()
+    print("Keyboard shortcuts:")
+    print("  → / n     next aperture        ← / p     previous aperture")
+    print("  ↑ / ]     next band             ↓ / [     previous band")
+    print("  g         go to aperture #      b         go to band #")
+    print("  r         reset zoom            l         toggle log scale")
+    print("  s         save PNG              q         quit")
+    print()
+
+    start_ap   = max(0, min(args.start_ap   - 1, n_ap    - 1))
+    start_band = max(0, min(args.start_band - 1, n_bands - 1))
+
+    viewer = SpectrumViewer(data, wavelengths, wav_units,
+                            aperture_ids, band_labels, filename, header)
+    viewer.current_ap   = start_ap
+    viewer.current_band = start_band
+    viewer._plot_current()
+    viewer.show()
+
+
+if __name__ == "__main__":
+    main()
